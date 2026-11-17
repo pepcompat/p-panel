@@ -1,0 +1,82 @@
+# pPanel Agent - systemd unit (hardened)
+#
+# Why root (with a reduced capability bounding set) instead of a dedicated user:
+#   * service.restart     -> `systemctl restart` talks to PID1 over D-Bus; an
+#                            unprivileged user would need a polkit rule per unit.
+#   * discovery (nginx)   -> `nginx -T` must read root-only config includes and
+#                            TLS key files referenced by the config
+#                            (CAP_DAC_READ_SEARCH / CAP_DAC_OVERRIDE), and
+#                            `nginx -t` may chown its temp paths (CAP_CHOWN, CAP_FOWNER).
+#   * docker inventory    -> /var/run/docker.sock (root:docker 0660). The agent
+#                            only issues GET requests (enforced in code).
+#                            NOTE: socket access is host-root-equivalent.
+#   * ports discovery     -> mapping sockets to PIDs reads /proc/<pid>/fd of
+#                            other users (CAP_SYS_PTRACE, read-only use).
+# If you do not need a feature, drop the matching capability below.
+#
+# The agent opens NO listening socket; all connections are outbound.
+
+[Unit]
+Description=pPanel Agent
+Documentation=https://github.com/ppanel/ppanel/blob/main/docs/AGENT_PROTOCOL.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/ppanel-agent/identity.json
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStartPre=/usr/local/bin/ppanel-agent check-config --config /etc/ppanel-agent/config.yaml
+ExecStart=/usr/local/bin/ppanel-agent run --config /etc/ppanel-agent/config.yaml
+Restart=always
+RestartSec=5s
+TimeoutStopSec=45s
+KillMode=mixed
+UMask=0077
+
+# --- filesystem ---
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ppanel-agent
+# `nginx -T` opens the configured error_log and temp paths during the test;
+# with ProtectSystem=strict these must be writable or the dump fails.
+ReadWritePaths=-/var/log/nginx -/var/lib/nginx -/var/cache/nginx
+StateDirectory=ppanel-agent
+StateDirectoryMode=0700
+ConfigurationDirectory=ppanel-agent
+ConfigurationDirectoryMode=0750
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+
+# --- privileges ---
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_SYS_PTRACE CAP_CHOWN CAP_FOWNER
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# MemoryDenyWriteExecute is intentionally NOT set: it is inherited by `nginx -T`
+# and breaks PCRE JIT in some nginx builds.
+
+# --- kernel / devices ---
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# AF_NETLINK is needed to enumerate interface addresses; AF_UNIX for docker.sock / D-Bus.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# --- resources (bounded memory) ---
+MemoryMax=256M
+TasksMax=64
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

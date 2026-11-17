@@ -1,0 +1,24 @@
+# pPanel local development dependencies (lab only — never points at production)
+name: ppanel-dev
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_USER: ppanel
+      POSTGRES_PASSWORD: ppanel_dev_only
+      POSTGRES_DB: ppanel
+    ports: ['127.0.0.1:55432:5432']
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ppanel']
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7.4.1-alpine
+    ports: ['127.0.0.1:56379:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 10
+volumes:
+  pgdata: {}

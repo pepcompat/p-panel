@@ -1,0 +1,231 @@
+@import 'tailwindcss';
+
+/*
+ * pPanel design tokens — extracted from design/W3 Server Panel.dc.html (light theme).
+ * The prototype has no dark theme; dark values below are our own extension (see report).
+ * Components reference semantic tokens only (bg-surface, text-fg-muted, tone-*), never raw hex.
+ */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  --font-sans: var(--font-plex-thai), 'IBM Plex Sans Thai', system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), 'IBM Plex Mono', ui-monospace, monospace;
+
+  --bg: #f4f4f1;
+  --surface: #ffffff;
+  --surface-2: #fafaf8;
+  --surface-hover: #fafaf6;
+  --topbar: #fbfbf9;
+  --chip: #f1f1ee;
+  --chip-2: #efefec;
+  --track: #eeeeea;
+  --line: #e2e2de;
+  --line-strong: #d6d6d1;
+  --line-subtle: #f0f0ec;
+  --line-soft: #ececE8;
+
+  --fg: #1c1d1f;
+  --fg-2: #3a3c40;
+  --fg-3: #4d4f54;
+  --fg-muted: #6a6c71;
+  --fg-subtle: #8a8c90;
+
+  --sidebar: #17181a;
+  --sidebar-fg: #c4c5c8;
+  --sidebar-fg-strong: #f2f2f0;
+  --sidebar-muted: #8b8d92;
+  --sidebar-dim: #6f7176;
+  --sidebar-line: #2a2b2e;
+  --sidebar-btn-line: #3a3b3f;
+  --sidebar-active: #2a2b2f;
+  --sidebar-hover: #202124;
+
+  --accent: oklch(0.55 0.14 255);
+  --accent-strong: oklch(0.48 0.14 255);
+  --accent-text: oklch(0.45 0.14 255);
+  --link: oklch(0.48 0.14 255);
+  --link-hover: oklch(0.38 0.14 255);
+  --on-accent: #ffffff;
+  --focus: oklch(0.55 0.14 255);
+  --terminal: #17181a;
+  --terminal-fg: #e8e8e6;
+
+  /* status tones (fg / bg) — always paired with a glyph, never colour alone */
+  --ok-fg: oklch(0.42 0.11 150);
+  --ok-bg: oklch(0.95 0.035 150);
+  --warn-fg: oklch(0.45 0.1 70);
+  --warn-bg: oklch(0.95 0.045 85);
+  --stale-fg: oklch(0.45 0.1 70);
+  --stale-bg: oklch(0.95 0.045 85);
+  --crit-fg: oklch(0.47 0.16 25);
+  --crit-bg: oklch(0.95 0.035 25);
+  --info-fg: oklch(0.45 0.13 255);
+  --info-bg: oklch(0.95 0.025 255);
+  --off-fg: #4d4f54;
+  --off-bg: #ececE8;
+  --notice-line: oklch(0.85 0.07 80);
+  --notice-bg: oklch(0.97 0.035 85);
+
+  /* environment labels */
+  --env-prod: oklch(0.47 0.16 25);
+  --env-prod-fg: #ffffff;
+  --env-uat: oklch(0.62 0.13 75);
+  --env-uat-fg: #1c1d1f;
+  --env-dev: oklch(0.48 0.12 255);
+  --env-dev-fg: #ffffff;
+
+  --overlay: rgba(23, 24, 26, 0.45);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #121315;
+  --surface: #1a1b1e;
+  --surface-2: #1e1f22;
+  --surface-hover: #222327;
+  --topbar: #16171a;
+  --chip: #26272b;
+  --chip-2: #232428;
+  --track: #2b2c30;
+  --line: #2e2f33;
+  --line-strong: #3a3b40;
+  --line-subtle: #25262a;
+  --line-soft: #2a2b2f;
+  --fg: #ececea;
+  --fg-2: #d2d3d5;
+  --fg-3: #b9babd;
+  --fg-muted: #9a9ca1;
+  --fg-subtle: #7d7f84;
+  --sidebar: #0e0f10;
+  --sidebar-active: #232428;
+  --sidebar-hover: #1a1b1d;
+  --accent-text: oklch(0.74 0.12 255);
+  --link: oklch(0.74 0.12 255);
+  --link-hover: oklch(0.84 0.09 255);
+  --ok-fg: oklch(0.78 0.13 150);
+  --ok-bg: oklch(0.3 0.05 150);
+  --warn-fg: oklch(0.82 0.12 80);
+  --warn-bg: oklch(0.32 0.05 80);
+  --stale-fg: oklch(0.82 0.12 80);
+  --stale-bg: oklch(0.32 0.05 80);
+  --crit-fg: oklch(0.76 0.14 25);
+  --crit-bg: oklch(0.32 0.07 25);
+  --info-fg: oklch(0.78 0.11 255);
+  --info-bg: oklch(0.3 0.05 255);
+  --off-fg: #b9babd;
+  --off-bg: #2b2c30;
+  --notice-line: oklch(0.45 0.07 80);
+  --notice-bg: oklch(0.27 0.04 85);
+  --overlay: rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-hover: var(--surface-hover);
+  --color-topbar: var(--topbar);
+  --color-chip: var(--chip);
+  --color-chip-2: var(--chip-2);
+  --color-track: var(--track);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-subtle: var(--line-subtle);
+  --color-line-soft: var(--line-soft);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-fg: var(--sidebar-fg);
+  --color-sidebar-fg-strong: var(--sidebar-fg-strong);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-dim: var(--sidebar-dim);
+  --color-sidebar-line: var(--sidebar-line);
+  --color-sidebar-btn-line: var(--sidebar-btn-line);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-text: var(--accent-text);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-on-accent: var(--on-accent);
+  --color-terminal: var(--terminal);
+  --color-terminal-fg: var(--terminal-fg);
+  --color-ok: var(--ok-fg);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn-fg);
+  --color-warn-bg: var(--warn-bg);
+  --color-stale: var(--stale-fg);
+  --color-stale-bg: var(--stale-bg);
+  --color-crit: var(--crit-fg);
+  --color-crit-bg: var(--crit-bg);
+  --color-info: var(--info-fg);
+  --color-info-bg: var(--info-bg);
+  --color-off: var(--off-fg);
+  --color-off-bg: var(--off-bg);
+  --color-notice-line: var(--notice-line);
+  --color-notice-bg: var(--notice-bg);
+  --color-env-prod: var(--env-prod);
+  --color-env-prod-fg: var(--env-prod-fg);
+  --color-env-uat: var(--env-uat);
+  --color-env-uat-fg: var(--env-uat-fg);
+  --color-env-dev: var(--env-dev);
+  --color-env-dev-fg: var(--env-dev-fg);
+  --color-overlay: var(--overlay);
+}
+
+@layer base {
+  html,
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  a {
+    color: var(--link);
+    text-decoration: none;
+  }
+  a:hover {
+    color: var(--link-hover);
+    text-decoration: underline;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .text-thai-safe {
+    word-break: normal;
+    overflow-wrap: anywhere;
+    line-break: auto;
+  }
+}

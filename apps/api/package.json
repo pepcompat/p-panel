@@ -1,0 +1,52 @@
+{
+  "name": "@ppanel/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pPanel Center API (NestJS) + mTLS Agent Gateway",
+  "scripts": {
+    "dev": "tsup --watch src --onSuccess \"node --enable-source-maps dist/main.js\"",
+    "build": "prisma generate && tsup",
+    "start": "node --enable-source-maps dist/main.js",
+    "lint": "eslint .",
+    "typecheck": "prisma generate >/dev/null && tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.2.10",
+    "@nestjs/core": "11.2.10",
+    "@nestjs/jwt": "11.0.2",
+    "@nestjs/platform-express": "11.2.10",
+    "@peculiar/x509": "1.14.3",
+    "@ppanel/shared-contracts": "workspace:*",
+    "@prisma/client": "6.19.3",
+    "argon2": "0.45.2",
+    "cookie-parser": "1.4.7",
+    "express": "5.2.1",
+    "otplib": "12.0.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@swc/core": "1.16.22",
+    "@types/cookie-parser": "1.4.10",
+    "@types/express": "5.0.6",
+    "@types/node": "22.20.5",
+    "@types/supertest": "6.0.3",
+    "eslint": "9.39.5",
+    "prisma": "6.19.3",
+    "supertest": "7.3.2",
+    "tsup": "8.5.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.73.0",
+    "unplugin-swc": "1.6.0",
+    "vitest": "3.2.7"
+  }
+}

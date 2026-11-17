@@ -1,0 +1,67 @@
+### node=ppanel-lab-node-a
+symlink etc/nginx/sites-enabled/00-default-catchall.conf -> /etc/nginx/sites-available/00-default-catchall.conf
+symlink etc/nginx/sites-enabled/01-static-multi.conf -> /etc/nginx/sites-available/01-static-multi.conf
+symlink etc/nginx/sites-enabled/02-php-legacy.conf -> /etc/nginx/sites-available/02-php-legacy.conf
+symlink etc/nginx/sites-enabled/03-proxy-api.conf -> /etc/nginx/sites-available/03-proxy-api.conf
+symlink etc/nginx/sites-enabled/04-tls-secure.conf -> /etc/nginx/sites-available/04-tls-secure.conf
+symlink etc/nginx/sites-enabled/05-duplicate-a.conf -> /etc/nginx/sites-available/05-duplicate-a.conf
+symlink etc/nginx/sites-enabled/06-duplicate-b.conf -> /etc/nginx/sites-available/06-duplicate-b.conf
+symlink etc/nginx/sites-enabled/07-unusual-directives.conf -> /etc/nginx/sites-available/07-unusual-directives.conf
+e4c197334162b2a1220c2e1075df89f856805b9754ba9245f6a58cc9e29c277b  etc/nginx/conf.d/00-upstreams.conf
+41e4bd823c366734372322054977b6390ae239d02de1580d9a4fcf9a0b8339dc  etc/nginx/conf.d/10-maps.conf
+dc4a3e6f16eb08000fb4a4ba6aaf9faeb50d55a3eaf152907938632f5b85b3aa  etc/nginx/fastcgi.conf
+4e0945432e68d9d7cac62356766fbea8652790c15a7332a42af1a78877225c32  etc/nginx/fastcgi_params
+b5f8a6d411db5e5d11d151d50cd1e962444732593adec0e1ef0a8c6eebec63ee  etc/nginx/koi-utf
+de518a9eafe86c8bc705e296d0ef26135835b46bdc0de01d1d50a630fa5d341e  etc/nginx/koi-win
+36c77daa2d85803e87c91ba723dd2bc6aaa6543ae4bd4a569034a7bf8bce464d  etc/nginx/mime.types
+d83bac49876deb10a0b880ac47882fced593c10c044da5a91c070e2858ac38f9  etc/nginx/nginx.conf
+7cff43a9768c1112bb074e9f26aaa1173da6ef85a7a20838242e846835c8eeb2  etc/nginx/proxy_params
+f27b2027c571ccafcfb0fbb3f54d7aeee11a984e3a0f5a1fdf14629030fc9011  etc/nginx/scgi_params
+a5e9d74624d12f9649be7e9bb93cb43f4c211235e5c87608b699472bf6fecd96  etc/nginx/sites-available/00-default-catchall.conf
+7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba  etc/nginx/sites-available/01-static-multi.conf
+1c7566f3dfdd96b35bc7fd6988c1d215405fa0aebeb6c12e49573de1406dac0b  etc/nginx/sites-available/02-php-legacy.conf
+faf5bef8eb47b3b12d5ae1447846833809c6befa5878c7a74819023425c2504d  etc/nginx/sites-available/03-proxy-api.conf
+2f25d96054ede9f375b98723a42f064043a20757a4e67eb04fa352ea000caf9b  etc/nginx/sites-available/04-tls-secure.conf
+2eb1757d78de693fe9d99fcd955fe758d3dd5b773e73f49cef386a3c9a9ac65e  etc/nginx/sites-available/05-duplicate-a.conf
+e76f3cdde9fbc903f3b2cb921656161d22619ad4d99bd1afeccc71e631ecfb38  etc/nginx/sites-available/06-duplicate-b.conf
+d1bbedf9d5ae901e7d57e134c7e31bd1cb2de9a1740900d731e0a55870c17fe5  etc/nginx/sites-available/07-unusual-directives.conf
+82bd3d7054794448f053aa362d3f8fb3f2cf3c8e4d0275936e46f72066451d9d  etc/nginx/sites-available/08-legacy-old.disabled.conf
+a9dd98bf9631d727f0a846a9c7f4fe6193468a714c782df26d5cc9a7756411f2  etc/nginx/snippets/fastcgi-php.conf
+7c575323bab409798279c8bb42876345319199e90f5d82ef7223e407532d0daf  etc/nginx/snippets/proxy-common.conf
+244d5f8753b49b40f7c180cbf45ddec310dc434228f8b12fb3635e7fc741f939  etc/nginx/snippets/security-headers.conf
+69de463039725a6636b5a3ca87a0968dde646279bc8bb4419d200f547448a55a  etc/nginx/snippets/snakeoil.conf
+015cb581c2eb84b1a1ac9b575521d5881f791f632bfa62f34b26ba97d70c0d4f  etc/nginx/uwsgi_params
+400bc5c78ad9e194069f8ce65db4284378fc95a89a70b17f4b0150a9af54b05b  etc/nginx/win-utf
+879e162f76c91ca1e60b30305e804e117a1622c29602066fea31a49e4eb3031d  etc/ssl/ppanel-lab/secure.example.lab.crt
+e3b978232c127d68dac943ab9587c64553e0b88833fd3f43b987cdb168f24383  etc/ssl/ppanel-lab/secure.example.lab.key
+nginx_master_pid 7
+nginx_master_starttime_ticks 2385747
+nginx_master_lstart Tue Nov 17 10:42:15 2026
+nginx_worker_pids 15 16 
+### node=ppanel-lab-node-b
+symlink etc/nginx/sites-enabled/00-default-catchall.conf -> /etc/nginx/sites-available/00-default-catchall.conf
+symlink etc/nginx/sites-enabled/10-shop-compose.conf -> /etc/nginx/sites-available/10-shop-compose.conf
+symlink etc/nginx/sites-enabled/11-api-dup-of-node-a.conf -> /etc/nginx/sites-available/11-api-dup-of-node-a.conf
+ada505f3914638f1a98e449493fe6381a1f15adfc5a2cd93c6c026f3ceb5a3fc  etc/nginx/conf.d/status.conf
+dc4a3e6f16eb08000fb4a4ba6aaf9faeb50d55a3eaf152907938632f5b85b3aa  etc/nginx/fastcgi.conf
+4e0945432e68d9d7cac62356766fbea8652790c15a7332a42af1a78877225c32  etc/nginx/fastcgi_params
+b5f8a6d411db5e5d11d151d50cd1e962444732593adec0e1ef0a8c6eebec63ee  etc/nginx/koi-utf
+de518a9eafe86c8bc705e296d0ef26135835b46bdc0de01d1d50a630fa5d341e  etc/nginx/koi-win
+36c77daa2d85803e87c91ba723dd2bc6aaa6543ae4bd4a569034a7bf8bce464d  etc/nginx/mime.types
+04743424e6d05cec81076b3dbe8872b1b581441902e4fd24f3cfa8157b07972e  etc/nginx/nginx.conf
+7cff43a9768c1112bb074e9f26aaa1173da6ef85a7a20838242e846835c8eeb2  etc/nginx/proxy_params
+f27b2027c571ccafcfb0fbb3f54d7aeee11a984e3a0f5a1fdf14629030fc9011  etc/nginx/scgi_params
+9a214701b3e282bcadb86e9123ede4d6143a580c5677834a5d8d61b67d0498eb  etc/nginx/sites-available/00-default-catchall.conf
+fa4f58b66c5587e87c03fd0ad2779ca4082d3bfe5bd39b9bf1c9278c5a6be2e4  etc/nginx/sites-available/10-shop-compose.conf
+c34a516b6de87d23aef46859592bdfe8a0b04ac49dd5db174830f622633d1e1a  etc/nginx/sites-available/11-api-dup-of-node-a.conf
+a9dd98bf9631d727f0a846a9c7f4fe6193468a714c782df26d5cc9a7756411f2  etc/nginx/snippets/fastcgi-php.conf
+69de463039725a6636b5a3ca87a0968dde646279bc8bb4419d200f547448a55a  etc/nginx/snippets/snakeoil.conf
+015cb581c2eb84b1a1ac9b575521d5881f791f632bfa62f34b26ba97d70c0d4f  etc/nginx/uwsgi_params
+400bc5c78ad9e194069f8ce65db4284378fc95a89a70b17f4b0150a9af54b05b  etc/nginx/win-utf
+2d00b0b18acdfe21b0fa76f7d0998a85377ab3f3016d5222f7feb0dc9c4d89a5  etc/ssl/ppanel-lab/secure.example.lab.crt
+5e3b7ad7ebff5e3e435a0fe5d7e2543c0e1c25bc18591803992ab82d26295cf2  etc/ssl/ppanel-lab/secure.example.lab.key
+nginx_master_pid 7
+nginx_master_starttime_ticks 2385754
+nginx_master_lstart Tue Nov 17 10:42:15 2026
+nginx_worker_pids 10 
+### aggregate_sha256 33d1c794f8bbeaefea75124fdd7d37a4d2fc1aed6abfa96b0e903d67af149e74

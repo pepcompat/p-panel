@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.next/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+.lab/
+apps/agent/bin/
+*.pem
+*.key
+!**/testdata/**/*.pem
+.DS_Store
+.turbo/
+playwright-report/
+test-results/

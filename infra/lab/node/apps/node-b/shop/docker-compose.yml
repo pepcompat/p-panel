@@ -1,0 +1,13 @@
+# FIXTURE: a compose file as found on a legacy container host. It is NOT executed in the lab
+# (no Docker engine inside lab nodes). Copied to /opt/apps/shop/docker-compose.yml for
+# static discovery tests (P3.02 / P4-T05 policy parser). The "real" upstream is lab-upstream-b.
+name: shop
+services:
+  web:
+    image: busybox:1.37.0
+    command: ['httpd', '-f', '-p', '8080', '-h', '/www']
+    ports:
+      - '127.0.0.1:8080:8080'
+    labels:
+      com.example.owner: shop-team
+    restart: unless-stopped

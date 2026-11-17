@@ -1,0 +1,171 @@
+// Package config loads and validates the agent configuration file.
+//
+// The file may be YAML or JSON (JSON is a subset of YAML). Unknown keys are
+// rejected so typos never silently fall back to defaults.
+package config
+
+import (
+	"bufio"
+	"bytes"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// DefaultPath is the production config location.
+const DefaultPath = "/etc/ppanel-agent/config.yaml"
+
+// DefaultStateDir is the production state directory.
+const DefaultStateDir = "/var/lib/ppanel-agent"
+
+// UnitNameRe is the systemd unit allowlist pattern shared with
+// packages/shared-contracts (service.restart params.unit).
+var UnitNameRe = regexp.MustCompile(`^[a-zA-Z0-9@._-]{1,128}\.service$`)
+
+// Config is the on-disk agent configuration.
+type Config struct {
+	// CenterURL is the Center API base URL (enrollment only), e.g. https://center.example:4000.
+	CenterURL string `yaml:"centerUrl" json:"centerUrl"`
+	// StateDir holds key, certificates, identity and the completed-job cache.
+	StateDir string `yaml:"stateDir" json:"stateDir"`
+	// LogLevel: debug|info|warn|error.
+	LogLevel string `yaml:"logLevel" json:"logLevel"`
+	// HeartbeatIntervalSec is the initial interval; Center may override it.
+	HeartbeatIntervalSec int `yaml:"heartbeatIntervalSec" json:"heartbeatIntervalSec"`
+	// PollWaitSec is the long-poll wait sent to the gateway (max 25 by protocol).
+	PollWaitSec int `yaml:"pollWaitSec" json:"pollWaitSec"`
+	// OwnedUnits are the systemd units service.restart may act upon.
+	OwnedUnits []string `yaml:"ownedUnits" json:"ownedUnits"`
+	// OwnedUnitsFile optionally lists more owned units, one per line (# comments allowed).
+	OwnedUnitsFile string `yaml:"ownedUnitsFile" json:"ownedUnitsFile"`
+	// MaxBufferedResults caps results held in memory while Center is unreachable.
+	MaxBufferedResults int `yaml:"maxBufferedResults" json:"maxBufferedResults"`
+	// DockerSocket is the Docker Engine API unix socket (read-only GETs only).
+	DockerSocket string `yaml:"dockerSocket" json:"dockerSocket"`
+	// NginxBinary / SystemctlBinary override binary discovery (absolute paths only).
+	NginxBinary     string `yaml:"nginxBinary" json:"nginxBinary"`
+	SystemctlBinary string `yaml:"systemctlBinary" json:"systemctlBinary"`
+	// PhpFpmPoolGlob is where PHP-FPM pool configs are read from.
+	PhpFpmPoolGlob string `yaml:"phpFpmPoolGlob" json:"phpFpmPoolGlob"`
+}
+
+// Default returns a config populated with defaults.
+func Default() *Config {
+	return &Config{
+		StateDir:             DefaultStateDir,
+		LogLevel:             "info",
+		HeartbeatIntervalSec: 15,
+		PollWaitSec:          25,
+		MaxBufferedResults:   100,
+		DockerSocket:         "/var/run/docker.sock",
+		PhpFpmPoolGlob:       "/etc/php/*/fpm/pool.d/*.conf",
+	}
+}
+
+// Load reads the file at path (YAML or JSON), applies defaults and validates.
+// A missing file yields defaults (validated) so `enroll` can run before config exists.
+func Load(path string) (*Config, error) {
+	cfg := Default()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return cfg, cfg.Validate()
+		}
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	if err := Parse(b, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, cfg.Validate()
+}
+
+// Parse strictly decodes b into cfg (unknown fields rejected).
+func Parse(b []byte, cfg *Config) error {
+	if len(bytes.TrimSpace(b)) == 0 {
+		return nil
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(cfg); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	return nil
+}
+
+// Validate checks all fields and normalises strings.
+func (c *Config) Validate() error {
+	var errs []string
+	c.CenterURL = strings.TrimSpace(c.CenterURL)
+	c.StateDir = strings.TrimSpace(c.StateDir)
+	if c.StateDir == "" || !filepath.IsAbs(c.StateDir) {
+		errs = append(errs, "stateDir must be an absolute path")
+	}
+	switch c.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		errs = append(errs, "logLevel must be one of debug|info|warn|error")
+	}
+	if c.HeartbeatIntervalSec < 5 || c.HeartbeatIntervalSec > 300 {
+		errs = append(errs, "heartbeatIntervalSec must be 5..300")
+	}
+	if c.PollWaitSec < 1 || c.PollWaitSec > 25 {
+		errs = append(errs, "pollWaitSec must be 1..25")
+	}
+	if c.MaxBufferedResults < 1 || c.MaxBufferedResults > 10000 {
+		errs = append(errs, "maxBufferedResults must be 1..10000")
+	}
+	for _, u := range c.OwnedUnits {
+		if !UnitNameRe.MatchString(u) {
+			errs = append(errs, fmt.Sprintf("ownedUnits: invalid unit name %q", u))
+		}
+	}
+	for name, p := range map[string]string{
+		"dockerSocket": c.DockerSocket, "nginxBinary": c.NginxBinary,
+		"systemctlBinary": c.SystemctlBinary, "ownedUnitsFile": c.OwnedUnitsFile,
+	} {
+		if p != "" && (!filepath.IsAbs(p) || filepath.Clean(p) != p) {
+			errs = append(errs, name+" must be a clean absolute path")
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New("invalid config: " + strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// OwnedUnitSet returns the union of OwnedUnits and the entries of OwnedUnitsFile.
+// Invalid names in the file are an error (fail closed).
+func (c *Config) OwnedUnitSet() (map[string]bool, error) {
+	set := make(map[string]bool, len(c.OwnedUnits))
+	for _, u := range c.OwnedUnits {
+		set[u] = true
+	}
+	if c.OwnedUnitsFile == "" {
+		return set, nil
+	}
+	f, err := os.Open(c.OwnedUnitsFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return set, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !UnitNameRe.MatchString(line) {
+			return nil, fmt.Errorf("ownedUnitsFile: invalid unit name %q", line)
+		}
+		set[line] = true
+	}
+	return set, sc.Err()
+}

@@ -1,0 +1,134 @@
+# configuration file /etc/nginx/nginx.conf:
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+load_module modules/ngx_http_lua_module.so;
+
+events {
+	worker_connections 768;
+}
+
+http {
+	sendfile on;
+	include /etc/nginx/mime.types;
+	default_type application/octet-stream;
+	# a comment with { braces } and ; semicolons must be ignored
+	map $http_upgrade $connection_upgrade {
+		default upgrade;
+		''      close;
+	}
+	include /etc/nginx/conf.d/*.conf;
+	include /etc/nginx/sites-enabled/*;
+}
+
+# configuration file /etc/nginx/mime.types:
+types {
+    text/html                             html htm shtml;
+    application/javascript                js;
+}
+
+# configuration file /etc/nginx/conf.d/upstreams.conf:
+upstream app_backend {
+	server 127.0.0.1:3000 max_fails=3;
+	server 127.0.0.1:3001 backup;
+}
+
+# configuration file /etc/nginx/sites-enabled/example.com:
+server {
+	listen 80;
+	listen [::]:80;
+	server_name example.com www.example.com;
+	root /var/www/example;
+	index index.html;
+	location / {
+		try_files $uri $uri/ =404;
+	}
+}
+
+# configuration file /etc/nginx/sites-enabled/wildcard:
+server {
+	listen 80;
+	server_name *.example.org .example.net "~^(?<sub>[a-z]+)\.example\.io$";
+	root /var/www/wild;
+}
+
+# configuration file /etc/nginx/sites-enabled/php-app:
+server {
+	listen 80;
+	server_name php.example.com;
+	root /var/www/php/public;
+	index index.php;
+	location ~ \.php$ {
+		include snippets/fastcgi-php.conf;
+		fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+	}
+}
+
+# configuration file /etc/nginx/snippets/fastcgi-php.conf:
+fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+fastcgi_index index.php;
+fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+
+# configuration file /etc/nginx/sites-enabled/tls:
+server {
+	listen 443 ssl http2;
+	listen [::]:443 ssl http2 default_server;
+	server_name secure.example.com;
+	ssl_certificate /etc/letsencrypt/live/secure.example.com/fullchain.pem;
+	ssl_certificate_key /etc/letsencrypt/live/secure.example.com/privkey.pem;
+	ssl_protocols TLSv1.2 TLSv1.3;
+	add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+	root /var/www/secure;
+}
+
+# configuration file /etc/nginx/sites-enabled/proxy:
+server {
+	listen 8080 default_server;
+	server_name api.example.com;
+	location / {
+		proxy_pass http://app_backend;
+		proxy_set_header Host $host;
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection $connection_upgrade;
+	}
+	location /legacy/ {
+		proxy_pass http://127.0.0.1:9000/;
+	}
+}
+
+# configuration file /etc/nginx/sites-enabled/duplicate:
+server {
+	listen 80;
+	server_name example.com;
+	return 301 https://example.com$request_uri;
+}
+
+# configuration file /etc/nginx/sites-enabled/unsupported:
+server {
+	listen 80;
+	server_name weird.example.com;
+	set $backend "http://127.0.0.1:7000";
+	if ($request_method = POST) {
+		return 405;
+	}
+	location / {
+		proxy_pass $backend;
+		sub_filter 'foo' 'bar';
+	}
+	location /lua {
+		content_by_lua_block {
+			ngx.say("hello; {world}")
+		}
+	}
+	add_header X-Quoted "a;b{c}d" always;
+	add_header X-Single 'it\'s' always;
+}
+
+# configuration file /etc/nginx/sites-enabled/default:
+server {
+	listen 80 default_server;
+	server_name _;
+	include /etc/nginx/missing-snippet.conf;
+	return 444;
+}
+

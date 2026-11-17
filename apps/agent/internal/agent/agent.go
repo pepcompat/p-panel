@@ -1,0 +1,601 @@
+// Package agent implements the post-enrollment run loop: mTLS heartbeat,
+// long-poll task grants, ack, typed dispatch, result delivery and certificate
+// rotation (docs/AGENT_PROTOCOL.md).
+//
+// Invariant: connectivity problems never touch workloads. The only code path
+// that can affect the host is a typed handler invoked for a validated grant.
+package agent
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math"
+	"net/http"
+	"net/url"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/ppanel/ppanel/apps/agent/internal/config"
+	"github.com/ppanel/ppanel/apps/agent/internal/host"
+	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
+	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
+	"github.com/ppanel/ppanel/apps/agent/internal/netaddr"
+	"github.com/ppanel/ppanel/apps/agent/internal/state"
+	"github.com/ppanel/ppanel/apps/agent/internal/transport"
+	"github.com/ppanel/ppanel/apps/agent/internal/version"
+)
+
+// Options configure an Agent. Zero values get production defaults.
+type Options struct {
+	Config     *config.Config
+	Registry   *jobs.Registry
+	Host       *host.Env
+	Sampler    *metrics.Sampler
+	Logger     *slog.Logger
+	BackoffMin time.Duration // default 1s
+	BackoffMax time.Duration // default 60s
+	// MinPollGap throttles a gateway that answers long-polls instantly (default 1s).
+	MinPollGap time.Duration
+	// HeartbeatInterval overrides the interval (tests); 0 = config/Center.
+	HeartbeatInterval time.Duration
+	// MaxConcurrentJobs bounds parallel handler executions (default 4).
+	MaxConcurrentJobs int
+	// Now overrides the clock (tests).
+	Now func() time.Time
+}
+
+// Agent is a running agent instance.
+type Agent struct {
+	o        Options
+	cfg      *config.Config
+	log      *slog.Logger
+	dir      state.Dir
+	id       *state.Identity
+	reg      *jobs.Registry
+	cache    *jobs.Cache
+	outbox   *Outbox
+	certs    transport.CertSource
+	leaf     atomic.Pointer[x509.Certificate]
+	ca       *x509.CertPool
+	client   *transport.Client
+	hc       *http.Client
+	sem      chan struct{}
+	wg       sync.WaitGroup
+	seq      atomic.Uint64
+	hbEvery  atomic.Int64 // nanoseconds
+	renewAt  atomic.Pointer[time.Time]
+	skew     atomic.Int64 // serverTime - localTime, ns
+	running  sync.Map     // jobId -> struct{}
+	lastRot  atomic.Int64 // unix nanos of last rotation attempt
+	capsMu   sync.Mutex
+	caps     []string
+	capsAt   time.Time
+	hbOK     atomic.Uint64
+	hbFail   atomic.Uint64
+	executed atomic.Uint64
+}
+
+// New loads identity/TLS from cfg.StateDir and prepares the agent.
+func New(o Options) (*Agent, error) {
+	if o.Config == nil || o.Registry == nil || o.Host == nil {
+		return nil, errors.New("agent: Config, Registry and Host are required")
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
+	}
+	if o.Sampler == nil {
+		o.Sampler = &metrics.Sampler{}
+	}
+	if o.BackoffMin <= 0 {
+		o.BackoffMin = time.Second
+	}
+	if o.BackoffMax <= 0 {
+		o.BackoffMax = 60 * time.Second
+	}
+	if o.MinPollGap <= 0 {
+		o.MinPollGap = time.Second
+	}
+	if o.MaxConcurrentJobs <= 0 {
+		o.MaxConcurrentJobs = 4
+	}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	a := &Agent{o: o, cfg: o.Config, log: o.Logger, dir: state.Dir{Path: o.Config.StateDir}, reg: o.Registry,
+		outbox: NewOutbox(o.Config.MaxBufferedResults), sem: make(chan struct{}, o.MaxConcurrentJobs)}
+	if err := RecoverRotation(a.dir); err != nil {
+		return nil, err
+	}
+	id, err := a.dir.LoadIdentity()
+	if err != nil {
+		return nil, fmt.Errorf("not enrolled (%v); run `ppanel-agent enroll` first", err)
+	}
+	gu, err := url.Parse(id.GatewayURL)
+	if err != nil || gu.Scheme != "https" {
+		return nil, fmt.Errorf("identity gatewayUrl must be https: %q", id.GatewayURL)
+	}
+	a.id = id
+	kp, pool, leaf, err := a.dir.LoadTLS()
+	if err != nil {
+		return nil, err
+	}
+	a.ca = pool
+	a.certs.Set(kp)
+	a.leaf.Store(leaf)
+	if id.CertRenewAfter != nil {
+		t := *id.CertRenewAfter
+		a.renewAt.Store(&t)
+	}
+	a.cache, err = jobs.OpenCache(a.dir.FilePath(state.JobCacheFile), jobs.DefaultCacheSize)
+	if err != nil {
+		return nil, err
+	}
+	pollTimeout := time.Duration(o.Config.PollWaitSec+10) * time.Second
+	a.hc = transport.NewHTTPClient(transport.MTLSConfig(pool, &a.certs), pollTimeout)
+	a.client = &transport.Client{BaseURL: id.GatewayURL, HTTP: a.hc}
+	iv := time.Duration(o.Config.HeartbeatIntervalSec) * time.Second
+	if id.HeartbeatIntervalSec > 0 {
+		iv = time.Duration(id.HeartbeatIntervalSec) * time.Second
+	}
+	if o.HeartbeatInterval > 0 {
+		iv = o.HeartbeatInterval
+	}
+	a.hbEvery.Store(int64(iv))
+	return a, nil
+}
+
+// ServerID returns the enrolled server id.
+func (a *Agent) ServerID() string { return a.id.ServerID }
+
+// Stats is a snapshot of counters (tests/diagnostics).
+type Stats struct {
+	HeartbeatsOK, HeartbeatsFailed, Executed uint64
+	OutboxLen                                int
+	OutboxDropped                            uint64
+}
+
+// Stats returns counters.
+func (a *Agent) Stats() Stats {
+	return Stats{a.hbOK.Load(), a.hbFail.Load(), a.executed.Load(), a.outbox.Len(), a.outbox.Dropped()}
+}
+
+func (a *Agent) now() time.Time { return a.o.Now().Add(time.Duration(a.skew.Load())) }
+
+// Run blocks until ctx is cancelled. In-flight handlers get a grace period.
+func (a *Agent) Run(ctx context.Context) error {
+	a.log.Info("agent starting", "serverId", a.id.ServerID, "gateway", a.id.GatewayURL, "version", version.Version,
+		"handlers", a.reg.Types())
+	var loops sync.WaitGroup
+	for _, f := range []func(context.Context){a.heartbeatLoop, a.pollLoop, a.resultLoop} {
+		loops.Add(1)
+		go func(f func(context.Context)) { defer loops.Done(); f(ctx) }(f)
+	}
+	<-ctx.Done()
+	loops.Wait()
+	done := make(chan struct{})
+	go func() { a.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		a.log.Warn("shutdown: in-flight jobs still running after grace period")
+	}
+	a.hc.CloseIdleConnections()
+	a.log.Info("agent stopped")
+	return nil
+}
+
+func sleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// fatalish errors where retrying fast is pointless: back off to the max.
+func (a *Agent) delayFor(err error, b *Backoff) time.Duration {
+	switch transport.Code(err) {
+	case "AGENT_CERT_REVOKED", "AGENT_PROTOCOL_UNSUPPORTED":
+		return b.Max
+	}
+	return b.Next()
+}
+
+// ---------------- heartbeat ----------------
+
+// HeartbeatRequest is the heartbeat body.
+type HeartbeatRequest struct {
+	Seq           uint64            `json:"seq"`
+	SentAt        string            `json:"sentAt"`
+	AgentVersion  string            `json:"agentVersion"`
+	Metrics       metrics.Snapshot  `json:"metrics"`
+	Addresses     []netaddr.Address `json:"addresses"`
+	Capabilities  []string          `json:"capabilities"`
+	RunningJobIDs []string          `json:"runningJobIds"`
+}
+
+// HeartbeatResponse is the heartbeat response data.
+type HeartbeatResponse struct {
+	ServerTime           *time.Time `json:"serverTime"`
+	HeartbeatIntervalSec int        `json:"heartbeatIntervalSec"`
+	CertRenewAfter       *time.Time `json:"certRenewAfter"`
+}
+
+func (a *Agent) capabilities() []string {
+	a.capsMu.Lock()
+	defer a.capsMu.Unlock()
+	if a.caps == nil || time.Since(a.capsAt) > 5*time.Minute {
+		a.caps = a.o.Host.Capabilities()
+		a.capsAt = time.Now()
+	}
+	return append([]string(nil), a.caps...)
+}
+
+func (a *Agent) runningIDs() []string {
+	ids := []string{}
+	a.running.Range(func(k, _ any) bool { ids = append(ids, k.(string)); return true })
+	sort.Strings(ids)
+	return ids
+}
+
+func (a *Agent) heartbeatLoop(ctx context.Context) {
+	b := &Backoff{Min: a.o.BackoffMin, Max: a.o.BackoffMax}
+	for ctx.Err() == nil {
+		err := a.heartbeat(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			a.hbFail.Add(1)
+			d := a.delayFor(err, b)
+			a.log.Warn("heartbeat failed", "error", err.Error(), "retryIn", d.String(), "attempt", b.Attempts())
+			if !sleep(ctx, d) {
+				return
+			}
+			continue
+		}
+		if b.Attempts() > 0 {
+			a.log.Info("heartbeat recovered", "afterAttempts", b.Attempts())
+		}
+		b.Reset()
+		a.hbOK.Add(1)
+		a.maybeRotate(ctx)
+		if !sleep(ctx, time.Duration(a.hbEvery.Load())) {
+			return
+		}
+	}
+}
+
+func (a *Agent) heartbeat(ctx context.Context) error {
+	req := HeartbeatRequest{
+		Seq: a.seq.Add(1), SentAt: time.Now().UTC().Format(time.RFC3339Nano), AgentVersion: version.Version,
+		Metrics: a.o.Sampler.Sample(), Addresses: netaddr.Detect(), Capabilities: a.capabilities(),
+		RunningJobIDs: a.runningIDs(),
+	}
+	// Encode empty collections as [] (never null) and whole-second uptime, per the protocol.
+	if req.Addresses == nil {
+		req.Addresses = []netaddr.Address{}
+	}
+	if req.Capabilities == nil {
+		req.Capabilities = []string{}
+	}
+	if req.RunningJobIDs == nil {
+		req.RunningJobIDs = []string{}
+	}
+	if u := req.Metrics.UptimeSec; u != nil {
+		v := math.Floor(*u)
+		req.Metrics.UptimeSec = &v
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	var resp HeartbeatResponse
+	if err := a.client.Do(ctx, http.MethodPost, "/agent/v1/heartbeat", req, &resp); err != nil {
+		return err
+	}
+	if resp.HeartbeatIntervalSec >= 5 && resp.HeartbeatIntervalSec <= 300 && a.o.HeartbeatInterval == 0 {
+		a.hbEvery.Store(int64(time.Duration(resp.HeartbeatIntervalSec) * time.Second))
+	}
+	if resp.ServerTime != nil {
+		a.skew.Store(int64(resp.ServerTime.Sub(a.o.Now())))
+	}
+	if resp.CertRenewAfter != nil {
+		t := *resp.CertRenewAfter
+		a.renewAt.Store(&t)
+	}
+	return nil
+}
+
+// ---------------- certificate rotation ----------------
+
+type rotateRequest struct {
+	CSRPem string `json:"csrPem"`
+}
+
+type rotateResponse struct {
+	CertificatePem string    `json:"certificatePem"`
+	NotAfter       time.Time `json:"notAfter"`
+}
+
+func (a *Agent) maybeRotate(ctx context.Context) {
+	leaf := a.leaf.Load()
+	if !state.RenewDue(leaf, a.renewAt.Load(), a.now()) {
+		return
+	}
+	// at most one attempt per 10 minutes
+	if last := a.lastRot.Load(); last != 0 && time.Since(time.Unix(0, last)) < 10*time.Minute {
+		return
+	}
+	a.lastRot.Store(time.Now().UnixNano())
+	if err := a.Rotate(ctx); err != nil {
+		a.log.Error("certificate rotation failed; will retry", "error", err.Error(), "notAfter", leaf.NotAfter)
+	}
+}
+
+// Rotate obtains a new certificate for a freshly generated key.
+func (a *Agent) Rotate(ctx context.Context) error {
+	key, err := state.GenerateKey()
+	if err != nil {
+		return err
+	}
+	csr, err := state.CreateCSR(key, a.id.ServerID)
+	if err != nil {
+		return err
+	}
+	var resp rotateResponse
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := a.client.Do(ctx, http.MethodPost, "/agent/v1/certificate/rotate", rotateRequest{CSRPem: string(csr)}, &resp); err != nil {
+		return err
+	}
+	leaf, err := state.ParseCert([]byte(resp.CertificatePem))
+	if err != nil {
+		return err
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: a.ca, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return fmt.Errorf("rotated certificate does not chain to pinned CA: %w", err)
+	}
+	if !key.PublicKey.Equal(leaf.PublicKey) {
+		return errors.New("rotated certificate does not match new key")
+	}
+	keyPEM, err := state.EncodeKey(key)
+	if err != nil {
+		return err
+	}
+	// two-phase persist: *.new then rename key, rename cert (RecoverRotation completes a crash in between)
+	if err := a.dir.WriteFileAtomic(state.KeyFile+".new", keyPEM, 0o600); err != nil {
+		return err
+	}
+	if err := a.dir.WriteFileAtomic(state.CertFile+".new", []byte(resp.CertificatePem), 0o644); err != nil {
+		return err
+	}
+	if err := RecoverRotation(a.dir); err != nil {
+		return err
+	}
+	kp, err := tls.X509KeyPair([]byte(resp.CertificatePem), keyPEM)
+	if err != nil {
+		return err
+	}
+	kp.Leaf = leaf
+	a.certs.Set(kp)
+	a.leaf.Store(leaf)
+	a.renewAt.Store(nil)
+	a.id.CertRenewAfter = nil
+	_ = a.dir.SaveIdentity(a.id)
+	a.hc.CloseIdleConnections()
+	a.log.Info("certificate rotated", "serial", leaf.SerialNumber.Text(16), "notAfter", leaf.NotAfter)
+	return nil
+}
+
+// RecoverRotation completes an interrupted two-phase key/cert swap.
+func RecoverRotation(d state.Dir) error {
+	keyNew, certNew := d.FilePath(state.KeyFile+".new"), d.FilePath(state.CertFile+".new")
+	hasKey, hasCert := exists(keyNew), exists(certNew)
+	switch {
+	case hasKey && hasCert:
+		if err := rename(keyNew, d.FilePath(state.KeyFile)); err != nil {
+			return err
+		}
+		return rename(certNew, d.FilePath(state.CertFile))
+	case hasCert && !hasKey:
+		// key already swapped; finish with the cert
+		return rename(certNew, d.FilePath(state.CertFile))
+	case hasKey && !hasCert:
+		// cert never written: discard the orphan key, keep the old pair
+		return remove(keyNew)
+	}
+	return nil
+}
+
+// ---------------- task polling & dispatch ----------------
+
+type tasksResponse struct {
+	Tasks []*jobs.Grant `json:"tasks"`
+}
+
+func (a *Agent) pollLoop(ctx context.Context) {
+	b := &Backoff{Min: a.o.BackoffMin, Max: a.o.BackoffMax}
+	for ctx.Err() == nil {
+		start := time.Now()
+		var resp tasksResponse
+		err := a.client.Do(ctx, http.MethodGet, fmt.Sprintf("/agent/v1/tasks?waitSec=%d", a.cfg.PollWaitSec), nil, &resp)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			d := a.delayFor(err, b)
+			a.log.Warn("task poll failed", "error", err.Error(), "retryIn", d.String())
+			if !sleep(ctx, d) {
+				return
+			}
+			continue
+		}
+		b.Reset()
+		if len(resp.Tasks) > 50 {
+			a.log.Warn("gateway returned oversized task batch; truncating", "count", len(resp.Tasks))
+			resp.Tasks = resp.Tasks[:50]
+		}
+		for _, g := range resp.Tasks {
+			if g == nil {
+				continue
+			}
+			a.dispatch(ctx, g)
+		}
+		if len(resp.Tasks) == 0 {
+			if gap := a.o.MinPollGap - time.Since(start); gap > 0 && !sleep(ctx, gap) {
+				return
+			}
+		}
+	}
+}
+
+// dispatch handles one grant; execution happens asynchronously (bounded).
+func (a *Agent) dispatch(ctx context.Context, g *jobs.Grant) {
+	log := a.log.With("jobId", g.JobID, "type", g.Type)
+	if g.JobID == "" {
+		log.Warn("ignoring grant without jobId")
+		return
+	}
+	if _, busy := a.running.Load(g.JobID); busy {
+		log.Info("grant for in-flight job ignored")
+		return
+	}
+	// 1. never re-execute a known jobId
+	if e, ok := a.cache.Lookup(g.JobID); ok {
+		log.Info("duplicate jobId: replaying cached result, not executing", "state", e.State)
+		a.outbox.Push(e.ReplayResult(g.JobID, g.LeaseToken))
+		return
+	}
+	// 2. validate before any side effect
+	h, params, rej := a.reg.Validate(g, a.id.ServerID, a.now())
+	if rej != nil {
+		log.Warn("grant rejected", "code", rej.Code, "reason", rej.Message)
+		r := &jobs.Result{JobID: g.JobID, LeaseToken: g.LeaseToken, Status: "failed", Output: nil, Error: rej}
+		if err := a.cache.Complete(r); err != nil {
+			log.Error("persist rejection failed", "error", err.Error())
+		}
+		a.outbox.Push(r)
+		return
+	}
+	// 3. ack (lease confirmation); on any failure do not execute
+	actx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	err := a.client.Do(actx, http.MethodPost, "/agent/v1/tasks/"+url.PathEscape(g.JobID)+"/ack", map[string]string{"leaseToken": g.LeaseToken}, nil)
+	cancel()
+	if err != nil {
+		log.Warn("ack failed; job not executed", "error", err.Error(), "code", transport.Code(err))
+		return
+	}
+	// 4. durably mark started BEFORE executing (crash => never re-run)
+	fresh, err := a.cache.MarkStarted(g.JobID)
+	if err != nil || !fresh {
+		log.Error("cannot mark job started; not executing", "error", fmt.Sprint(err))
+		return
+	}
+	a.running.Store(g.JobID, struct{}{})
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		defer a.running.Delete(g.JobID)
+		select {
+		case a.sem <- struct{}{}:
+		case <-ctx.Done():
+			// shutting down before start: record as interrupted, never run later
+			r := &jobs.Result{JobID: g.JobID, LeaseToken: g.LeaseToken, Status: "failed",
+				Error: jobs.Errorf(jobs.AgentInterrupted, "agent shutting down before job start")}
+			_ = a.cache.Complete(r)
+			a.outbox.Push(r)
+			return
+		}
+		defer func() { <-a.sem }()
+		r := a.execute(h, params, g, log)
+		if err := a.cache.Complete(r); err != nil {
+			log.Error("persist result failed", "error", err.Error())
+		}
+		a.outbox.Push(r)
+	}()
+}
+
+func (a *Agent) execute(h jobs.Handler, params any, g *jobs.Grant, log *slog.Logger) (res *jobs.Result) {
+	// Handlers are NOT tied to the agent lifecycle context: a reconnect or
+	// shutdown must not abort a half-done restart. Only the handler timeout applies.
+	ctx, cancel := context.WithTimeout(context.Background(), h.Timeout())
+	defer cancel()
+	start := time.Now()
+	a.executed.Add(1)
+	defer func() {
+		if p := recover(); p != nil {
+			log.Error("handler panic", "panic", fmt.Sprint(p))
+			res = &jobs.Result{JobID: g.JobID, LeaseToken: g.LeaseToken, Status: "failed", Error: jobs.Errorf(jobs.HandlerFailed, "handler panic")}
+		}
+	}()
+	log.Info("executing job", "mutating", h.Mutating())
+	out, err := h.Run(ctx, params)
+	r := &jobs.Result{JobID: g.JobID, LeaseToken: g.LeaseToken}
+	switch {
+	case err == nil:
+		r.Status, r.Output = "succeeded", out
+	default:
+		r.Status = "failed"
+		var je *jobs.Error
+		switch {
+		case errors.As(err, &je):
+			r.Error = je
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			r.Error = jobs.Errorf(jobs.HandlerTimeout, "handler exceeded %s", h.Timeout())
+		default:
+			r.Error = jobs.Errorf(jobs.HandlerFailed, "%v", err)
+		}
+	}
+	log.Info("job finished", "status", r.Status, "durationMs", time.Since(start).Milliseconds())
+	return r
+}
+
+// ---------------- result delivery ----------------
+
+func (a *Agent) resultLoop(ctx context.Context) {
+	b := &Backoff{Min: a.o.BackoffMin, Max: a.o.BackoffMax}
+	for ctx.Err() == nil {
+		r := a.outbox.Peek()
+		if r == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-a.outbox.Notify():
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := a.client.Do(rctx, http.MethodPost, "/agent/v1/tasks/"+url.PathEscape(r.JobID)+"/result", r, nil)
+		cancel()
+		if err == nil {
+			a.outbox.Remove(r)
+			b.Reset()
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		var ae *transport.APIError
+		if errors.As(err, &ae) && ae.HTTPStatus >= 400 && ae.HTTPStatus < 500 &&
+			ae.HTTPStatus != 401 && ae.HTTPStatus != 408 && ae.HTTPStatus != 425 && ae.HTTPStatus != 426 && ae.HTTPStatus != 429 {
+			// permanent rejection (unknown job / lease mismatch): drop, it stays in the local cache
+			a.log.Warn("result rejected by center; dropping", "jobId", r.JobID, "code", ae.Code, "status", ae.HTTPStatus)
+			a.outbox.Remove(r)
+			continue
+		}
+		d := a.delayFor(err, b)
+		a.log.Warn("result delivery failed", "jobId", r.JobID, "error", err.Error(), "retryIn", d.String(), "queued", a.outbox.Len())
+		if !sleep(ctx, d) {
+			return
+		}
+	}
+}

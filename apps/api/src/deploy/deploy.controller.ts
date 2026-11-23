@@ -15,6 +15,14 @@ import {
   Res,
 } from '@nestjs/common';
 import {
+  type BuildConfigInput,
+  buildConfigSchema,
+  createBuildSchema,
+  createComposeAppSchema,
+  gitAuthSchema,
+  sourceInspectSchema,
+  type UpdateComposeInput,
+  updateComposeSchema,
   approveDeploymentSchema,
   type AutoDeployPolicyInput,
   autoDeployPolicySchema,
@@ -45,6 +53,8 @@ import type { AuthUser } from '../common/principal';
 import { parseQuery } from '../common/query-builder';
 import { ZodPipe } from '../common/zod.pipe';
 import { parseIfMatch } from '../servers/servers.service';
+import { BuildsService } from './builds.service';
+import { ComposeAppsService } from './compose-apps.service';
 import { validateComposeYaml } from './compose-validator';
 import { ContainerAppsService } from './container-apps.service';
 import { DeploymentsService } from './deployments.service';
@@ -64,18 +74,172 @@ export class DeployController {
     private readonly deployments: DeploymentsService,
     private readonly secrets: SecretsService,
     private readonly routing: ManagedRoutingService,
+    private readonly composeApps: ComposeAppsService,
+    private readonly builds: BuildsService,
   ) {}
 
-  // ---------------------------------------------------------------- container apps
+  // ---------------------------------------------------------------- container / compose apps
 
+  /** `kind: "compose"` → compose app (§8.3); otherwise a container app (§7.1). */
   @Post('applications')
   @HttpCode(201)
   @RequirePermission('apps.deploy')
-  createApp(
-    @CurrentUser() user: AuthUser,
-    @Body(new ZodPipe(createContainerAppSchema)) body: CreateContainerAppInput,
-  ) {
+  createApp(@CurrentUser() user: AuthUser, @Body() raw: unknown) {
+    const kind = (raw as { kind?: unknown } | null)?.kind;
+    if (kind === 'compose')
+      return this.composeApps.create(user, new ZodPipe(createComposeAppSchema).transform(raw));
+    let input = raw;
+    if (kind === 'container' && raw && typeof raw === 'object') {
+      const { kind: _k, ...rest } = raw as Record<string, unknown>;
+      void _k;
+      input = rest;
+    }
+    const body: CreateContainerAppInput = new ZodPipe(createContainerAppSchema).transform(input);
     return this.containerApps.create(user, body);
+  }
+
+  @Get('applications/:id/compose')
+  @RequirePermission('apps.read')
+  getCompose(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Query('version') version: string | undefined,
+  ) {
+    const v = version === undefined ? undefined : Number(version);
+    if (v !== undefined && (!Number.isInteger(v) || v < 1))
+      throw AppError.badRequest('version must be a positive integer');
+    return this.composeApps.getCompose(user, id, v);
+  }
+
+  @Put('applications/:id/compose')
+  @RequirePermission('apps.deploy')
+  updateCompose(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Body(new ZodPipe(updateComposeSchema)) body: UpdateComposeInput,
+    @Headers('if-match') ifMatch: string | undefined,
+  ) {
+    return this.composeApps.update(user, id, body, parseIfMatch(ifMatch));
+  }
+
+  // ---------------------------------------------------------------- build config / git auth (§8.1)
+
+  @Get('applications/:id/build-config')
+  @RequirePermission('apps.read')
+  getBuildConfig(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string) {
+    return this.builds.getConfig(user, id);
+  }
+
+  @Put('applications/:id/build-config')
+  @RequirePermission('apps.deploy')
+  putBuildConfig(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Body(new ZodPipe(buildConfigSchema)) body: BuildConfigInput,
+    @Headers('if-match') ifMatch: string | undefined,
+  ) {
+    return this.builds.putConfig(user, id, body, parseIfMatch(ifMatch));
+  }
+
+  @Get('applications/:id/git-auth')
+  @RequirePermission('apps.read')
+  getGitAuth(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string) {
+    return this.secrets.getGitAuth(user, id);
+  }
+
+  @Put('applications/:id/git-auth')
+  @RequirePermission('apps.deploy')
+  putGitAuth(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Body(new ZodPipe(gitAuthSchema)) body: z.infer<typeof gitAuthSchema>,
+    @Headers(STEP_UP) stepUp: string | undefined,
+  ) {
+    return this.secrets.putGitAuth(user, id, body.token, stepUp);
+  }
+
+  @Delete('applications/:id/git-auth')
+  @HttpCode(204)
+  @RequirePermission('apps.deploy')
+  async deleteGitAuth(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Headers(STEP_UP) stepUp: string | undefined,
+  ) {
+    await this.secrets.removeGitAuth(user, id, stepUp);
+  }
+
+  // ---------------------------------------------------------------- builds (§8.2)
+
+  /** 202 `{ build }` (200 when an existing build is returned: idempotency replay / same commit). */
+  @Post('applications/:id/builds')
+  @RequirePermission('apps.deploy')
+  async createBuild(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Body(new ZodPipe(createBuildSchema)) body: z.infer<typeof createBuildSchema>,
+    @Headers('idempotency-key') idem: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const r = await this.builds.create(user, id, body, idem);
+    res.status(r.created ? 202 : 200);
+    return { build: r.build, reused: !r.created };
+  }
+
+  @Get('applications/:id/builds')
+  @RequirePermission('apps.read')
+  listBuilds(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string, @Req() req: Request) {
+    return this.builds.list(
+      user,
+      id,
+      parseQuery(req.originalUrl, { sortable: ['createdAt', 'updatedAt', 'status'] }),
+    );
+  }
+
+  @Get('builds/:id')
+  @RequirePermission('apps.read')
+  getBuild(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string) {
+    return this.builds.get(user, id);
+  }
+
+  @Get('builds/:id/log')
+  @RequirePermission('apps.read')
+  buildLog(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string) {
+    return this.builds.log(user, id);
+  }
+
+  @Post('builds/:id/cancel')
+  @HttpCode(200)
+  @RequirePermission('apps.deploy')
+  cancelBuild(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string) {
+    return this.builds.cancel(user, id);
+  }
+
+  /** 200 `{ status: "succeeded", files, detection }` or 202 `{ status: "pending" }` (poll the GET). */
+  @Post('applications/:id/source/inspect')
+  @RequirePermission('apps.deploy')
+  async inspect(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Body(new ZodPipe(sourceInspectSchema)) body: z.infer<typeof sourceInspectSchema>,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const r = await this.builds.inspect(user, id, body.commitSha);
+    res.status(r.pending ? 202 : 200);
+    return r.body;
+  }
+
+  @Get('applications/:id/source/inspect/:inspectionId')
+  @RequirePermission('apps.read')
+  async getInspection(
+    @CurrentUser() user: AuthUser,
+    @Param('id', uuid) id: string,
+    @Param('inspectionId', uuid) inspectionId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const r = await this.builds.getInspection(user, id, inspectionId);
+    res.status(r.pending ? 202 : 200);
+    return r.body;
   }
 
   @Patch('applications/:id/container')
@@ -172,7 +336,7 @@ export class DeployController {
     @Headers('idempotency-key') idem: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const r = await this.deployments.createManual(user, id, body, idem);
+    const r = await this.composeApps.deploy(user, id, body, idem);
     res.status(r.created ? 202 : 200);
     return { deployment: r.deployment };
   }
@@ -222,7 +386,7 @@ export class DeployController {
     @Param('id', uuid) id: string,
     @Body(new ZodPipe(rollbackSchema)) body: z.infer<typeof rollbackSchema>,
   ) {
-    return this.deployments.rollback(user, id, body.reason);
+    return this.composeApps.rollback(user, id, body.reason);
   }
 
   @Post('applications/:id/redeploy')
@@ -233,7 +397,7 @@ export class DeployController {
     @Param('id', uuid) id: string,
     @Body(new ZodPipe(rollbackSchema)) body: z.infer<typeof rollbackSchema>,
   ) {
-    return this.deployments.redeploy(user, id, body.reason);
+    return this.composeApps.redeploy(user, id, body.reason);
   }
 
   @Post('applications/:id/restart')
@@ -244,7 +408,7 @@ export class DeployController {
     @Param('id', uuid) id: string,
     @Headers(STEP_UP) stepUp: string | undefined,
   ) {
-    return this.containerApps.operate(user, id, 'restart', stepUp);
+    return this.composeApps.operate(user, id, 'restart', stepUp);
   }
 
   @Post('applications/:id/start')
@@ -255,7 +419,7 @@ export class DeployController {
     @Param('id', uuid) id: string,
     @Headers(STEP_UP) stepUp: string | undefined,
   ) {
-    return this.containerApps.operate(user, id, 'start', stepUp);
+    return this.composeApps.operate(user, id, 'start', stepUp);
   }
 
   @Post('applications/:id/stop')
@@ -266,7 +430,7 @@ export class DeployController {
     @Param('id', uuid) id: string,
     @Headers(STEP_UP) stepUp: string | undefined,
   ) {
-    return this.containerApps.operate(user, id, 'stop', stepUp);
+    return this.composeApps.operate(user, id, 'stop', stepUp);
   }
 
   /** 200 `{ jobId, status:"succeeded", lines }` or 202 `{ status:"pending" }` (poll with ?jobId=). */

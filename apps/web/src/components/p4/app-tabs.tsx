@@ -12,6 +12,9 @@ import type { Application } from '@/lib/api/p3-types';
 import { containerAppsApi } from '@/lib/api/p4-endpoints';
 import { DEPLOYMENT_LOCKING, type AutoDeployPolicy, type Deployment } from '@/lib/api/p4-types';
 import { isEnvKey, lifecycleActions, type LifecycleAction } from '@/lib/p4-gates';
+import { composeLifecycleActions, runtimeOf } from '@/lib/p4b-gates';
+import { AUTO_DEPLOY_MODES, type AutoDeployMode } from '@/lib/api/p4b-types';
+import { Segmented } from '@/components/ui/segmented';
 import { evaluateGate } from '@/lib/permissions';
 import {
   useAppDeployments,
@@ -67,20 +70,26 @@ export function LifecyclePanel({ app }: { app: Application }) {
   const deps = useAppDeployments(app.id);
   const [open, setOpen] = useState<LifecycleAction | null>(null);
   const active = (deps.data?.items ?? []).find((d) => DEPLOYMENT_LOCKING.includes(d.status));
-  const items = lifecycleActions(app, me?.permissions, !!active);
+  const isCompose = app.kind === 'compose';
+  const items = isCompose
+    ? composeLifecycleActions(app, me?.permissions, !!active)
+    : lifecycleActions(app, me?.permissions, !!active);
   const prod = app.environment === 'production';
   const c = app.container;
-  const current = deps.data?.items.find((d) => d.id === c?.currentDeploymentId);
-  const previous = deps.data?.items.find((d) => d.id === c?.previousDeploymentId);
+  const rt = runtimeOf(app);
+  const current = deps.data?.items.find((d) => d.id === rt.currentDeploymentId);
+  const previous = deps.data?.items.find((d) => d.id === rt.previousDeploymentId);
 
   async function run(a: LifecycleAction): Promise<Deployment | null> {
     switch (a) {
       case 'restart':
         await containerAppsApi.restart(app.id);
         return null;
-      case 'start':
-        await containerAppsApi.start(app.id);
-        return null;
+      case 'start': {
+        // Compose `start` re-applies the current plan and may answer with a deployment id.
+        const r = (await containerAppsApi.start(app.id)) as { deploymentId?: string };
+        return r?.deploymentId ? ({ id: r.deploymentId } as Deployment) : null;
+      }
       case 'stop':
         await containerAppsApi.stop(app.id);
         return null;
@@ -135,25 +144,33 @@ export function LifecyclePanel({ app }: { app: Application }) {
               t('common.dash')
             ),
           ],
-          [
-            t('life.container'),
-            c?.containerName ? `${c.containerName} · 127.0.0.1:${c.hostPort}` : t('common.dash'),
-            { mono: true },
-          ],
+          isCompose
+            ? [
+                t('life.cmp.services'),
+                `${app.compose?.services.length ?? 0} · ${t('cmp.route')}: ${app.compose?.routeService ?? '—'}${app.compose?.hostPort ? ` · 127.0.0.1:${app.compose.hostPort}` : ''}`,
+                { mono: true },
+              ]
+            : [
+                t('life.container'),
+                c?.containerName
+                  ? `${c.containerName} · 127.0.0.1:${c.hostPort}`
+                  : t('common.dash'),
+                { mono: true },
+              ],
           [
             t('life.state'),
             <ToneBadge
               key="s"
               tone={
-                c?.runtimeState === 'stopped'
+                rt.runtimeState === 'stopped'
                   ? 'off'
-                  : c?.runtimeState === 'running'
+                  : rt.runtimeState === 'running'
                     ? 'ok'
                     : 'stale'
               }
               size="sm"
             >
-              {t(`life.state.${c?.runtimeState ?? 'unknown'}` as MessageKey)}
+              {t(`life.state.${rt.runtimeState}` as MessageKey)}
             </ToneBadge>,
           ],
         ]}
@@ -193,6 +210,7 @@ export function LifecyclePanel({ app }: { app: Application }) {
                     'text-[12.5px]',
                     it.action === 'rollback' ? 'font-medium text-warn' : 'text-fg-muted',
                   )}
+                  data-testid={it.action === 'rollback' ? 'rollback-warning' : undefined}
                 >
                   <span aria-hidden="true">▲ </span>
                   {t(it.warning)}
@@ -211,7 +229,9 @@ export function LifecyclePanel({ app }: { app: Application }) {
           </li>
         ))}
       </ul>
-      <p className="m-0 text-[12px] text-fg-muted">{t('life.restoreNote')}</p>
+      <p className="m-0 text-[12px] text-fg-muted">
+        {isCompose ? t('life.cmp.restoreNote') : t('life.restoreNote')}
+      </p>
       {open && (
         <ActionDialog
           open
@@ -219,12 +239,17 @@ export function LifecyclePanel({ app }: { app: Application }) {
           title={t(`life.${open}.confirmTitle` as MessageKey, { app: app.name })}
           body={
             <span className="flex flex-col gap-1.5">
-              <span>{t(`life.${open}.effect` as MessageKey)}</span>
+              <span>
+                {t((isCompose ? `life.cmp.${open}.effect` : `life.${open}.effect`) as MessageKey)}
+              </span>
               {open === 'rollback' && (
-                <b className="text-warn">
-                  {t('life.rollback.noData')}
+                <b className="text-warn" data-testid="rollback-confirm-warning">
+                  {isCompose ? t('life.cmp.rollback.noData') : t('life.rollback.noData')}
                   {previous ? ` ${t('life.rollback.target', { n: previous.number })}` : ''}
                 </b>
+              )}
+              {isCompose && (open === 'redeploy' || open === 'rollback') && (
+                <span>{t('life.cmp.restartRisk')}</span>
               )}
               {prod && (open === 'redeploy' || open === 'rollback') && (
                 <span>{t('life.prodApproval')}</span>
@@ -251,7 +276,7 @@ export function LifecyclePanel({ app }: { app: Application }) {
 export function AppDeploymentsTab({ app }: { app: Application }) {
   const { t } = useI18n();
   const q = useAppDeployments(app.id);
-  const c = app.container;
+  const rt = runtimeOf(app);
   if (q.isPending) return <TableSkeleton label={t('common.loading')} />;
   if (q.isError && !q.data)
     return isApiError(q.error) && q.error.status === 403 ? (
@@ -273,7 +298,7 @@ export function AppDeploymentsTab({ app }: { app: Application }) {
         <DeploymentsTable
           items={items}
           showApp={false}
-          markers={{ current: c?.currentDeploymentId, previous: c?.previousDeploymentId }}
+          markers={{ current: rt.currentDeploymentId, previous: rt.previousDeploymentId }}
         />
       )}
     </div>
@@ -302,7 +327,7 @@ export function EnvSecretsTab({ app }: { app: Application }) {
   });
   const c = app.container;
   const declared = Array.from(
-    new Set([...(c?.secretKeys ?? []), ...(secrets.data?.items.map((s) => s.key) ?? [])]),
+    new Set([...runtimeOf(app).secretKeys, ...(secrets.data?.items.map((s) => s.key) ?? [])]),
   );
   const stepUpReady = !prod || (!!me?.mfaEnabled && /^\d{6}$/.test(otp));
   const refresh = () => {
@@ -315,8 +340,24 @@ export function EnvSecretsTab({ app }: { app: Application }) {
     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,420px),1fr))] items-start gap-4">
       <Card className="flex flex-col gap-2 p-4">
         <h2 className="m-0 text-[15px] font-semibold">{t('env.plain')}</h2>
-        <p className="m-0 text-[12px] text-fg-muted">{t('env.plainHint')}</p>
-        {c && Object.keys(c.env).length ? (
+        <p className="m-0 text-[12px] text-fg-muted">
+          {app.kind === 'compose' ? t('env.composeHint') : t('env.plainHint')}
+        </p>
+        {app.kind === 'compose' && app.compose ? (
+          <DefList
+            keyWidth={140}
+            rows={app.compose.services.map((sv) => [
+              <code key={sv.service} className="font-mono text-[12px]">
+                {sv.service}
+              </code>,
+              [
+                ...Object.keys(sv.env ?? {}),
+                ...Object.keys(sv.secretEnv ?? {}).map((k) => `${k}=\${${sv.secretEnv[k]}}`),
+              ].join(', ') || t('common.none'),
+              { mono: true },
+            ])}
+          />
+        ) : c && Object.keys(c.env).length ? (
           <DefList
             keyWidth={180}
             rows={Object.entries(c.env).map(([k, v]) => [
@@ -572,25 +613,35 @@ export function AutoDeploySettings({ app }: { app: Application }) {
     action: 'manage_auto_deploy',
     allowedActions: app.allowedActions,
   });
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    integrationId: string;
+    mode: AutoDeployMode;
+    repo: string;
+    branches: string;
+    imageTemplate: string;
+    enabled: boolean;
+  }>({
     integrationId: '',
-    repo: '',
+    mode: 'image',
+    repo: app.build?.config.repo ?? '',
     branches: 'main',
     imageTemplate: '',
     enabled: true,
   });
+  const hasBuild = !!app.build?.config;
   const refresh = () => void qc.invalidateQueries({ queryKey: p4k.autoDeploy(app.id) });
   const create = useMutation<AutoDeployPolicy, ApiError>({
     mutationFn: async () => {
       try {
         return await containerAppsApi.createAutoDeploy(app.id, {
           integrationId: form.integrationId || integrations.data?.items[0]?.id || '',
+          mode: form.mode,
           repo: form.repo.trim(),
           branches: form.branches
             .split(',')
             .map((b) => b.trim())
             .filter(Boolean),
-          imageTemplate: form.imageTemplate.trim(),
+          ...(form.mode === 'image' ? { imageTemplate: form.imageTemplate.trim() } : {}),
           enabled: form.enabled,
         });
       } catch (e) {
@@ -598,7 +649,14 @@ export function AutoDeploySettings({ app }: { app: Application }) {
       }
     },
     onSuccess: () => {
-      setForm({ integrationId: '', repo: '', branches: 'main', imageTemplate: '', enabled: true });
+      setForm({
+        integrationId: '',
+        mode: 'image',
+        repo: '',
+        branches: 'main',
+        imageTemplate: '',
+        enabled: true,
+      });
       refresh();
     },
   });
@@ -645,9 +703,14 @@ export function AutoDeploySettings({ app }: { app: Application }) {
               data-testid="policy-row"
             >
               <b className="font-mono">{p.repo}</b>
+              <ToneBadge tone="info" size="sm" glyph={false}>
+                <span data-testid="policy-mode">
+                  {t(`ad.mode.${p.mode ?? 'image'}` as MessageKey)}
+                </span>
+              </ToneBadge>
               <span className="font-mono text-[12px]">{p.branches.join(', ')}</span>
               <span className="font-mono text-[12px] break-all text-fg-muted">
-                {p.imageTemplate}
+                {(p.mode ?? 'image') === 'build' ? t('ad.mode.buildTarget') : p.imageTemplate}
               </span>
               <span className="text-[12px] text-fg-muted">{integName(p.integrationId)}</span>
               <ToneBadge tone={p.enabled ? 'ok' : 'off'} size="sm">
@@ -676,6 +739,29 @@ export function AutoDeploySettings({ app }: { app: Application }) {
           }}
         >
           <h3 className="m-0 text-[13.5px] font-semibold">{t('ad.add')}</h3>
+          <div className="flex flex-col gap-1" data-testid="policy-mode-picker">
+            <span className="text-[12.5px] text-fg-3">{t('ad.mode')}</span>
+            <Segmented<AutoDeployMode>
+              label={t('ad.mode')}
+              value={form.mode}
+              onChange={(m) => setForm((f) => ({ ...f, mode: m }))}
+              className="self-start"
+              options={AUTO_DEPLOY_MODES.map((m) => ({
+                value: m,
+                label: t(`ad.mode.${m}` as MessageKey),
+                disabled: m === 'build' && !hasBuild,
+              }))}
+            />
+            <span className="text-[12px] text-fg-muted" data-testid="policy-mode-explain">
+              {form.mode === 'build' ? t('ad.mode.buildExplain') : t('ad.mode.imageExplain')}
+            </span>
+            {!hasBuild && (
+              <span className="text-[12px] text-fg-muted">
+                {t('ad.mode.buildNeedsConfig')}{' '}
+                <Link href={`/applications/${app.id}/builds`}>{t('builds.settings')} →</Link>
+              </span>
+            )}
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Field label={t('ad.integration')}>
               {(p) => (
@@ -713,17 +799,19 @@ export function AutoDeploySettings({ app }: { app: Application }) {
                 />
               )}
             </Field>
-            <Field label={t('ad.template')} hint={t('ad.templateHint')}>
-              {(p) => (
-                <Input
-                  {...p}
-                  value={form.imageTemplate}
-                  onChange={(e) => setForm((f) => ({ ...f, imageTemplate: e.target.value }))}
-                  placeholder="registry.example.lab/org/app:sha-{sha7}"
-                  className="font-mono"
-                />
-              )}
-            </Field>
+            {form.mode === 'image' && (
+              <Field label={t('ad.template')} hint={t('ad.templateHint')}>
+                {(p) => (
+                  <Input
+                    {...p}
+                    value={form.imageTemplate}
+                    onChange={(e) => setForm((f) => ({ ...f, imageTemplate: e.target.value }))}
+                    placeholder="registry.example.lab/org/app:sha-{sha7}"
+                    className="font-mono"
+                  />
+                )}
+              </Field>
+            )}
           </div>
           <label className="flex items-center gap-2 text-[13px]">
             <input
@@ -741,7 +829,7 @@ export function AutoDeploySettings({ app }: { app: Application }) {
               disabled={
                 create.isPending ||
                 !form.repo ||
-                !form.imageTemplate ||
+                (form.mode === 'image' && !form.imageTemplate) ||
                 !integrations.data?.items.length
               }
             >
@@ -759,7 +847,7 @@ export function AutoDeploySettings({ app }: { app: Application }) {
 export function CurrentVersionLine({ app }: { app: Application }) {
   const { t } = useI18n();
   const deps = useAppDeployments(app.id);
-  const cur = deps.data?.items.find((d) => d.id === app.container?.currentDeploymentId);
+  const cur = deps.data?.items.find((d) => d.id === runtimeOf(app).currentDeploymentId);
   const latest = deps.data?.items[0];
   if (!latest) return null;
   return (

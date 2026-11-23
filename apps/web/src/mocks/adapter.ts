@@ -21,6 +21,7 @@ import { seedAudit, seedServers, seedUsers, type MockUser } from './seed';
 import type { AuditEvent } from '@/lib/api/types';
 import { registerP3Routes, resetP3State } from './p3-routes';
 import { registerP4Routes, resetP4State } from './p4-routes';
+import { registerP4bRoutes, resetP4bState } from './p4b-routes';
 
 const SESSION_KEY = 'ppanel.mock.session';
 const NOT_BOOTSTRAPPED_KEY = 'ppanel.mock.notBootstrapped';
@@ -60,6 +61,7 @@ export function resetMockState() {
   state = null;
   resetP3State();
   resetP4State();
+  resetP4bState();
   safeSession()?.removeItem(SESSION_KEY);
 }
 
@@ -407,7 +409,11 @@ on('GET', '/servers/:id', ({ req, params, requestId }) => {
 on('PATCH', '/servers/:id', ({ req, params, body, requestId }) => {
   const u = currentUser(req);
   const s = findServer(params[0]!);
-  requirePerm(u, 'servers.operate', s);
+  // §8.1: buildNode needs policies.manage; every other field needs servers.operate.
+  const onlyBuildNode =
+    Object.keys(body).length > 0 && Object.keys(body).every((k) => k === 'buildNode');
+  if (body.buildNode !== undefined) requirePerm(u, 'policies.manage', s);
+  if (!onlyBuildNode) requirePerm(u, 'servers.operate', s);
   const ifMatch = req.headers.get('If-Match');
   if (ifMatch && Number(ifMatch) !== s.version) {
     throw new HttpError(
@@ -429,8 +435,17 @@ on('PATCH', '/servers/:id', ({ req, params, body, requestId }) => {
     details.push({ field: 'connectionPolicy', message: 'Unknown policy' });
   if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.length > 20))
     details.push({ field: 'tags', message: 'Up to 20 tags' });
+  if (body.buildNode !== undefined && typeof body.buildNode !== 'boolean')
+    details.push({ field: 'buildNode', message: 'Must be true or false' });
+  if (body.buildNode === true && !s.capabilities.includes('build'))
+    details.push({
+      field: 'buildNode',
+      message:
+        'The agent does not report the build capability (enable builds in its local config).',
+    });
   if (details.length) throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', details);
   Object.assign(s, {
+    ...(body.buildNode !== undefined ? { buildNode: body.buildNode } : {}),
     ...(body.name !== undefined ? { name: body.name, hostname: s.hostname } : {}),
     ...(body.environment !== undefined ? { environment: body.environment } : {}),
     ...(body.tags !== undefined ? { tags: body.tags } : {}),
@@ -438,7 +453,13 @@ on('PATCH', '/servers/:id', ({ req, params, body, requestId }) => {
     version: s.version + 1,
     updatedAt: new Date().toISOString(),
   });
-  audit(u, 'server.update', s, 'success', requestId);
+  audit(
+    u,
+    body.buildNode !== undefined ? 'server.build_node' : 'server.update',
+    s,
+    'success',
+    requestId,
+  );
   return ok(requestId, withAllowedActions(u, s));
 });
 on('POST', '/servers/:id/revoke', ({ req, params, requestId }) => {
@@ -588,6 +609,7 @@ const p3ctx: Parameters<typeof registerP3Routes>[0] = {
 registerP3Routes(p3ctx);
 // ---------- P4a: container apps / deployments / secrets / webhooks ----------
 registerP4Routes(p3ctx);
+registerP4bRoutes(p3ctx);
 
 /** fetch-compatible entry point. */
 export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

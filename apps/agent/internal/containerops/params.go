@@ -155,13 +155,47 @@ func decode(raw json.RawMessage, dst any) error {
 	return rejectNulls(raw)
 }
 
-// NameMatchesApp reports whether name is exactly ppanel-<app>-<8hex>.
-func NameMatchesApp(app, name string) bool {
+var hex8Re = regexp.MustCompile(`^[a-f0-9]{8}$`)
+
+// ComposeServiceRe is the compose service name pattern.
+var ComposeServiceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
+
+// PlainNameMatchesApp reports whether name is exactly ppanel-<app>-<8hex>
+// (container.run_candidate names).
+func PlainNameMatchesApp(app, name string) bool {
 	if !ManagedNameRe.MatchString(name) || !AppSlugRe.MatchString(app) {
 		return false
 	}
 	rest, ok := strings.CutPrefix(name, "ppanel-"+app+"-")
-	return ok && len(rest) == 8 && regexp.MustCompile(`^[a-f0-9]{8}$`).MatchString(rest)
+	return ok && hex8Re.MatchString(rest)
+}
+
+// NameMatchesService reports whether name is exactly ppanel-<app>-<service>-<8hex>
+// (compose service containers, P4b).
+func NameMatchesService(app, service, name string) bool {
+	if !ManagedNameRe.MatchString(name) || !AppSlugRe.MatchString(app) || !ComposeServiceRe.MatchString(service) {
+		return false
+	}
+	rest, ok := strings.CutPrefix(name, "ppanel-"+app+"-"+service+"-")
+	return ok && hex8Re.MatchString(rest)
+}
+
+// NameMatchesApp is the pure (name-only) part of the ownership rule:
+// ppanel-<app>-<8hex> or a compose service container ppanel-<app>-<service>-<8hex>.
+// Labels decide the rest (IsOwned).
+func NameMatchesApp(app, name string) bool {
+	if PlainNameMatchesApp(app, name) {
+		return true
+	}
+	if !ManagedNameRe.MatchString(name) || !AppSlugRe.MatchString(app) {
+		return false
+	}
+	rest, ok := strings.CutPrefix(name, "ppanel-"+app+"-")
+	if !ok || len(rest) < 10 {
+		return false
+	}
+	svc, h := rest[:len(rest)-9], rest[len(rest)-9:]
+	return h[0] == '-' && hex8Re.MatchString(h[1:]) && ComposeServiceRe.MatchString(svc)
 }
 
 func checkAppName(app, name string) error {
@@ -273,7 +307,7 @@ func DecodeRun(raw json.RawMessage) (RunParams, error) {
 	if err := checkAppName(*w.App, *w.Name); err != nil {
 		return p, err
 	}
-	if !NameMatchesApp(*w.App, *w.Name) {
+	if !PlainNameMatchesApp(*w.App, *w.Name) {
 		return p, invalid("name must be ppanel-<app>-<8 hex>")
 	}
 	if w.Image == nil || len(*w.Image) > 400 || !ImageDigestRefRe.MatchString(*w.Image) {
@@ -470,3 +504,11 @@ func DecodeLogs(raw json.RawMessage) (LogsParams, error) {
 	}
 	return p, nil
 }
+
+// DecodeParams is the strict params decode shared with other typed-job
+// packages: unknown fields, trailing data and JSON null anywhere are refused
+// (REJECTED_INVALID_PARAMS).
+func DecodeParams(raw json.RawMessage, dst any) error { return decode(raw, dst) }
+
+// UUIDRe matches a UUID (any version).
+var UUIDRe = uuidRe

@@ -1,4 +1,5 @@
 import type { MessageKey } from './en';
+import { p4bTh } from './p4b';
 
 /**
  * Thai messages. Partial by type so a missing key falls back to English at runtime;
@@ -6,6 +7,7 @@ import type { MessageKey } from './en';
  * Design-derived strings use the prototype's Thai source text.
  */
 export const th: Partial<Record<MessageKey, string>> = {
+  ...p4bTh,
   'app.name': 'pPanel',
   'app.tagline': 'center v0.1',
   'app.skipToContent': 'ข้ามไปยังเนื้อหา',
@@ -934,10 +936,10 @@ export const th: Partial<Record<MessageKey, string>> = {
   'wiz.step.execution.desc': 'ไทม์ไลน์ของ deployment แบบสด',
   'wiz.src.registry': 'Registry image',
   'wiz.src.registry.desc': 'image จาก registry ปักด้วย sha256 digest',
-  'wiz.src.github': 'GitHub',
-  'wiz.src.github.desc': 'repo, branch และ commit ที่เชื่อมไว้',
+  'wiz.src.github': 'GitHub App',
+  'wiz.src.github.desc': 'repo ที่เชื่อมผ่านการติดตั้ง GitHub App',
   'wiz.src.compose': 'Compose',
-  'wiz.src.compose.desc': 'วางไฟล์ compose — ตรวจได้ แต่ยังรันไม่ได้',
+  'wiz.src.compose.desc': 'แอปหลาย service จากไฟล์ compose ตรวจแล้วจึงรัน',
   'wiz.src.dockerfile': 'Dockerfile',
   'wiz.src.dockerfile.desc': 'build จาก Dockerfile',
   'fw.nextjs': 'Next.js',
@@ -946,9 +948,9 @@ export const th: Partial<Record<MessageKey, string>> = {
   'fw.dockerfile': 'Dockerfile',
   'fw.compose': 'Compose (หลาย service)',
   'fw.unknown': 'ไม่ทราบ',
-  'wiz.det.build.compose': 'Compose (P4b)',
-  'wiz.det.build.dockerfile': 'build จาก Dockerfile (P4b)',
-  'wiz.det.build.framework_default': 'Dockerfile ที่สร้างให้ (P4b)',
+  'wiz.det.build.compose': 'แอป Compose',
+  'wiz.det.build.dockerfile': 'build จาก Dockerfile (ซอร์ส Git)',
+  'wiz.det.build.framework_default': 'Template ในตัว (ซอร์ส Git)',
   'wiz.det.build.none': 'ไม่มี — deploy image ที่ build แล้ว',
   'mr.status.disabled': 'ยังไม่เปิด',
   'mr.status.awaiting_approval': 'รออนุมัติ',
@@ -1140,7 +1142,7 @@ export const th: Partial<Record<MessageKey, string>> = {
   'wiz.det.health': 'path ของ health check',
   'wiz.det.build': 'วิธี build',
   'wiz.det.apply': 'ใช้พอร์ตและ health check ที่แนะนำ',
-  'wiz.det.buildNote': 'การ build อยู่ใน P4b — deploy image ที่ build จาก CI',
+  'wiz.det.buildNote': 'เลือกซอร์ส Git เพื่อ build บน build node หรือ deploy image ที่ build จาก CI',
   'wiz.det.override': 'กำหนดเอง',
   'wiz.det.overrideHint': 'ใช้เมื่อผลตรวจจับไม่ถูก',
   'wiz.det.auto': 'ใช้ผลตรวจจับ',

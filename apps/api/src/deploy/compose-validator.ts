@@ -14,11 +14,20 @@ export function validateComposeYaml(
   text: string,
   opts: { environment?: 'production' | 'uat' | 'development' } = {},
 ): ComposeValidation {
-  const fail = (rule: 'yaml_invalid' | 'yaml_alias_bomb', message: string): ComposeValidation => ({
-    valid: false,
-    violations: [{ service: null, rule, path: '$', message }],
-    warnings: [],
-    services: [],
+  const parsed = parseComposeYaml(text);
+  if ('failure' in parsed) return parsed.failure;
+  return validateComposeDocument(parsed.doc, opts);
+}
+
+/** Parse with size/alias-bomb limits → the plain JS document, or a ready-made failed validation. */
+export function parseComposeYaml(text: string): { doc: unknown } | { failure: ComposeValidation } {
+  const fail = (rule: 'yaml_invalid' | 'yaml_alias_bomb', message: string) => ({
+    failure: {
+      valid: false,
+      violations: [{ service: null, rule, path: '$', message }],
+      warnings: [],
+      services: [],
+    } satisfies ComposeValidation,
   });
   if (Buffer.byteLength(text, 'utf8') > COMPOSE_MAX_BYTES)
     return fail('yaml_invalid', `Compose file larger than ${COMPOSE_MAX_BYTES} bytes`);
@@ -48,11 +57,9 @@ export function validateComposeYaml(
       'yaml_alias_bomb',
       `Too many YAML aliases/merge keys (${Math.max(aliases, mergeKeys)} > ${MAX_YAML_ALIASES})`,
     );
-  let js: unknown;
   try {
-    js = doc.toJS({ maxAliasCount: MAX_ALIAS_EXPANSION });
+    return { doc: doc.toJS({ maxAliasCount: MAX_ALIAS_EXPANSION }) as unknown };
   } catch (e) {
     return fail('yaml_alias_bomb', (e as Error).message.split('\n')[0] ?? 'alias expansion limit');
   }
-  return validateComposeDocument(js, opts);
 }

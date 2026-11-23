@@ -70,7 +70,7 @@ func grant(typ string, params any) *jobs.Grant {
 func TestRegistryIsAllowlist(t *testing.T) {
 	reg, _, _ := setup(t)
 	got := strings.Join(reg.Types(), ",")
-	if got != "container.list,container.logs,container.remove,container.restart,container.run_candidate,container.start,container.stop,discovery.scan,inventory.collect,nginx.apply,nginx.read_files,nginx.revert,nginx.validate,service.restart" {
+	if got != "compose.apply,compose.stop,container.list,container.logs,container.remove,container.restart,container.run_candidate,container.start,container.stop,discovery.scan,image.build,inventory.collect,nginx.apply,nginx.read_files,nginx.revert,nginx.validate,service.restart,source.inspect" {
 		t.Fatalf("registered handlers: %s", got)
 	}
 }

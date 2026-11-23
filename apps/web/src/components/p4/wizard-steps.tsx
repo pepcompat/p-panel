@@ -1,19 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import type { Server } from '@ppanel/shared-contracts';
 import { useI18n } from '@/i18n/provider';
 import type { ApiError } from '@/lib/api/errors';
 import type { Application } from '@/lib/api/p3-types';
-import { deployToolsApi } from '@/lib/api/p4-endpoints';
-import {
-  FRAMEWORKS,
-  detectFramework,
-  type ComposeValidation,
-  type Framework,
-} from '@/lib/api/p4-types';
+import { toApiError } from '@/lib/api/errors';
+import { buildsApi } from '@/lib/api/p4b-endpoints';
+import type { SourceInspection } from '@/lib/api/p4b-types';
+import { FRAMEWORKS, detectFramework, type Framework } from '@/lib/api/p4-types';
+import { useAuth } from '@/lib/auth/auth-provider';
+import { evaluateGate } from '@/lib/permissions';
+import { commitShaError } from '@/lib/p4b-gates';
+import { GatedButton } from '@/components/ui/gated-button';
 import {
   hostnameError,
   isEnvKey,
@@ -35,6 +36,8 @@ import { Segmented } from '@/components/ui/segmented';
 import { ErrorState, Notice } from '@/components/ui/states';
 import { ConfidenceBadge } from '@/components/p3/bits';
 import { ManagedRoutingPanel } from './managed-routing';
+import { ComposeSourceForm } from './compose-source';
+import { GitSourceForm } from './git-source';
 import { SecretInput } from './secret-input';
 import type { MessageKey } from '@/i18n/en';
 
@@ -56,19 +59,36 @@ const SOURCES: Array<{
   tone: 'ok' | 'crit' | 'info';
 }> = [
   { kind: 'registry', glyph: '◉', tag: 'wiz.src.tag.supported', tone: 'ok' },
-  { kind: 'github', glyph: '⎇', tag: 'wiz.src.tag.blocked', tone: 'crit' },
-  { kind: 'compose', glyph: '▤', tag: 'wiz.src.tag.validateOnly', tone: 'info' },
-  { kind: 'dockerfile', glyph: '▣', tag: 'wiz.src.tag.p4b', tone: 'info' },
+  { kind: 'git', glyph: '⎇', tag: 'wiz.src.tag.build', tone: 'ok' },
+  { kind: 'compose', glyph: '▤', tag: 'wiz.src.tag.supported', tone: 'ok' },
+  { kind: 'github', glyph: '◇', tag: 'wiz.src.tag.blocked', tone: 'crit' },
 ];
+
+/** Which source kinds a wizard may use (existing apps keep their kind). */
+function kindAllowed(w: WizardState, app: Application | null, kind: SourceKind) {
+  if (w.mode !== 'existing') return true;
+  if (app?.kind === 'compose') return kind === 'compose';
+  return kind === 'registry' || kind === 'git';
+}
 
 export function SourceStep({
   w,
   patch,
   environment,
+  servers,
+  app,
+  gitToken,
+  setSecrets,
+  secretValues,
 }: {
   w: WizardState;
   patch: Patch;
   environment?: string;
+  servers: Server[];
+  app: Application | null;
+  gitToken: { current: string | null };
+  setSecrets: readonly string[];
+  secretValues: Map<string, string>;
 }) {
   const { t } = useI18n();
   const res = resolveImage(w.source.repo, w.source.ref, w.source.digestRef);
@@ -96,7 +116,7 @@ export function SourceStep({
                 name="source-kind"
                 value={s.kind}
                 checked={on}
-                disabled={w.mode === 'existing' && s.kind !== 'registry'}
+                disabled={!kindAllowed(w, app, s.kind)}
                 onChange={() => patch((x) => ({ ...x, source: { ...x.source, kind: s.kind } }))}
                 className="sr-only"
               />
@@ -218,116 +238,19 @@ export function SourceStep({
         </Notice>
       )}
 
-      {w.source.kind === 'compose' && <ComposeSource environment={environment} />}
-
-      {w.source.kind === 'dockerfile' && (
-        <Notice tone="info" glyph="◆" role="note" title={t('wiz.src.dockerfile.title')}>
-          {t('wiz.src.dockerfile.body')}
-        </Notice>
+      {w.source.kind === 'compose' && (
+        <ComposeSourceForm
+          w={w}
+          patch={patch}
+          environment={environment}
+          app={app}
+          setSecrets={setSecrets}
+          secretValues={secretValues}
+        />
       )}
-    </div>
-  );
-}
 
-function ComposeSource({ environment }: { environment?: string }) {
-  const { t } = useI18n();
-  const [yaml, setYaml] = useState('');
-  const m = useMutation<ComposeValidation, ApiError, string>({
-    mutationFn: (y) => deployToolsApi.validateCompose(y, environment),
-  });
-  const { mutate } = m;
-  useEffect(() => {
-    if (!yaml.trim()) return;
-    const h = setTimeout(() => mutate(yaml), 450);
-    return () => clearTimeout(h);
-  }, [yaml, mutate]);
-  const r = yaml.trim() ? m.data : undefined;
-  return (
-    <div className="flex flex-col gap-3">
-      <Notice tone="info" glyph="◆" role="note" title={t('wiz.src.compose.p4bTitle')}>
-        {t('wiz.src.compose.p4bBody')}
-      </Notice>
-      <Field label={t('wiz.src.compose.label')} hint={t('wiz.src.compose.hint')}>
-        {(p) => (
-          <textarea
-            {...p}
-            rows={12}
-            value={yaml}
-            onChange={(e) => setYaml(e.target.value)}
-            spellCheck={false}
-            className={textarea}
-            placeholder={'services:\n  web:\n    image: registry.example.lab/w3/web@sha256:…'}
-          />
-        )}
-      </Field>
-      {m.isPending && (
-        <span className="text-[12.5px] text-fg-muted">{t('wiz.src.compose.validating')}</span>
-      )}
-      {m.error && <ErrorState error={m.error} />}
-      {r && (
-        <div
-          className="flex flex-col gap-2"
-          aria-live="polite"
-          data-testid="compose-result"
-          data-valid={r.valid ? 'true' : 'false'}
-        >
-          {r.valid ? (
-            <Notice tone="ok" glyph="●" role="status">
-              {t('wiz.src.compose.valid', { n: r.services.length })}
-            </Notice>
-          ) : (
-            <Notice tone="crit" glyph="✕" role="alert">
-              {t('wiz.src.compose.invalid', { n: r.violations.length })}
-            </Notice>
-          )}
-          {[
-            ...r.violations.map((v) => ({ ...v, warn: false })),
-            ...(r.warnings ?? []).map((v) => ({ ...v, warn: true })),
-          ].length > 0 && (
-            <div className="overflow-x-auto rounded-md border border-line">
-              <table className="w-full border-collapse text-[12.5px]" style={{ minWidth: 560 }}>
-                <thead>
-                  <tr className="bg-surface-2 text-left text-[12px] text-fg-muted">
-                    <th scope="col" className="px-3 py-2 font-medium">
-                      {t('wiz.src.compose.col.severity')}
-                    </th>
-                    <th scope="col" className="px-2 py-2 font-medium">
-                      {t('wiz.src.compose.col.rule')}
-                    </th>
-                    <th scope="col" className="px-2 py-2 font-medium">
-                      {t('wiz.src.compose.col.path')}
-                    </th>
-                    <th scope="col" className="px-2 py-2 pr-3 font-medium">
-                      {t('wiz.src.compose.col.message')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    ...r.violations.map((v) => ({ ...v, warn: false })),
-                    ...(r.warnings ?? []).map((v) => ({ ...v, warn: true })),
-                  ].map((v, i) => (
-                    <tr
-                      key={`${v.path}-${v.rule}-${i}`}
-                      className="border-t border-line-subtle"
-                      data-testid="compose-violation"
-                      data-rule={v.rule}
-                    >
-                      <td className="px-3 py-1.5">
-                        <ToneBadge tone={v.warn ? 'warn' : 'crit'} size="sm">
-                          {v.warn ? t('wiz.src.compose.warning') : t('wiz.src.compose.violation')}
-                        </ToneBadge>
-                      </td>
-                      <td className="px-2 py-1.5 font-mono">{v.rule}</td>
-                      <td className="px-2 py-1.5 font-mono break-all">{v.path}</td>
-                      <td className="px-2 py-1.5 pr-3">{v.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+      {w.source.kind === 'git' && (
+        <GitSourceForm w={w} patch={patch} servers={servers} app={app} gitToken={gitToken} />
       )}
     </div>
   );
@@ -337,9 +260,44 @@ function ComposeSource({ environment }: { environment?: string }) {
 
 const DETECT_FILES = ['package.json', 'composer.json', 'Dockerfile'] as const;
 
-export function DetectStep({ w, patch }: { w: WizardState; patch: Patch }) {
+export function DetectStep({
+  w,
+  patch,
+  app,
+}: {
+  w: WizardState;
+  patch: Patch;
+  app: Application | null;
+}) {
   const { t } = useI18n();
+  const { me } = useAuth();
   const [files, setFiles] = useState<Record<string, string>>({});
+  const inspect = useMutation<SourceInspection, ApiError>({
+    mutationFn: async () => {
+      try {
+        return await buildsApi.inspect(w.appId!, w.git.commitSha.trim());
+      } catch (e) {
+        throw toApiError(e);
+      }
+    },
+    onSuccess: (r) => {
+      if (r.status === 'succeeded') setFiles((f) => ({ ...f, ...r.files }));
+    },
+  });
+  const isGit = w.source.kind === 'git';
+  const inspectGate = evaluateGate({
+    permissions: me?.permissions,
+    perm: 'apps.deploy',
+    action: 'inspect_source',
+    allowedActions: app?.allowedActions,
+    blockedReason: !w.appId
+      ? { key: 'wiz.det.inspect.afterCreate' }
+      : !app?.build?.config
+        ? { key: 'wiz.det.inspect.noConfig' }
+        : commitShaError(w.git.commitSha)
+          ? { key: 'wiz.det.inspect.needSha' }
+          : undefined,
+  });
   const [active, setActive] = useState<(typeof DETECT_FILES)[number]>('package.json');
   const present = useMemo(
     () => Object.fromEntries(Object.entries(files).filter(([, v]) => v.trim().length > 0)),
@@ -369,8 +327,78 @@ export function DetectStep({ w, patch }: { w: WizardState; patch: Patch }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {isGit && (
+        <section
+          className="flex flex-col gap-2 rounded-md border border-line p-3"
+          data-testid="inspect-source"
+          aria-labelledby="inspect-title"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 id="inspect-title" className="m-0 flex-1 text-[14px] font-semibold">
+              {t('wiz.det.inspect.title')}
+            </h3>
+            <GatedButton
+              size="sm"
+              variant="primary"
+              perm="apps.deploy"
+              blockedReason={inspectGate.allowed ? undefined : inspectGate.reason}
+              disabled={inspect.isPending}
+              onClick={() => inspect.mutate()}
+              data-testid="inspect-button"
+            >
+              {inspect.isPending ? t('wiz.det.inspect.running') : t('wiz.det.inspect.button')}
+            </GatedButton>
+          </div>
+          <p className="m-0 text-[12.5px] text-fg-muted">
+            {t('wiz.det.inspect.body', { sha: w.git.commitSha.slice(0, 12) || '—' })}
+          </p>
+          {inspect.error && <ErrorState error={inspect.error} />}
+          {inspect.data && inspect.data.status !== 'succeeded' && (
+            <Notice
+              tone={inspect.data.status === 'failed' ? 'crit' : 'warn'}
+              glyph="▲"
+              role="alert"
+            >
+              {inspect.data.error
+                ? `${inspect.data.error.code}: ${inspect.data.error.message}`
+                : t('wiz.det.inspect.timeout')}
+            </Notice>
+          )}
+          {inspect.data?.status === 'succeeded' && inspect.data.detection && (
+            <div className="flex flex-col gap-1.5" data-testid="inspect-result">
+              <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                <span>{t('wiz.det.inspect.server')}</span>
+                <b data-testid="inspected-framework">
+                  {t(`fw.${inspect.data.detection.framework}` as MessageKey)}
+                </b>
+                <ConfidenceBadge c={inspect.data.detection.confidence} />
+              </div>
+              <span className="text-[12.5px] text-fg-muted">{t('wiz.det.inspect.files')}</span>
+              <ul
+                className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+                data-testid="inspected-files"
+              >
+                {Object.keys(inspect.data.files).map((f) => (
+                  <li key={f} className="rounded bg-chip px-2 py-0.5 font-mono text-[12px]">
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              {inspect.data.detection.evidence.length > 0 && (
+                <ul className="m-0 flex flex-col gap-0.5 pl-5 text-[12.5px]">
+                  {inspect.data.detection.evidence.map((e) => (
+                    <li key={e} className="font-mono">
+                      {e}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+      )}
       <Notice tone="neutral" role="note">
-        {t('wiz.det.optional')}
+        {isGit ? t('wiz.det.optionalGit') : t('wiz.det.optional')}
       </Notice>
       <div className="flex flex-wrap items-center gap-2">
         <Segmented
@@ -651,6 +679,45 @@ export function ConfigureStep({
   const c = w.config;
   const set = (k: keyof WizardState['config'], v: string) =>
     patch((x) => ({ ...x, config: { ...x.config, [k]: v } }));
+
+  if (w.mode === 'existing' && app?.kind === 'compose') {
+    return (
+      <Notice tone="neutral" role="note">
+        {t('wiz.cfg.existingCompose')}{' '}
+        <Link href={`/applications/${app.id}/compose`}>{t('wiz.cfg.toCompose')} →</Link>
+      </Notice>
+    );
+  }
+
+  if (w.mode !== 'existing' && w.source.kind === 'compose') {
+    return (
+      <div className="flex flex-col gap-3">
+        <Field
+          label={t('wiz.cfg.name')}
+          hint={t('wiz.cfg.nameHint')}
+          error={
+            c.name && !/^[a-z0-9][a-z0-9-]{0,40}$/.test(c.name)
+              ? t('wiz.cfg.issue.name')
+              : undefined
+          }
+          className="max-w-[360px]"
+        >
+          {(p) => (
+            <Input
+              {...p}
+              value={c.name}
+              onChange={(e) => set('name', e.target.value.trim())}
+              placeholder="crm-suite"
+              className="font-mono"
+            />
+          )}
+        </Field>
+        <Notice tone="neutral" role="note">
+          {t('wiz.cfg.composeNote')}
+        </Notice>
+      </div>
+    );
+  }
 
   if (w.mode === 'existing') {
     const spec = app?.container;

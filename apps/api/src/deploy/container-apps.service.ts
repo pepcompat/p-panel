@@ -150,7 +150,7 @@ export class ContainerAppsService {
     input: UpdateContainerAppInput,
     ifMatch: number | undefined,
   ): Promise<Application> {
-    const ref = await loadContainerApp(this.apps, this.prisma, user, appId);
+    const ref = await loadContainerApp(this.apps, this.prisma, user, appId, ['container']);
     await this.authz.enforce(user, 'apps.deploy', serverScope(ref.app.server), {
       action: 'applications.container_update',
       targetType: 'application',
@@ -247,7 +247,7 @@ export class ContainerAppsService {
     op: 'restart' | 'start' | 'stop',
     stepUp: string | undefined,
   ): Promise<ContainerOperationAccepted> {
-    const ref = await loadContainerApp(this.apps, this.prisma, user, appId);
+    const ref = await loadContainerApp(this.apps, this.prisma, user, appId, ['container']);
     const scope = serverScope(ref.app.server);
     await this.authz.enforce(user, 'apps.deploy', scope, {
       action: `applications.${op}`,

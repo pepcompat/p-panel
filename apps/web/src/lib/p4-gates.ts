@@ -6,6 +6,15 @@
 import type { Server } from '@ppanel/shared-contracts';
 import type { MessageKey } from '@/i18n/en';
 import { evaluateGate, type GateResult } from './permissions';
+import { GIT_HOST_ALLOWLIST } from './config';
+import {
+  composeIssues,
+  gitSourceIssues,
+  initialCompose,
+  initialGitSource,
+  type ComposeState,
+  type GitSourceState,
+} from './p4b-gates';
 import type { Application } from './api/p3-types';
 import {
   DEPLOYMENT_CANCELLABLE,
@@ -134,7 +143,8 @@ export const WIZARD_STEPS = [
   'execution',
 ] as const;
 export type WizardStep = (typeof WIZARD_STEPS)[number];
-export type SourceKind = 'registry' | 'github' | 'compose' | 'dockerfile';
+/** `git` = build from a Git commit on a build node (§8); `github` = GitHub App flow (BLOCKED). */
+export type SourceKind = 'registry' | 'git' | 'compose' | 'github';
 
 export interface EnvRow {
   id: string;
@@ -158,6 +168,10 @@ export interface WizardState {
     ref: string;
     digestRef: string;
   };
+  /** §8 Git source (build on a build node → push → deploy the digest). */
+  git: GitSourceState;
+  /** §8.3 Compose application. */
+  compose: ComposeState;
   detect: { override: Framework | ''; skipped: boolean };
   target: { serverId: string };
   config: {
@@ -187,6 +201,8 @@ export function initialWizard(mode: 'new' | 'existing' = 'new'): WizardState {
     mode,
     appId: null,
     source: { kind: 'registry', repo: '', ref: '', digestRef: '' },
+    git: initialGitSource(),
+    compose: initialCompose(),
     detect: { override: '', skipped: false },
     target: { serverId: '' },
     config: {
@@ -208,7 +224,11 @@ export function initialWizard(mode: 'new' | 'existing' = 'new'): WizardState {
 }
 
 export interface WizardCtx {
-  servers: Array<Pick<Server, 'id' | 'status'> & { capabilities?: string[] }>;
+  servers: Array<Pick<Server, 'id' | 'status'> & { capabilities?: string[]; buildNode?: boolean }>;
+  /** Secret keys already set on the application (compose placeholders). */
+  setSecrets?: readonly string[];
+  /** Git host allowlist hint (defaults to the client config). */
+  gitAllowlist?: readonly string[];
 }
 
 /** Why a server cannot be a deploy target (null = eligible). */
@@ -231,8 +251,17 @@ export function stepIssues(step: WizardStep, w: WizardState, ctx: WizardCtx): Me
   switch (step) {
     case 'source': {
       if (w.source.kind === 'github') out.push('wiz.src.issue.github');
-      else if (w.source.kind === 'compose') out.push('wiz.src.issue.compose');
-      else if (w.source.kind === 'dockerfile') out.push('wiz.src.issue.dockerfile');
+      else if (w.source.kind === 'compose')
+        out.push(...composeIssues(w.compose, ctx.setSecrets ?? []));
+      else if (w.source.kind === 'git')
+        out.push(
+          ...gitSourceIssues(
+            w.git,
+            ctx.servers.map((s) => ({ capabilities: [], ...s })),
+            ctx.gitAllowlist ?? GIT_HOST_ALLOWLIST,
+            { allowUnknownNode: w.mode === 'existing' },
+          ),
+        );
       else {
         const r = resolveImage(w.source.repo, w.source.ref, w.source.digestRef);
         if (r.kind === 'empty') out.push('wiz.src.issue.image');
@@ -254,6 +283,7 @@ export function stepIssues(step: WizardStep, w: WizardState, ctx: WizardCtx): Me
       if (w.mode === 'existing') break;
       const c = w.config;
       if (!APP_NAME_RE.test(c.name)) out.push('wiz.cfg.issue.name');
+      if (w.source.kind === 'compose') break;
       if (!intIn(c.containerPort, 1, 65535)) out.push('wiz.cfg.issue.port');
       if (!/^\/[A-Za-z0-9._~/?=&%-]{0,200}$/.test(c.hcPath)) out.push('wiz.cfg.issue.hcPath');
       if (!intIn(c.hcStatus, 100, 599)) out.push('wiz.cfg.issue.hcStatus');

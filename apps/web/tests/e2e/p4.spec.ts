@@ -240,9 +240,7 @@ test('malicious compose shows violations with rule and path', async ({ page }) =
   await page.setViewportSize({ width: 1440, height: 1000 });
   await signIn(page, 'admin', '/deployments/new');
   await page.getByRole('radio', { name: /Compose/ }).check({ force: true });
-  await expect(
-    page.getByText('Compose execution is not supported yet (P4b).').first(),
-  ).toBeVisible();
+  await expect(page.getByTestId('compose-risk')).toContainText('never restores volumes');
   await page
     .getByLabel('docker-compose.yml')
     .fill(

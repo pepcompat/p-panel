@@ -77,6 +77,7 @@ export function makeServer(over: Partial<Server> = {}): Server {
     connectionPolicy: 'private_preferred',
     metrics: { cpuPct: 38, memPct: 61, diskPct: 72, sampledAt: ago(10), stale: false },
     capabilities: ['docker', 'nginx'],
+    buildNode: false,
     certificate: { serial: 'abc', notAfter: new Date(Date.now() + 864e5).toISOString() },
     allowedActions: ['edit', 'restart_service', 'rotate_cert', 'revoke', 'open_terminal'],
     createdAt: ago(1000),

@@ -27,6 +27,8 @@ scripts/lab/smoke.sh           # 17 Host-header probes, exit≠0 on any mismatch
 scripts/lab/checksum-nginx.sh [--out FILE]   # P3-T01 evidence (config sha256 + nginx master start time + worker PIDs)
 scripts/lab/images.sh          # P4: build+push test images, write digest refs to .lab/images.env
 scripts/lab/agent_containers_lab.sh   # P4: agent container.* ops against the real lab-dind engine
+scripts/lab/git-fixtures.sh    # P4b: deterministic fixture repos -> .lab/git/*.git + .lab/git.env
+scripts/lab/agent_build_lab.sh # P4b: image.build + compose.apply on the build node (node-b) against dind/lab-git/registry
 scripts/lab/down.sh [--images] # removes ONLY ppanel-lab containers/network/volumes (incl. dind + registry volumes)
 ```
 
@@ -78,6 +80,41 @@ PPANEL_LAB_IMAGE_ENVECHO=lab-registry:5000/ppanel-test/envecho@sha256:<64hex>
 Use these digest refs as `image` in `container.run_candidate` / Center deployments (container port 8080).
 
 Evidence files go to `.lab/evidence/` (gitignored).
+
+## Build node and lab git server (P4b)
+
+- **node-b is the lab build node.** Its image installs `git` (`WITH_GIT=1`) and
+  `infra/lab/node/agent-config/node-b.yaml` is mounted read-only at `/etc/ppanel-agent/config.yaml`
+  (`build.enabled: true`, `build.gitHostsAllowlist: [lab-git]`). The agent therefore reports the `build`
+  capability and accepts `image.build` / `source.inspect`. node-a has no config file → builds disabled →
+  `NOT_A_BUILD_NODE` before ack. Builds run `RUN` steps as containers on `lab-dind`: a real build node
+  must be a **dedicated, trusted host** (not an isolation guarantee).
+- **`lab-git`** (`infra/lab/git-daemon/Dockerfile`, alpine + `git-daemon`, runs as 65534, read-only rootfs,
+  `cap_drop: ALL`) serves `.lab/git/*.git` read-only as `git://lab-git/<name>.git` on the lab network
+  only (not published). **git:// is lab-only**: unauthenticated and unencrypted; the agent accepts it
+  only because node-b's allowlist names `lab-git`. Production sources are https hosts.
+- `scripts/lab/git-fixtures.sh` builds one bare repo per `infra/lab/git/<name>/` with one commit per
+  `v1`, `v2`, … snapshot, fixed author/committer/date → the SHAs are identical on every machine, and
+  writes `.lab/git.env` (gitignored):
+
+```bash
+PPANEL_LAB_GIT_URL_WEBSRC=git://lab-git/websrc.git
+PPANEL_LAB_GIT_SHA_WEBSRC=5fafd3e53f7b40461dede446d79e429b31ac1588      # v1
+PPANEL_LAB_GIT_SHA_WEBSRC_V2=cba86a019c675e4ca8810ce533f0730e529df0c4   # v2
+PPANEL_LAB_GIT_URL_STACK=git://lab-git/stack.git
+PPANEL_LAB_GIT_SHA_STACK=c400385f690d22fae14c6658cc1fa052d099dbc1
+PPANEL_LAB_GIT_SHA_STACK_V2=67c9071f6b7bbe6b5055f527b02640af59e362b8
+PPANEL_LAB_GIT_URL_NESTJS_MIN=git://lab-git/nestjs-min.git
+PPANEL_LAB_GIT_SHA_NESTJS_MIN=835407782b691d33da83da39fcf8f0cc408532d6
+```
+
+- Fixture repos (`infra/lab/git/README.md`): `websrc` (busybox httpd :8080, `/healthz`, v1/v2 bodies),
+  `stack` (`compose.yml`: `app` PHP 8.3 + pdo_pgsql `php -S :8080`, `worker` heartbeat row every 2 s,
+  `db` postgres:16-alpine by digest + volume `pgdata`, `${DB_PASSWORD}` secret), `nestjs-min` (built-in
+  `nestjs` template; needs the npm registry from the build containers).
+- Builds push to `lab-registry:5000/ppanel-build/<app>` (dind `--insecure-registry`); the local
+  `build-<id12>` tag is deleted after the push. Dangling build cache in dind is **not** pruned
+  automatically (operator task; `down.sh` drops the whole dind data volume).
 
 ## Fixtures (`infra/nginx/fixtures/`)
 

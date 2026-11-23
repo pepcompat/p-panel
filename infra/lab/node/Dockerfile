@@ -7,6 +7,8 @@ FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9
 
 ARG NODE_ROLE=a
 ARG WITH_PHP=1
+# P4b: the build node (node-b) needs the git binary for image.build / source.inspect source fetches.
+ARG WITH_GIT=0
 ENV DEBIAN_FRONTEND=noninteractive \
     PPANEL_LAB_NODE_ROLE=${NODE_ROLE}
 
@@ -16,6 +18,7 @@ RUN set -eux; \
     apt-get update; \
     pkgs="nginx curl ca-certificates openssl procps iproute2 tini"; \
     if [ "$WITH_PHP" = "1" ]; then pkgs="$pkgs php8.3-fpm"; fi; \
+    if [ "$WITH_GIT" = "1" ]; then pkgs="$pkgs git"; fi; \
     apt-get install -y --no-install-recommends $pkgs; \
     rm -rf /var/lib/apt/lists/*; \
     rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default; \

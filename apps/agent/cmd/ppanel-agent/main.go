@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ppanel/ppanel/apps/agent/internal/agent"
+	"github.com/ppanel/ppanel/apps/agent/internal/buildops"
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
 	"github.com/ppanel/ppanel/apps/agent/internal/containerops"
 	"github.com/ppanel/ppanel/apps/agent/internal/docker"
@@ -200,8 +201,9 @@ func cmdRun(args []string, stderr io.Writer) int {
 		log.Error("owned units invalid", "error", err.Error())
 		return 1
 	}
+	gitBin, _ := execx.Find("git", "")
 	env := &host.Env{Exec: execx.System{}, Docker: docker.New(cfg.DockerSocket), NginxBinary: cfg.NginxBinary,
-		SystemctlBinary: cfg.SystemctlBinary, PhpFpmPoolGlob: cfg.PhpFpmPoolGlob}
+		SystemctlBinary: cfg.SystemctlBinary, PhpFpmPoolGlob: cfg.PhpFpmPoolGlob, BuildEnabled: cfg.Build.Enabled, GitBinary: gitBin}
 	sampler := &metrics.Sampler{}
 	reg := jobs.NewRegistry()
 	ngx, err := nginxops.New(nginxops.Options{Root: cfg.Nginx.Root, AllowedRoots: cfg.Nginx.AllowedRoots,
@@ -216,7 +218,17 @@ func cmdRun(args []string, stderr io.Writer) int {
 	var a *agent.Agent
 	ctr := containerops.New(containerops.Options{Engine: docker.NewEngine(cfg.DockerSocket), Log: log.With("component", "containers"),
 		Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return a.FetchJobSecrets(ctx) }})
-	handlers.RegisterAll(reg, &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx, Containers: ctr})
+	deps := &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx, Containers: ctr}
+	// image.build / source.inspect: only when the operator enabled builds in the LOCAL
+	// config. Only then does the agent hold an Engine that may call /build and push.
+	if cfg.Build.Enabled {
+		deps.Builds = buildops.New(buildops.Options{Engine: docker.NewBuildEngine(cfg.DockerSocket), Exec: execx.System{},
+			GitBinary: gitBin, WorkDir: cfg.BuildWorkDir(), AllowedHosts: cfg.Build.GitHostsAllowlist,
+			Log:     log.With("component", "builds"),
+			Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return a.FetchJobSecrets(ctx) }})
+		log.Info("build node enabled", "gitHosts", cfg.Build.GitHostsAllowlist, "workDir", cfg.BuildWorkDir(), "git", gitBin != "")
+	}
+	handlers.RegisterAll(reg, deps)
 	a, err = agent.New(agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log})
 	if err != nil {
 		log.Error("agent init failed", "error", err.Error())

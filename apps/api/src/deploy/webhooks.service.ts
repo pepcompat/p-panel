@@ -29,6 +29,7 @@ import { RateLimiter } from '../common/rate-limiter';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { ApplicationsService } from '../discovery/applications.service';
 import { appInclude, serverScope } from '../discovery/p3-common';
+import { BuildsService } from './builds.service';
 import { DeploymentsService } from './deployments.service';
 import { parseTaggedRef, RegistryClient } from './registry.client';
 import { loadContainerApp, SecretsService } from './secrets.service';
@@ -67,6 +68,7 @@ export class WebhooksService {
     private readonly deployments: DeploymentsService,
     private readonly secrets: SecretsService,
     private readonly registry: RegistryClient,
+    private readonly builds: BuildsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -151,6 +153,7 @@ export class WebhooksService {
       integrationId: r.integrationId,
       repo: r.repo,
       branches: r.branches,
+      mode: r.mode as AutoDeployPolicy['mode'],
       imageTemplate: r.imageTemplate,
       enabled: r.enabled,
       createdBy: r.createdBy,
@@ -183,15 +186,38 @@ export class WebhooksService {
       );
   }
 
+  /** image mode needs an allowlisted imageTemplate; build mode needs the app's build config. */
+  private async assertModeConfig(
+    appId: string,
+    mode: string,
+    imageTemplate: string | null | undefined,
+  ) {
+    if (mode === 'image') {
+      if (!imageTemplate)
+        throw AppError.validation(
+          [{ path: 'imageTemplate', message: 'imageTemplate is required in image mode' }],
+          'imageTemplate is required in image mode',
+        );
+      await this.assertTemplateHost(appId, imageTemplate);
+      return;
+    }
+    const cfg = await this.prisma.buildConfig.findUnique({ where: { applicationId: appId } });
+    if (!cfg)
+      throw AppError.conflict(
+        'Build mode needs a build config (PUT /applications/:id/build-config)',
+        ERROR_CODES.BUILD_CONFIG_MISSING,
+      );
+  }
+
   async createPolicy(user: AuthUser, appId: string, input: AutoDeployPolicyInput) {
-    const { app } = await loadContainerApp(this.apps, this.prisma, user, appId);
+    const { app } = await loadContainerApp(this.apps, this.prisma, user, appId, ['container']);
     const scope = serverScope(app.server);
     const audit = { action: 'auto_deploy.create', targetType: 'application', targetId: appId };
     await this.authz.enforce(user, 'apps.deploy', scope, audit);
     await this.authz.enforce(user, 'policies.manage', scope, audit);
     const integ = await this.prisma.integration.findUnique({ where: { id: input.integrationId } });
     if (!integ) throw AppError.notFound('Integration');
-    await this.assertTemplateHost(appId, input.imageTemplate);
+    await this.assertModeConfig(appId, input.mode, input.imageTemplate);
     try {
       const row = await this.prisma.$transaction(async (tx) => {
         const r = await tx.autoDeployPolicy.create({
@@ -201,7 +227,8 @@ export class WebhooksService {
             integrationId: input.integrationId,
             repo: input.repo,
             branches: input.branches,
-            imageTemplate: input.imageTemplate,
+            mode: input.mode,
+            imageTemplate: input.mode === 'build' ? null : (input.imageTemplate ?? null),
             enabled: input.enabled,
             createdBy: user.id,
           },
@@ -248,11 +275,17 @@ export class WebhooksService {
     });
     if (!cur) throw AppError.notFound('Auto-deploy policy');
     // enabling (or widening what deploys automatically) needs policies.manage too
-    if (input.enabled === true || input.branches || input.imageTemplate || input.repo)
+    if (input.enabled === true || input.branches || input.imageTemplate || input.repo || input.mode)
       await this.authz.enforce(user, 'policies.manage', scope, audit);
-    if (input.imageTemplate) await this.assertTemplateHost(appId, input.imageTemplate);
+    const mode = input.mode ?? cur.mode;
+    if (input.mode || input.imageTemplate)
+      await this.assertModeConfig(appId, mode, input.imageTemplate ?? cur.imageTemplate);
+    const data = {
+      ...input,
+      ...(mode === 'build' ? { imageTemplate: null } : {}),
+    };
     const row = await this.prisma.$transaction(async (tx) => {
-      const r = await tx.autoDeployPolicy.update({ where: { id: policyId }, data: input });
+      const r = await tx.autoDeployPolicy.update({ where: { id: policyId }, data });
       await this.audit.record(
         { actorId: user.id, ...audit, result: 'success', diff: input, metadata: input },
         tx,
@@ -364,7 +397,7 @@ export class WebhooksService {
       throw e;
     }
 
-    const { result, reasons, deploymentIds } = await this.process(
+    const { result, reasons, deploymentIds, buildIds } = await this.process(
       event,
       payload,
       repo,
@@ -375,7 +408,7 @@ export class WebhooksService {
     );
     const saved = await this.prisma.webhookDelivery.update({
       where: { id: rowId },
-      data: { result, reasons, deploymentIds },
+      data: { result, reasons, deploymentIds, buildIds },
     });
     await this.audit.record({
       actorType: 'system',
@@ -383,7 +416,7 @@ export class WebhooksService {
       targetType: 'integration',
       targetId: integrationId,
       result: result === 'failed' ? 'failure' : 'success',
-      metadata: { deliveryId, event, repo, ref, after, result, reasons, deploymentIds },
+      metadata: { deliveryId, event, repo, ref, after, result, reasons, deploymentIds, buildIds },
     });
     return { duplicate: false, ...toDelivery(saved) };
   }
@@ -396,11 +429,17 @@ export class WebhooksService {
     after: string | null,
     integrationId: string,
     deliveryRowId: string,
-  ): Promise<{ result: WebhookDeliveryResult; reasons: string[]; deploymentIds: string[] }> {
+  ): Promise<{
+    result: WebhookDeliveryResult;
+    reasons: string[];
+    deploymentIds: string[];
+    buildIds: string[];
+  }> {
     const ignored = (r: string) => ({
       result: 'ignored' as const,
       reasons: [r],
       deploymentIds: [],
+      buildIds: [],
     });
     if (event === 'ping') return ignored('ping');
     if (event !== 'push') return ignored('event_not_supported');
@@ -419,10 +458,17 @@ export class WebhooksService {
 
     const reasons: string[] = [];
     const deploymentIds: string[] = [];
+    const buildIds: string[] = [];
     const statuses: string[] = [];
     let errors = 0;
     for (const p of matching) {
       try {
+        if (p.mode === 'build') {
+          const r = await this.buildForPush(p.applicationId, after, branch, deliveryRowId);
+          if (r.reason) reasons.push(r.reason);
+          if (r.buildId) buildIds.push(r.buildId);
+          continue;
+        }
         const done = await this.prisma.deployment.findFirst({
           where: {
             applicationId: p.applicationId,
@@ -444,7 +490,7 @@ export class WebhooksService {
         });
         const cred = await this.secrets.registryCredential(app.id);
         const image = await this.registry.resolveDigest(
-          renderImageTemplate(p.imageTemplate, after, branch),
+          renderImageTemplate(p.imageTemplate ?? '', after, branch),
           {
             auth: cred ? { username: cred.username, password: cred.password } : null,
             extraAllowedHosts: cred ? [cred.serveraddress] : [],
@@ -476,12 +522,64 @@ export class WebhooksService {
       }
     }
     let result: WebhookDeliveryResult;
-    if (deploymentIds.length === 0) result = errors > 0 ? 'failed' : 'ignored';
+    if (deploymentIds.length === 0 && buildIds.length > 0) result = 'building';
+    else if (deploymentIds.length === 0) result = errors > 0 ? 'failed' : 'ignored';
     else if (statuses.every((s) => s === 'failed')) result = 'failed';
     else if (statuses.every((s) => s === 'awaiting_approval' || s === 'failed'))
       result = 'awaiting_approval';
     else result = 'deployed';
-    return { result, reasons: [...new Set(reasons)], deploymentIds };
+    return { result, reasons: [...new Set(reasons)], deploymentIds, buildIds };
+  }
+
+  /**
+   * Build mode (§8.2): one build per commit per app — a deployment of the commit (not failed) →
+   * `already_deployed`; an active or succeeded build of it → `already_built`; else a webhook build
+   * with deployAfter (production deployments still wait for approval).
+   */
+  private async buildForPush(
+    appId: string,
+    after: string,
+    branch: string,
+    deliveryRowId: string,
+  ): Promise<{ reason?: string; buildId?: string }> {
+    const deployed = await this.prisma.deployment.findFirst({
+      where: {
+        applicationId: appId,
+        commitSha: after,
+        status: { notIn: ['failed', 'cancelled', 'expired'] },
+      },
+      select: { id: true },
+    });
+    if (deployed) return { reason: 'already_deployed' };
+    const built = await this.prisma.build.findFirst({
+      where: {
+        applicationId: appId,
+        commitSha: after,
+        status: { in: ['queued', 'fetching', 'building', 'pushing', 'succeeded'] },
+      },
+      select: { id: true },
+    });
+    if (built) return { reason: 'already_built' };
+    const app = await this.prisma.application.findUniqueOrThrow({
+      where: { id: appId },
+      include: appInclude,
+    });
+    const container = await this.prisma.containerApp.findUniqueOrThrow({
+      where: { applicationId: appId },
+    });
+    const { row, created } = await this.builds.start(
+      { id: null },
+      { app, container },
+      {
+        commitSha: after,
+        branch,
+        deployAfter: true,
+        force: false,
+        trigger: 'webhook',
+        webhookDeliveryId: deliveryRowId,
+      },
+    );
+    return created ? { buildId: row.id } : { reason: 'already_built' };
   }
 }
 
@@ -510,6 +608,7 @@ export function toDelivery(r: DeliveryRow): WebhookDelivery {
     result: r.result as WebhookDeliveryResult,
     reasons: r.reasons,
     deploymentIds: r.deploymentIds,
+    buildIds: r.buildIds,
     receivedAt: r.receivedAt.toISOString(),
   };
 }

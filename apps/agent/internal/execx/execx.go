@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -46,15 +47,60 @@ var fixedEnv = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", "LC_ALL=
 var ErrUnsafeArg = errors.New("unsafe argument")
 
 // Run executes binary (absolute path) with args.
-func (System) Run(ctx context.Context, binary string, args []string, timeout time.Duration, maxOut int) (Result, error) {
+func (s System) Run(ctx context.Context, binary string, args []string, timeout time.Duration, maxOut int) (Result, error) {
+	return s.RunCmd(ctx, Cmd{Binary: binary, Args: args, Timeout: timeout, MaxOut: maxOut})
+}
+
+// Cmd is one process invocation with optional extra environment and working
+// directory (used by the P4b git source fetch). Still never a shell.
+type Cmd struct {
+	Binary string
+	Args   []string
+	// Env entries (KEY=VALUE) appended to the fixed minimal environment. Only
+	// keys matching ExtraEnvKeyRe are accepted (HOME and GIT_*), so no
+	// PATH/LD_PRELOAD style injection is possible.
+	Env []string
+	// Dir is the working directory (clean absolute path; default "/").
+	Dir     string
+	Timeout time.Duration
+	MaxOut  int
+}
+
+// CmdRunner runs a Cmd. System implements it; tests may fake it.
+type CmdRunner interface {
+	RunCmd(ctx context.Context, c Cmd) (Result, error)
+}
+
+// ExtraEnvKeyRe limits the environment keys a Cmd may add.
+var ExtraEnvKeyRe = regexp.MustCompile(`^(HOME|GIT_[A-Z0-9_]{1,64})$`)
+
+// RunCmd executes c.Binary (absolute path) with c.Args.
+func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
+	binary := c.Binary
 	if !filepath.IsAbs(binary) || filepath.Clean(binary) != binary {
 		return Result{}, fmt.Errorf("execx: binary must be a clean absolute path: %q", binary)
 	}
-	for _, a := range args {
+	for _, a := range c.Args {
 		if strings.ContainsAny(a, "\x00\n\r") {
 			return Result{}, ErrUnsafeArg
 		}
 	}
+	env := append([]string(nil), fixedEnv...)
+	for _, kv := range c.Env {
+		k, _, ok := strings.Cut(kv, "=")
+		if !ok || !ExtraEnvKeyRe.MatchString(k) || strings.ContainsAny(kv, "\x00\n\r") {
+			return Result{}, fmt.Errorf("execx: environment entry %q refused", k)
+		}
+		env = append(env, kv)
+	}
+	dir := "/"
+	if c.Dir != "" {
+		if !filepath.IsAbs(c.Dir) || filepath.Clean(c.Dir) != c.Dir {
+			return Result{}, fmt.Errorf("execx: dir must be a clean absolute path")
+		}
+		dir = c.Dir
+	}
+	timeout, maxOut := c.Timeout, c.MaxOut
 	if timeout <= 0 || timeout > 10*time.Minute {
 		timeout = 30 * time.Second
 	}
@@ -63,9 +109,9 @@ func (System) Run(ctx context.Context, binary string, args []string, timeout tim
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = fixedEnv
-	cmd.Dir = "/"
+	cmd := exec.CommandContext(ctx, binary, c.Args...)
+	cmd.Env = env
+	cmd.Dir = dir
 	cmd.Stdin = nil
 	cmd.WaitDelay = 2 * time.Second
 	stdout := &capped{max: maxOut}
@@ -78,7 +124,7 @@ func (System) Run(ctx context.Context, binary string, args []string, timeout tim
 		res.ExitCode = cmd.ProcessState.ExitCode()
 	}
 	if ctx.Err() == context.DeadlineExceeded {
-		return res, fmt.Errorf("execx: %s timed out after %s", filepath.Base(binary), timeout)
+		return res, fmt.Errorf("execx: %s timed out after %s: %w", filepath.Base(binary), timeout, context.DeadlineExceeded)
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {

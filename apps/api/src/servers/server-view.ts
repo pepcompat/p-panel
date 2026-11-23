@@ -99,6 +99,7 @@ export function toServer(row: ServerRow, allowedActions: string[], now = Date.no
           }
         : null,
     capabilities: row.capabilities.map((c) => c.name),
+    buildNode: row.buildNode,
     certificate: cert ? { serial: cert.serial, notAfter: cert.notAfter.toISOString() } : null,
     allowedActions,
     createdAt: row.createdAt.toISOString(),

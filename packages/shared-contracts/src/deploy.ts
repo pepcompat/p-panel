@@ -9,6 +9,7 @@ import {
   IMAGE_DIGEST_REF_RE,
 } from './jobs';
 import { ENVIRONMENTS } from './server';
+import type { DeploymentCompose } from './build';
 
 // ---------------------------------------------------------------- hostnames / domains
 
@@ -169,6 +170,8 @@ export interface RegistryAuthView {
 export interface AgentSecretsResponse {
   env: Record<string, string>;
   registryAuth?: { username: string; password: string; serveraddress: string };
+  /** P4b `image.build` / `source.inspect`: `{ header: "Authorization: Basic …" }` for git (never logged). */
+  gitAuth?: { header: string };
 }
 
 // ---------------------------------------------------------------- deployments (§7.3)
@@ -231,6 +234,9 @@ export const DEPLOYMENT_STEP_NAMES = [
   'cleanup_stop',
   'cleanup_remove',
   'prune_remove',
+  // P4b compose: Center-side digest resolution, then compose.apply on the agent
+  'resolve_images',
+  'compose_apply',
 ] as const;
 export type DeploymentStepName = (typeof DEPLOYMENT_STEP_NAMES)[number];
 export const DEPLOYMENT_STEP_STATUSES = [
@@ -288,8 +294,12 @@ export type SourceRef = z.infer<typeof sourceRefSchema>;
 
 export const createDeploymentSchema = z
   .object({
-    /** Must be pinned by digest (`registry/repo@sha256:…`) → else 422 IMAGE_NOT_PINNED. */
-    image: z.string().trim().min(1).max(400),
+    /**
+     * Container apps: required, pinned by digest (`registry/repo@sha256:…`) → else 422 IMAGE_NOT_PINNED.
+     * Compose apps (P4b): omitted — the latest (or `composeVersion`) compose version is deployed.
+     */
+    image: z.string().trim().min(1).max(400).optional(),
+    composeVersion: z.number().int().min(1).optional(),
     sourceRef: sourceRefSchema.optional(),
     reason: z.string().trim().max(500).optional(),
   })
@@ -355,6 +365,10 @@ export interface Deployment {
   error: { code: string; message: string; details?: unknown } | null;
   allowedActions: DeploymentAction[];
   version: number;
+  /** P4b: build that produced the image (deployAfter / build-mode webhook) */
+  buildId?: string | null;
+  /** P4b: present iff the application is a compose app */
+  compose?: DeploymentCompose | null;
 }
 
 /** POST /applications/:id/restart|start|stop → 202 */
@@ -362,6 +376,8 @@ export interface ContainerOperationAccepted {
   jobId: string;
   operation: 'restart' | 'start' | 'stop';
   container: string;
+  /** P4b compose `start`: re-apply of the current plan runs as a deployment */
+  deploymentId?: string;
 }
 
 export interface ContainerLogs {
@@ -433,20 +449,27 @@ export const BRANCH_PATTERN_RE = /^[A-Za-z0-9._\/*-]{1,255}$/;
 export const IMAGE_TEMPLATE_RE =
   /^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+:(?:[A-Za-z0-9_.-]|\{sha\}|\{sha7\}|\{branch\}){1,128}$/;
 
+export const AUTO_DEPLOY_MODES = ['image', 'build'] as const;
+export type AutoDeployMode = (typeof AUTO_DEPLOY_MODES)[number];
+
 export const autoDeployPolicySchema = z
   .object({
     integrationId: z.string().uuid(),
+    /** P4b: `image` (resolve imageTemplate → digest) or `build` (build the pushed commit, then deploy). */
+    mode: z.enum(AUTO_DEPLOY_MODES).default('image'),
     repo: z.string().regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/),
     branches: z
       .array(z.string().regex(BRANCH_PATTERN_RE))
       .min(1)
       .max(20)
       .refine(uniqueStrings, 'branches must be unique'),
+    /** Required in `image` mode (422 otherwise); ignored in `build` mode. */
     imageTemplate: z
       .string()
       .max(300)
       .regex(IMAGE_TEMPLATE_RE, 'imageTemplate must be registry-host/repo:tag-template')
-      .refine((s) => /\{sha7?\}/.test(s), 'imageTemplate must contain {sha} or {sha7}'),
+      .refine((s) => /\{sha7?\}/.test(s), 'imageTemplate must contain {sha} or {sha7}')
+      .optional(),
     enabled: z.boolean().default(true),
   })
   .strict();
@@ -462,7 +485,8 @@ export interface AutoDeployPolicy {
   integrationId: string;
   repo: string;
   branches: string[];
-  imageTemplate: string;
+  mode: AutoDeployMode;
+  imageTemplate: string | null;
   enabled: boolean;
   createdBy: string;
   createdAt: string;
@@ -474,6 +498,8 @@ export const WEBHOOK_DELIVERY_RESULTS = [
   'awaiting_approval',
   'ignored',
   'failed',
+  /** P4b build mode: a build was queued (it deploys when it succeeds) */
+  'building',
 ] as const;
 export type WebhookDeliveryResult = (typeof WEBHOOK_DELIVERY_RESULTS)[number];
 
@@ -490,6 +516,8 @@ export interface WebhookDelivery {
   /** e.g. `not_push`, `no_matching_policy`, `already_deployed`, `deployment_in_progress`, `IMAGE_RESOLVE_FAILED` */
   reasons: string[];
   deploymentIds: string[];
+  /** P4b build-mode policies */
+  buildIds: string[];
   receivedAt: string;
 }
 

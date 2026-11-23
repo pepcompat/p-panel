@@ -3,7 +3,10 @@ import {
   type AgentSecretsResponse,
   ENV_KEY_RE,
   ERROR_CODES,
+  GIT_TOKEN_SECRET_KEY,
+  gitAuthHeader,
   REGISTRY_AUTH_SECRET_KEY,
+  RESERVED_SECRET_KEYS,
   type RegistryAuthInput,
   type RegistryAuthView,
   type SecretSummary,
@@ -27,22 +30,43 @@ export interface ContainerAppRef {
   container: ContainerApp;
 }
 
+/** Job types the agent may fetch secrets for (fetch-once). */
+export const SECRET_JOB_TYPES = [
+  'container.run_candidate',
+  'compose.apply',
+  'image.build',
+  'source.inspect',
+];
+
 interface StoredRegistryAuth {
   serveraddress: string;
   username: string;
   password: string;
 }
 
-/** Loads a visible application and requires it to be a container app. */
+const RESERVED = RESERVED_SECRET_KEYS as readonly string[];
+
+/**
+ * Loads a visible managed application (container, or compose — compose apps keep their route/runtime
+ * state in the same `container_apps` row) — `kinds` narrows it.
+ */
 export async function loadContainerApp(
   apps: ApplicationsService,
   prisma: PrismaService,
   user: AuthUser,
   id: string,
+  kinds: ReadonlyArray<'container' | 'compose'> = ['container', 'compose'],
 ): Promise<ContainerAppRef> {
   const app = await apps.load(user, id);
-  if (app.kind !== 'container')
-    throw AppError.conflict('Not a container application', ERROR_CODES.NOT_CONTAINER_APP);
+  if (!(kinds as readonly string[]).includes(app.kind))
+    throw AppError.conflict(
+      kinds.length === 1 && kinds[0] === 'compose'
+        ? 'Not a compose application'
+        : 'Not a container application',
+      kinds.length === 1 && kinds[0] === 'compose'
+        ? ERROR_CODES.NOT_COMPOSE_APP
+        : ERROR_CODES.NOT_CONTAINER_APP,
+    );
   const container = await prisma.containerApp.findUniqueOrThrow({ where: { applicationId: id } });
   return { app, container };
 }
@@ -89,11 +113,11 @@ export class SecretsService {
   }
 
   private assertKey(key: string): void {
-    if (key === REGISTRY_AUTH_SECRET_KEY)
+    if (RESERVED.includes(key))
       throw new AppError(
         422,
         ERROR_CODES.SECRET_KEY_RESERVED,
-        `${REGISTRY_AUTH_SECRET_KEY} is managed through /registry-auth`,
+        `${key} is managed through ${key === GIT_TOKEN_SECRET_KEY ? '/git-auth' : '/registry-auth'}`,
       );
     if (!ENV_KEY_RE.test(key))
       throw AppError.validation(
@@ -107,7 +131,7 @@ export class SecretsService {
   async list(user: AuthUser, appId: string): Promise<SecretSummary[]> {
     await loadContainerApp(this.apps, this.prisma, user, appId);
     const rows = await this.prisma.secret.findMany({
-      where: { applicationId: appId, key: { not: REGISTRY_AUTH_SECRET_KEY } },
+      where: { applicationId: appId, key: { notIn: [...RESERVED] } },
       orderBy: { key: 'asc' },
       select: { key: true, version: true, updatedAt: true },
     });
@@ -229,6 +253,58 @@ export class SecretsService {
     });
   }
 
+  // ---------------------------------------------------------------- git auth (P4b §8.1)
+
+  async putGitAuth(user: AuthUser, appId: string, token: string, stepUp?: string) {
+    await this.writable(user, appId, 'secrets.git_auth_set', stepUp);
+    const r = await this.store(user, appId, GIT_TOKEN_SECRET_KEY, token, 'secrets.git_auth_set');
+    return { set: true as const, version: r.version };
+  }
+
+  async getGitAuth(user: AuthUser, appId: string) {
+    await loadContainerApp(this.apps, this.prisma, user, appId);
+    const row = await this.prisma.secret.findUnique({
+      where: { applicationId_key: { applicationId: appId, key: GIT_TOKEN_SECRET_KEY } },
+      select: { version: true, updatedAt: true },
+    });
+    return row
+      ? { set: true, version: row.version, updatedAt: row.updatedAt.toISOString() }
+      : { set: false };
+  }
+
+  async removeGitAuth(user: AuthUser, appId: string, stepUp?: string): Promise<void> {
+    await this.writable(user, appId, 'secrets.git_auth_delete', stepUp);
+    const r = await this.prisma.secret.deleteMany({
+      where: { applicationId: appId, key: GIT_TOKEN_SECRET_KEY },
+    });
+    if (r.count === 0) throw AppError.notFound('Git credential');
+    await this.audit.record({
+      actorId: user.id,
+      action: 'secrets.git_auth_delete',
+      targetType: 'application',
+      targetId: appId,
+      result: 'success',
+    });
+  }
+
+  async hasGitToken(appId: string): Promise<boolean> {
+    return !!(await this.prisma.secret.findUnique({
+      where: { applicationId_key: { applicationId: appId, key: GIT_TOKEN_SECRET_KEY } },
+      select: { id: true },
+    }));
+  }
+
+  private gitHeader(appId: string, envelope: string): string | null {
+    try {
+      return gitAuthHeader(this.decrypt(appId, GIT_TOKEN_SECRET_KEY, envelope), (x) =>
+        Buffer.from(x, 'utf8').toString('base64'),
+      );
+    } catch (err) {
+      logger.emit('error', 'git credential undecryptable', { applicationId: appId, err });
+      return null;
+    }
+  }
+
   // ---------------------------------------------------------------- internal
 
   private registryFromRow(appId: string, envelope: string): StoredRegistryAuth | null {
@@ -261,7 +337,7 @@ export class SecretsService {
     let registry = false;
     for (const r of rows) {
       if (r.key === REGISTRY_AUTH_SECRET_KEY) registry = true;
-      else versions[r.key] = r.version;
+      else if (!RESERVED.includes(r.key)) versions[r.key] = r.version;
     }
     return { versions, registry };
   }
@@ -275,6 +351,9 @@ export class SecretsService {
         if (r.key === REGISTRY_AUTH_SECRET_KEY) {
           const v = this.registryFromRow(appId, r.valueEncrypted);
           if (v) out.push(v.password);
+        } else if (r.key === GIT_TOKEN_SECRET_KEY) {
+          const token = this.decrypt(appId, r.key, r.valueEncrypted);
+          out.push(token, Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64'));
         } else out.push(this.decrypt(appId, r.key, r.valueEncrypted));
       } catch {
         /* undecryptable rows cannot leak either */
@@ -286,9 +365,11 @@ export class SecretsService {
   // ---------------------------------------------------------------- agent fetch-once (mTLS gateway)
 
   /**
-   * `POST /agent/v1/tasks/:jobId/secrets`: only for a leased/running, unexpired
-   * `container.run_candidate` job of the calling server with a matching lease token; values are
-   * delivered exactly once (`jobs.secrets_fetched_at` is set with a conditional update).
+   * `POST /agent/v1/tasks/:jobId/secrets`: only for a leased/running, unexpired job of the calling
+   * server with a matching lease token and a secrets-bearing type — `container.run_candidate` and
+   * `compose.apply` (env + registryAuth), `image.build` (gitAuth + registryAuth for the push),
+   * `source.inspect` (gitAuth). Values are delivered exactly once (`jobs.secrets_fetched_at` is set
+   * with a conditional update).
    */
   async fetchForJob(
     serverId: string,
@@ -317,11 +398,11 @@ export class SecretsService {
         'Task is not leased to this agent',
         'not_leased',
       );
-    if (job.type !== 'container.run_candidate')
+    if (!SECRET_JOB_TYPES.includes(job.type))
       throw await deny(
         ERROR_CODES.FORBIDDEN,
         403,
-        'Secrets are only delivered to container.run_candidate tasks',
+        `Secrets are only delivered to ${SECRET_JOB_TYPES.join(', ')} tasks`,
         'wrong_job_type',
       );
     if (job.status !== 'leased' && job.status !== 'running')
@@ -333,12 +414,9 @@ export class SecretsService {
       );
     if ((job.leaseUntil && job.leaseUntil <= now) || job.expiresAt <= now)
       throw await deny(ERROR_CODES.TASK_EXPIRED, 409, 'Task lease or TTL expired', 'expired');
-    const step = await this.prisma.deploymentStep.findFirst({
-      where: { jobId, name: 'pull_start' },
-      include: { deployment: { select: { id: true, applicationId: true, serverId: true } } },
-    });
-    if (!step || step.deployment.serverId !== serverId)
-      throw await deny(ERROR_CODES.TASK_NOT_LEASED, 409, 'Task has no deployment', 'no_deployment');
+    const owner = await this.ownerOf(job);
+    if (!owner || owner.serverId !== serverId)
+      throw await deny(ERROR_CODES.TASK_NOT_LEASED, 409, 'Task has no owner', 'no_owner');
     const claimed = await this.prisma.job.updateMany({
       where: { id: jobId, serverId, secretsFetchedAt: null },
       data: { secretsFetchedAt: now },
@@ -350,25 +428,80 @@ export class SecretsService {
         'Secrets for this task were already delivered',
         'already_fetched',
       );
-    return this.deliver(serverId, job, step.deployment.applicationId, step.deployment.id);
+    return this.deliver(serverId, job, owner);
+  }
+
+  /** Workflow object that owns a secrets-bearing job (deployment / build / inspection). */
+  private async ownerOf(
+    job: JobRow,
+  ): Promise<{ applicationId: string; serverId: string; type: string; id: string } | null> {
+    if (job.type === 'container.run_candidate' || job.type === 'compose.apply') {
+      const step = await this.prisma.deploymentStep.findFirst({
+        where: {
+          jobId: job.id,
+          name: job.type === 'compose.apply' ? 'compose_apply' : 'pull_start',
+        },
+        include: { deployment: { select: { id: true, applicationId: true, serverId: true } } },
+      });
+      return step
+        ? {
+            applicationId: step.deployment.applicationId,
+            serverId: step.deployment.serverId,
+            type: 'deployment',
+            id: step.deployment.id,
+          }
+        : null;
+    }
+    if (job.type === 'image.build') {
+      const b = await this.prisma.build.findFirst({ where: { jobId: job.id } });
+      return b
+        ? { applicationId: b.applicationId, serverId: b.buildServerId, type: 'build', id: b.id }
+        : null;
+    }
+    const i = await this.prisma.sourceInspection.findUnique({ where: { jobId: job.id } });
+    return i
+      ? {
+          applicationId: i.applicationId,
+          serverId: job.serverId,
+          type: 'source_inspection',
+          id: i.id,
+        }
+      : null;
   }
 
   private async deliver(
     serverId: string,
     job: JobRow,
-    appId: string,
-    deploymentId: string,
+    owner: { applicationId: string; type: string; id: string },
   ): Promise<AgentSecretsResponse> {
-    const params = job.params as { secretEnvKeys?: string[]; registryAuth?: boolean };
-    const wanted = new Set(params.secretEnvKeys ?? []);
+    const appId = owner.applicationId;
+    const params = job.params as {
+      secretEnvKeys?: string[];
+      registryAuth?: boolean;
+      services?: Array<{ secretEnv?: Record<string, string> }>;
+      source?: { auth?: boolean };
+    };
+    const wanted = new Set(
+      job.type === 'compose.apply'
+        ? (params.services ?? []).flatMap((s) => Object.values(s.secretEnv ?? {}))
+        : job.type === 'container.run_candidate'
+          ? (params.secretEnvKeys ?? [])
+          : [],
+    );
     const rows = await this.prisma.secret.findMany({ where: { applicationId: appId } });
     const env: Record<string, string> = {};
     let registryAuth: AgentSecretsResponse['registryAuth'];
+    let gitAuth: AgentSecretsResponse['gitAuth'];
     for (const r of rows) {
       if (r.key === REGISTRY_AUTH_SECRET_KEY) {
         if (params.registryAuth) {
           const v = this.registryFromRow(appId, r.valueEncrypted);
           if (v) registryAuth = v;
+        }
+      } else if (r.key === GIT_TOKEN_SECRET_KEY) {
+        if (params.source?.auth) {
+          const header = this.gitHeader(appId, r.valueEncrypted);
+          if (header) gitAuth = { header };
         }
       } else if (wanted.has(r.key)) {
         try {
@@ -383,17 +516,23 @@ export class SecretsService {
       actorId: serverId,
       actorType: 'agent',
       action: 'secrets.delivered',
-      targetType: 'deployment',
-      targetId: deploymentId,
+      targetType: owner.type,
+      targetId: owner.id,
       result: 'success',
       metadata: {
         jobId: job.id,
+        jobType: job.type,
         applicationId: appId,
         keys: delivered,
         missing: [...wanted].filter((k) => !(k in env)).sort(),
         registryAuth: !!registryAuth,
+        gitAuth: !!gitAuth,
       },
     });
-    return registryAuth ? { env, registryAuth } : { env };
+    return {
+      env,
+      ...(registryAuth ? { registryAuth } : {}),
+      ...(gitAuth ? { gitAuth } : {}),
+    };
   }
 }

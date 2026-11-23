@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -45,7 +46,12 @@ type Container struct {
 	Logs            string
 	Tty             bool
 	CreatedBody     map[string]any
-	srv             *http.Server
+	// ProbePort is where a started container without a host port listens
+	// (stands in for <container IP>:<port> in compose health probes).
+	ProbePort    int
+	Aliases      []string
+	RestartCount int
+	srv          *http.Server
 }
 
 // Engine is a fake Docker Engine.
@@ -65,6 +71,20 @@ type Engine struct {
 	total       int
 	srv         *http.Server
 	seq         int
+
+	// ---- build node (P4b) ----
+	// BuildLines replaces the default successful /build stream (one JSON per entry).
+	BuildLines []string
+	// BuildHang streams one line then blocks until the client cancels.
+	BuildHang bool
+	// PushLines replaces the default successful push stream.
+	PushLines      []string
+	LastBuildTar   []byte
+	LastBuildQuery url.Values
+	BuildCancelled bool
+	CancelCalls    int
+	// Images are local tags created by /build (removed by DELETE /images/...).
+	Images map[string]bool
 }
 
 // New starts a fake engine; it is closed with t.Cleanup.
@@ -79,7 +99,7 @@ func New(t testing.TB) *Engine {
 		t.Fatal(err)
 	}
 	e := &Engine{t: t, Socket: sock, Containers: map[string]*Container{}, Networks: map[string]map[string]string{},
-		Volumes: map[string]map[string]string{}, inflight: map[string]int{}, MaxInflight: map[string]int{}}
+		Volumes: map[string]map[string]string{}, inflight: map[string]int{}, MaxInflight: map[string]int{}, Images: map[string]bool{}}
 	e.srv = &http.Server{Handler: http.HandlerFunc(e.serve), ReadHeaderTimeout: 5 * time.Second}
 	go e.srv.Serve(ln)
 	t.Cleanup(func() {
@@ -192,6 +212,26 @@ func (e *Engine) serve(w http.ResponseWriter, r *http.Request) {
 		e.create(w, r, body)
 	case strings.HasPrefix(p, "/containers/"):
 		e.container(w, r, strings.Split(strings.TrimPrefix(p, "/containers/"), "/"))
+	case p == "/build" && r.Method == http.MethodPost:
+		e.build(w, r, body)
+	case p == "/build/cancel" && r.Method == http.MethodPost:
+		e.mu.Lock()
+		e.CancelCalls++
+		e.mu.Unlock()
+		w.WriteHeader(200)
+	case strings.HasPrefix(p, "/images/") && strings.HasSuffix(p, "/push") && r.Method == http.MethodPost:
+		e.push(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "/images/"), "/push"))
+	case strings.HasPrefix(p, "/images/") && r.Method == http.MethodDelete:
+		ref := strings.TrimPrefix(p, "/images/")
+		e.mu.Lock()
+		ok := e.Images[ref]
+		delete(e.Images, ref)
+		e.mu.Unlock()
+		if !ok {
+			msg(w, 404, "No such image: "+ref)
+			return
+		}
+		jsonOut(w, 200, []map[string]string{{"Untagged": ref}})
 	case p == "/images/create" && r.Method == http.MethodPost:
 		img := r.URL.Query().Get("fromImage") + "@" + r.URL.Query().Get("tag")
 		w.Header().Set("Content-Type", "application/json")
@@ -296,6 +336,20 @@ func (e *Engine) create(w http.ResponseWriter, r *http.Request, body []byte) {
 			c.Env = append(c.Env, s)
 		}
 	}
+	if nc, ok := b["NetworkingConfig"].(map[string]any); ok {
+		if ec, ok := nc["EndpointsConfig"].(map[string]any); ok {
+			for _, v := range ec {
+				if m, ok := v.(map[string]any); ok {
+					if al, ok := m["Aliases"].([]any); ok {
+						for _, a := range al {
+							s, _ := a.(string)
+							c.Aliases = append(c.Aliases, s)
+						}
+					}
+				}
+			}
+		}
+	}
 	if hc, ok := b["HostConfig"].(map[string]any); ok {
 		if pb, ok := hc["PortBindings"].(map[string]any); ok {
 			for _, v := range pb {
@@ -329,9 +383,13 @@ func (e *Engine) container(w http.ResponseWriter, r *http.Request, parts []strin
 		running := c.Status == "running"
 		jsonOut(w, 200, map[string]any{
 			"Id": c.ID, "Name": "/" + c.Name, "Image": "sha256:" + strings.Repeat("1", 64), "Created": time.Now().UTC().Format(time.RFC3339Nano),
-			"State":      map[string]any{"Status": c.Status, "Running": running, "Restarting": false, "ExitCode": c.ExitCode},
-			"Config":     map[string]any{"Image": c.Image, "Labels": c.Labels, "Tty": c.Tty, "Env": c.Env},
-			"HostConfig": map[string]any{"PortBindings": map[string]any{"8080/tcp": []map[string]string{{"HostIp": "127.0.0.1", "HostPort": strconv.Itoa(c.HostPort)}}}},
+			"State":        map[string]any{"Status": c.Status, "Running": running, "Restarting": false, "ExitCode": c.ExitCode},
+			"Config":       map[string]any{"Image": c.Image, "Labels": c.Labels, "Tty": c.Tty, "Env": c.Env},
+			"HostConfig":   map[string]any{"PortBindings": map[string]any{"8080/tcp": []map[string]string{{"HostIp": "127.0.0.1", "HostPort": strconv.Itoa(c.HostPort)}}}},
+			"RestartCount": c.RestartCount,
+			"NetworkSettings": map[string]any{"Networks": map[string]any{
+				"ppanel-" + c.Labels["ppanel.app"]: map[string]any{"IPAddress": "127.0.0.1"},
+			}},
 		})
 	case r.Method == http.MethodGet && op == "logs":
 		e.logs(w, r, c)
@@ -430,7 +488,69 @@ func (e *Engine) start(c *Container) {
 		fmt.Fprintf(w, "%s\n", k)
 	}), ReadHeaderTimeout: 2 * time.Second}
 	go c.srv.Serve(ln)
+	c.ProbePort = ln.Addr().(*net.TCPAddr).Port
 	c.Status = "running"
+}
+
+// ProbeAddr maps a container id to the address its fake server listens on
+// (for containerops.Options.ProbeAddr in compose tests).
+func (e *Engine) ProbeAddr(id, _ string, _ int) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, c := range e.Containers {
+		if c.ID == id && c.ProbePort > 0 {
+			return net.JoinHostPort("127.0.0.1", strconv.Itoa(c.ProbePort))
+		}
+	}
+	return ""
+}
+
+func (e *Engine) build(w http.ResponseWriter, r *http.Request, body []byte) {
+	e.mu.Lock()
+	e.LastBuildTar = body
+	e.LastBuildQuery = r.URL.Query()
+	lines, hang := e.BuildLines, e.BuildHang
+	e.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	fl, _ := w.(http.Flusher)
+	if hang {
+		w.Write([]byte(`{"stream":"Step 1/2 : FROM busybox\n"}` + "\n"))
+		if fl != nil {
+			fl.Flush()
+		}
+		<-r.Context().Done()
+		e.mu.Lock()
+		e.BuildCancelled = true
+		e.mu.Unlock()
+		return
+	}
+	if lines == nil {
+		lines = []string{`{"stream":"Step 1/2 : FROM busybox\n"}`, `{"stream":"\u001b[1mStep 2/2\u001b[0m : COPY . /srv\n"}`,
+			`{"aux":{"ID":"sha256:` + strings.Repeat("2", 64) + `"}}`, `{"stream":"Successfully built 222222222222\n"}`}
+		e.mu.Lock()
+		e.Images[r.URL.Query().Get("t")] = true
+		e.mu.Unlock()
+	}
+	for _, l := range lines {
+		w.Write([]byte(l + "\n"))
+	}
+}
+
+func (e *Engine) push(w http.ResponseWriter, r *http.Request, repo string) {
+	e.mu.Lock()
+	lines := e.PushLines
+	e.mu.Unlock()
+	tag := r.URL.Query().Get("tag")
+	if lines == nil {
+		lines = []string{`{"status":"The push refers to repository [` + repo + `]"}`,
+			`{"status":"Pushing","progressDetail":{"current":1,"total":2},"progress":"[==>   ]","id":"abc"}`,
+			`{"status":"` + tag + `: digest: sha256:` + strings.Repeat("d", 64) + ` size: 528"}`,
+			`{"progressDetail":{},"aux":{"Tag":"` + tag + `","Digest":"sha256:` + strings.Repeat("d", 64) + `","Size":528}}`}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	for _, l := range lines {
+		w.Write([]byte(l + "\n"))
+	}
 }
 
 // frame builds one stdcopy frame.

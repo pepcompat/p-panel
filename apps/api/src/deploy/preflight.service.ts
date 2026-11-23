@@ -73,7 +73,7 @@ export class PreflightService {
     const others = await db.application.findMany({
       where: {
         id: appId ? { not: appId } : undefined,
-        OR: [{ serverId }, { kind: 'container' }],
+        OR: [{ serverId }, { kind: { in: ['container', 'compose'] } }],
         domains: { hasSome: domains },
       },
       select: { id: true, serverId: true, name: true, domains: true },

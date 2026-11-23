@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import {
   type AdoptionReview,
   type Application,
+  type ApplicationBuildSummary,
+  type BuildStatus,
+  type ComposeAppConfig,
+  type ComposePlanService,
+  GIT_TOKEN_SECRET_KEY,
   type ChangeOwnershipInput,
   DEPLOYMENT_ACTIVE_STATUSES,
   ERROR_CODES,
@@ -16,11 +21,15 @@ import { AppError } from '../common/app-error';
 import { Paginated } from '../common/envelope';
 import { uuidv7 } from '../common/ids';
 import { PrismaService } from '../common/prisma.service';
+import { toBuildConfig } from '../deploy/build-common';
 import {
+  composeActions,
   containerActions,
   type ContainerRuntimeState,
   toContainerConfig,
+  tlsOf,
 } from '../deploy/container-common';
+import { routePath } from '../deploy/route-template';
 import type { AuthUser } from '../common/principal';
 import { buildWhere, paginate, type ParsedQuery } from '../common/query-builder';
 import {
@@ -56,15 +65,115 @@ export class ApplicationsService {
       select: { applicationId: true },
     });
     const withOpen = new Set(open.map((o) => o.applicationId));
-    const containers = await this.containerContext(rows.filter((r) => r.kind === 'container'));
+    const managed = rows.filter((r) => r.kind === 'container' || r.kind === 'compose');
+    const containers = await this.containerContext(managed);
+    const builds = await this.buildContext(rows.filter((r) => r.kind === 'container'));
+    const composes = await this.composeContext(rows.filter((r) => r.kind === 'compose'));
     return rows.map((r) => {
       const c = containers.get(r.id);
       if (!c) return toApplication(r, allowedActionsFor(this.authz, user, r, withOpen.has(r.id)));
+      if (r.kind === 'compose') {
+        const v = composes.get(r.id);
+        const state = { ...c.state, rollbackAvailable: v?.rollbackAvailable ?? false };
+        return {
+          ...toApplication(r, composeActions(this.authz, user, r, state)),
+          compose: v
+            ? {
+                version: v.row.version,
+                versionId: v.row.id,
+                routeService: v.row.routeService,
+                routePort: v.row.routePort,
+                healthPath: v.row.healthPath,
+                services: v.row.plan as unknown as ComposePlanService[],
+                secretKeys: v.row.secretKeys,
+                warnings: v.row.warnings as unknown as ComposeAppConfig['warnings'],
+                currentDeploymentId: c.row.currentDeploymentId,
+                previousDeploymentId: c.row.previousDeploymentId,
+                containerName: c.state.current?.containerName ?? null,
+                hostPort: c.state.current?.hostPort ?? null,
+                routePath: routePath(r.name),
+                tls: tlsOf(c.row),
+                rollbackAvailable: v.rollbackAvailable,
+                rollback: { dataRestored: false as const },
+                createdAt: v.row.createdAt.toISOString(),
+              }
+            : undefined,
+        };
+      }
+      const b = builds.get(r.id) ?? null;
       return {
-        ...toApplication(r, containerActions(this.authz, user, r, c.state)),
+        ...toApplication(r, containerActions(this.authz, user, r, c.state, { configured: !!b })),
         container: toContainerConfig(r.name, c.row, c.state),
+        build: b,
       };
     });
+  }
+
+  /** P4b: build config + last build of container apps. */
+  private async buildContext(rows: AppWithServer[]) {
+    const out = new Map<string, ApplicationBuildSummary>();
+    if (rows.length === 0) return out;
+    const ids = rows.map((r) => r.id);
+    const cfgs = await this.prisma.buildConfig.findMany({ where: { applicationId: { in: ids } } });
+    if (cfgs.length === 0) return out;
+    const git = new Set(
+      (
+        await this.prisma.secret.findMany({
+          where: { applicationId: { in: ids }, key: GIT_TOKEN_SECRET_KEY },
+          select: { applicationId: true },
+        })
+      ).map((x) => x.applicationId),
+    );
+    for (const c of cfgs) {
+      const last = await this.prisma.build.findFirst({
+        where: { applicationId: c.applicationId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      });
+      out.set(c.applicationId, {
+        config: toBuildConfig(c, git.has(c.applicationId)),
+        lastBuild: last
+          ? {
+              id: last.id,
+              status: last.status as BuildStatus,
+              commitSha: last.commitSha,
+              image: last.image,
+              finishedAt: last.finishedAt?.toISOString() ?? null,
+            }
+          : null,
+      });
+    }
+    return out;
+  }
+
+  /** P4b: latest compose version + whether a previous successful plan exists (rollback). */
+  private async composeContext(rows: AppWithServer[]) {
+    const out = new Map<
+      string,
+      {
+        row: NonNullable<Awaited<ReturnType<PrismaService['composeAppVersion']['findFirst']>>>;
+        rollbackAvailable: boolean;
+      }
+    >();
+    for (const r of rows) {
+      const v = await this.prisma.composeAppVersion.findFirst({
+        where: { applicationId: r.id },
+        orderBy: { version: 'desc' },
+      });
+      if (!v) continue;
+      const c = await this.prisma.containerApp.findUnique({ where: { applicationId: r.id } });
+      const prev = c?.previousDeploymentId
+        ? await this.prisma.deployment.findUnique({
+            where: { id: c.previousDeploymentId },
+            select: { status: true, plan: true },
+          })
+        : null;
+      out.set(r.id, {
+        row: v,
+        rollbackAvailable:
+          !!prev && prev.plan !== null && ['succeeded', 'rolled_back'].includes(prev.status),
+      });
+    }
+    return out;
   }
 
   /** P4a: container config + runtime state (current container, rollback availability, deploy lock). */
@@ -195,7 +304,7 @@ export class ApplicationsService {
     stepUpHeader: string | undefined,
   ): Promise<Application> {
     const app = await this.load(user, id);
-    if (app.kind === 'container')
+    if (app.kind === 'container' || app.kind === 'compose')
       throw AppError.conflict(
         'Container applications are always managed by pPanel',
         ERROR_CODES.OWNERSHIP_STEP_INVALID,

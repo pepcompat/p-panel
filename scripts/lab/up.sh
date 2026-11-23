@@ -11,3 +11,4 @@ log "building + starting project ${LAB_PROJECT}"
 lab_compose up -d --build --wait --wait-timeout 300
 log "up. run scripts/lab/status.sh for details"
 log "P4: build + push test images with scripts/lab/images.sh (writes .lab/images.env)"
+log "P4b: create the lab-git fixture repos with scripts/lab/git-fixtures.sh (writes .lab/git.env)"

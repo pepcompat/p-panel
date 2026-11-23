@@ -47,4 +47,6 @@ export interface ServerPatch {
   tags?: string[];
   groupId?: string | null;
   connectionPolicy?: string;
+  /** §8.1 build node designation (perm policies.manage). */
+  buildNode?: boolean;
 }

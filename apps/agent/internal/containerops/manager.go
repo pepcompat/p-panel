@@ -28,6 +28,9 @@ const (
 	LabelApp        = "ppanel.app"
 	LabelDeployment = "ppanel.deployment"
 	LabelImage      = "ppanel.image"
+	// P4b compose: service name and normalised spec hash.
+	LabelService = "ppanel.service"
+	LabelSpec    = "ppanel.spec"
 )
 
 // Hardening constants (docs/AGENT_PROTOCOL.md "Hardened run").
@@ -58,6 +61,9 @@ type Options struct {
 	// PortInUse overrides the loopback port check (tests).
 	PortInUse func(port int) bool
 	Now       func() time.Time
+	// ProbeAddr overrides where compose tcp/http probes of non-route services
+	// go (tests); default <container IP on ppanel-<app>>:<port>.
+	ProbeAddr func(containerID, ip string, port int) string
 }
 
 // Manager runs container jobs. One mutating job per app at a time.
@@ -248,7 +254,13 @@ func IsOwned(ci *docker.ContainerInfo, app, name string) bool {
 		return false
 	}
 	l := ci.Config.Labels
-	return l[LabelManaged] == "true" && l[LabelApp] == app
+	if l[LabelManaged] != "true" || l[LabelApp] != app {
+		return false
+	}
+	if svc := l[LabelService]; svc != "" {
+		return NameMatchesService(app, svc, name)
+	}
+	return PlainNameMatchesApp(app, name)
 }
 
 // ---------------- health ----------------

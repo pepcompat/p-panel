@@ -35,7 +35,16 @@ const T = { preflight: 600, pull: 2200, health: 3800, route: 4800, stop: 5400 };
 
 type Outcome = 'ok' | 'unhealthy' | 'route_fail' | 'manual' | 'pull_fail';
 interface MockDeployment extends Deployment {
-  plan: { t0: number | null; outcome: Outcome; settled: boolean; cancelledAt?: number };
+  plan: {
+    t0: number | null;
+    outcome: Outcome;
+    settled: boolean;
+    cancelledAt?: number;
+    /** P4b compose deployment (steps resolve_images → compose_apply). */
+    kind?: 'container' | 'compose';
+    /** compose: route service replaced → route_switch + stop_previous run. */
+    routeChanged?: boolean;
+  };
 }
 interface MockRouting {
   enabled: boolean;
@@ -47,13 +56,16 @@ interface MockRouting {
   updatedAt: string | null;
 }
 /** Contract steps; rollback starts the kept container (`start_target`) instead of pulling. */
-const stepNames = (rollback: boolean): StepName[] => [
-  'preflight',
-  rollback ? 'start_target' : 'pull_start',
-  'health_check',
-  'route_switch',
-  'stop_previous',
-];
+const stepNames = (rollback: boolean, compose = false): StepName[] =>
+  compose
+    ? ['preflight', 'resolve_images', 'compose_apply', 'route_switch', 'stop_previous']
+    : [
+        'preflight',
+        rollback ? 'start_target' : 'pull_start',
+        'health_check',
+        'route_switch',
+        'stop_previous',
+      ];
 
 interface P4State {
   deployments: MockDeployment[];
@@ -236,6 +248,10 @@ function stepMessage(name: StepName, image: string, hostPort: number | null): st
       return `nginx -t ok · reloaded · route → 127.0.0.1:${hostPort}`;
     case 'stop_previous':
       return 'Previous container stopped (kept for rollback)';
+    case 'resolve_images':
+      return 'Image tags resolved to digests';
+    case 'compose_apply':
+      return 'compose.apply done — changed services healthy';
     default:
       return 'Done';
   }
@@ -551,6 +567,7 @@ function seed(): P4State {
     signatureOk: true,
     reasons: [],
     deploymentIds: [],
+    buildIds: [],
     receivedAt: iso(now - ageMin * 60e3),
     ...o,
   });
@@ -604,6 +621,7 @@ function seed(): P4State {
     applicationId: shop.id,
     integrationId: integ.id,
     repo: 'w3co/shop-api',
+    mode: 'image',
     branches: ['main', 'release/*'],
     imageTemplate: 'registry.example.lab/w3/shop-api:sha-{sha7}',
     enabled: true,
@@ -611,6 +629,7 @@ function seed(): P4State {
     createdAt: iso(now - 15 * 864e5),
     updatedAt: iso(now - 15 * 864e5),
   });
+  composeHooks.seed(st);
   p3Internals.save();
   return st;
 }
@@ -638,6 +657,92 @@ function s(): P4State {
   }
   return st!;
 }
+
+// ---------------------------------------------------------------- P4b hooks (compose apps, builds)
+
+type MockApp = Application & { container: ContainerSpec };
+
+/** Filled by ./p4b-routes (compose + builds live there; orchestration stays here). */
+export const composeHooks: {
+  create: (u: U, srv: Server, body: Record<string, unknown>, rid: string) => Response;
+  plan: (
+    app: MockApp,
+    trigger: Deployment['trigger'],
+  ) => { compose: NonNullable<Deployment['compose']>; routeImage: string; routeChanged: boolean };
+  onLive: (app: Application, d: Deployment) => void;
+  setState: (app: Application, state: 'running' | 'stopped') => void;
+  seed: (st: { deployments: Deployment[]; secrets: P4State['secrets'] }) => void;
+  tick: () => void;
+} = {
+  create: () => {
+    throw new Error('compose hooks not registered');
+  },
+  plan: () => {
+    throw new Error('compose hooks not registered');
+  },
+  onLive: () => {},
+  setState: () => {},
+  seed: () => {},
+  tick: () => {},
+};
+
+/** Per-service progress during compose_apply: unchanged → kept; others created/replaced in order. */
+function progressCompose(d: MockDeployment, p: number, failing: boolean) {
+  const svcs = d.compose?.services ?? [];
+  const changing = svcs.filter((x) => x.plannedAction !== 'unchanged');
+  for (const x of svcs) {
+    if (x.plannedAction === 'unchanged') {
+      x.action = 'unchanged';
+      x.health = 'kept running';
+      continue;
+    }
+    const i = changing.indexOf(x);
+    const due = (i + 1) / changing.length;
+    if (p >= due || p >= 1) {
+      const isRoute = x.service === d.compose?.routeService;
+      x.action = x.previousName ? 'replaced' : 'created';
+      x.health =
+        failing && p >= 1 && isRoute ? 'unhealthy' : isRoute ? 'healthy (http 200)' : 'healthy';
+    } else if (p >= i / changing.length) {
+      x.health = 'starting';
+    }
+  }
+}
+
+/** Internals shared with ./p4b-routes. */
+export const p4Internals = {
+  state: () => s(),
+  save: () => save(),
+  tick: () => tick(),
+  containerAppOf: (id: string) => containerAppOf(id),
+  createDeployment: (
+    u: U,
+    app: MockApp,
+    image: string,
+    trigger: Deployment['trigger'],
+    rid: string,
+    extra: { sourceRef?: Deployment['sourceRef']; reason?: string; buildId?: string } = {},
+  ) => createDeployment(u, app, image, trigger, rid, extra),
+  publicDep: (d: Deployment, u?: U) => publicDep(d as MockDeployment, u),
+  seedDeployment: (
+    app: Application,
+    n: number,
+    trigger: Deployment['trigger'],
+    ageMin: number,
+    createdBy: U | null,
+    imageSeed: string,
+  ) => seedDeployment(app, n, trigger, 'succeeded', ageMin, createdBy, imageSeed),
+  point: (app: Application, cur: Deployment, prev: Deployment | null) => point(app, cur, prev),
+  containerApp: (
+    id: string,
+    srv: Server,
+    name: string,
+    domains: string[],
+    spec: Partial<ContainerSpec>,
+    ageH: number,
+  ) => containerApp(id, srv, name, domains, spec, ageH),
+  digest: (seed: string) => digest(seed),
+};
 
 // ---------------------------------------------------------------- orchestration
 
@@ -685,7 +790,20 @@ function timeline(d: MockDeployment, now: number) {
             }
           : undefined,
   };
-  const names = stepNames(d.trigger === 'rollback');
+  const compose = d.plan.kind === 'compose';
+  if (compose) {
+    fail.compose_apply =
+      d.plan.outcome === 'unhealthy'
+        ? {
+            code: 'COMPOSE_SERVICE_UNHEALTHY',
+            message: 'Service "app" failed its health check; previous containers kept serving',
+            log: ['app: GET / → 503', 'app: GET / → 503', 'candidate removed, previous kept'],
+          }
+        : undefined;
+    fail.health_check = undefined;
+    fail.pull_start = undefined;
+  }
+  const names = stepNames(d.trigger === 'rollback', compose);
   const bounds: Array<[StepName, number, number]> = [
     [names[0]!, 0, T.preflight],
     [names[1]!, T.preflight, T.pull],
@@ -705,11 +823,20 @@ function timeline(d: MockDeployment, now: number) {
       step.status = 'pending';
       continue;
     }
+    if (compose && !d.plan.routeChanged && (name === 'route_switch' || name === 'stop_previous')) {
+      step.status = 'skipped';
+      step.message =
+        name === 'route_switch'
+          ? 'Route service unchanged — no route switch needed'
+          : 'Route container unchanged — nothing to stop';
+      continue;
+    }
     step.startedAt = iso(t0 + start);
     if (name !== 'preflight' && !step.jobId) step.jobId = ctx.rid();
     const f = fail[name];
     const progress = Math.min(1, (el - start) / (end - start));
     step.logTail = logLines(d, name, progress, f?.log);
+    if (compose && name === 'compose_apply') progressCompose(d, progress, !!f);
     if (el < end) {
       if (d.plan.cancelledAt !== undefined) {
         step.status = 'failed';
@@ -788,6 +915,16 @@ function logLines(d: MockDeployment, name: StepName, p: number, failLog?: string
       'postcheck Host → 200',
     ],
     stop_previous: ['docker stop previous container (kept for rollback)'],
+    resolve_images: (d.compose?.services ?? []).map((x) =>
+      x.sourceImage === x.image
+        ? `${x.service}: pinned ${x.image.split('@')[1]?.slice(0, 19)}…`
+        : `${x.service}: ${x.sourceImage} → ${x.image.split('@')[1]?.slice(0, 19)}…`,
+    ),
+    compose_apply: (d.compose?.services ?? []).map((x) =>
+      x.plannedAction === 'unchanged'
+        ? `${x.service}: unchanged (spec ${x.specHash.slice(0, 8)}) — kept running`
+        : `${x.service}: ${x.previousName ? 'replace' : 'create'} ${x.name} · health ${x.health ?? 'running'}`,
+    ),
     start_target: [
       `docker start ${c}`,
       'container started (existing, kept from the previous deployment)',
@@ -823,6 +960,7 @@ function settle(d: MockDeployment, now: number) {
       break;
     case 'done':
       d.status = 'succeeded';
+      if (d.plan.kind === 'compose' && d.compose) progressCompose(d, 1, false);
       if (app?.container) {
         // The replaced container is stopped and kept, so it becomes the rollback target.
         app.container.previousDeploymentId = app.container.currentDeploymentId;
@@ -834,6 +972,7 @@ function settle(d: MockDeployment, now: number) {
         app.container.runtimeState = 'running';
         app.updatedAt = iso(now);
         app.version += 1;
+        if (app.compose && d.compose) composeHooks.onLive(app, d);
       }
       s().logs[d.applicationId] = [
         ...(s().logs[d.applicationId] ?? []),
@@ -854,6 +993,7 @@ function tick() {
   const now = Date.now();
   let dirty = false;
   for (const d of s().deployments) if (settle(d, now)) dirty = true;
+  composeHooks.tick();
   for (const r of Object.values(s().routing)) {
     if (r.status === 'applying' && r.applyUntil && now >= r.applyUntil) {
       r.status = 'enabled';
@@ -873,7 +1013,7 @@ const need = (u: U, perm: Permission, srv?: Server) => ctx.requirePerm(u as neve
 
 function containerAppOf(id: string) {
   const a = p3Internals.appOf(id);
-  if (a.kind !== 'container' || !a.container)
+  if ((a.kind !== 'container' && a.kind !== 'compose') || !a.container)
     throw new ctx.HttpError(
       409,
       'NOT_CONTAINER_APP',
@@ -940,12 +1080,17 @@ function preflight(
   );
   add(
     'image_pinned',
-    IMAGE_DIGEST_REF_RE.test(image),
-    'Image pinned by digest',
+    IMAGE_DIGEST_REF_RE.test(image) || (!image && (!!app.compose || !!app.build)),
+    !image && app.compose
+      ? 'Compose images are resolved to digests at deploy time'
+      : !image && app.build
+        ? 'The image digest comes from the build'
+        : 'Image pinned by digest',
     'IMAGE_NOT_PINNED',
     'Image must be pinned as repo@sha256:<digest>; tags are refused.',
   );
-  const missing = (app.container.secretKeys ?? []).filter((k) => !s().secrets[app.id]?.[k]);
+  const declared = app.compose ? app.compose.secretKeys : (app.container.secretKeys ?? []);
+  const missing = declared.filter((k) => !s().secrets[app.id]?.[k]);
   add(
     'secrets_present',
     missing.length === 0,
@@ -1064,12 +1209,14 @@ function createDeployment(
   image: string,
   trigger: Deployment['trigger'],
   requestId: string,
-  extra: { sourceRef?: Deployment['sourceRef']; reason?: string } = {},
+  extra: { sourceRef?: Deployment['sourceRef']; reason?: string; buildId?: string } = {},
 ): MockDeployment {
   const srv = p3Internals.serverOf(app.serverId);
   const checks = preflight(app, image);
   const lockFail = checks.find((c) => c.check === 'lock' && !c.ok);
   if (lockFail) throw new ctx.HttpError(409, 'DEPLOYMENT_IN_PROGRESS', lockFail.message);
+  const composePlan = app.compose ? composeHooks.plan(app, trigger) : null;
+  if (composePlan) image = composePlan.routeImage;
   if (!IMAGE_DIGEST_REF_RE.test(image))
     throw new ctx.HttpError(
       422,
@@ -1103,7 +1250,7 @@ function createDeployment(
     image,
     sourceRef: extra.sourceRef ?? null,
     status: 'queued',
-    steps: stepNames(trigger === 'rollback').map((name) => ({
+    steps: stepNames(trigger === 'rollback', !!composePlan).map((name) => ({
       name,
       status: 'pending',
       jobId: null,
@@ -1131,9 +1278,21 @@ function createDeployment(
     createdAt: iso(now),
     finishedAt: null,
     error: null,
-    plan: { t0: null, outcome: outcomeOf(image), settled: false },
+    plan: {
+      t0: null,
+      outcome: outcomeOf(image),
+      settled: false,
+      kind: composePlan ? 'compose' : 'container',
+      routeChanged: composePlan?.routeChanged,
+    },
+    compose: composePlan?.compose ?? null,
+    buildId: extra.buildId ?? null,
   };
   if (trigger === 'rollback') d.plan.outcome = 'ok';
+  if (composePlan && !composePlan.routeChanged && prevDep?.container && trigger !== 'rollback')
+    d.container = app.container.containerName
+      ? { name: app.container.containerName, hostPort: app.container.hostPort ?? hostPort }
+      : d.container;
   const pf = d.steps[0]!;
   pf.startedAt = iso(now);
   pf.finishedAt = iso(now + 200);
@@ -1180,6 +1339,7 @@ export function registerP4Routes(c: P3Ctx) {
     const u = c.currentUser(req);
     const srv = p3Internals.serverOf(String(body.serverId ?? ''));
     need(u, 'apps.deploy', srv);
+    if (body.kind === 'compose') return composeHooks.create(u, srv, body, requestId);
     const errs: Array<{ field: string; message: string }> = [];
     const name = String(body.name ?? '');
     if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(name))
@@ -1393,6 +1553,13 @@ export function registerP4Routes(c: P3Ctx) {
       ? s().deployments.find((d) => (d as MockDeployment & { idem?: string }).idem === key)
       : null;
     if (dup) return ok(requestId, { deployment: publicDep(dup, u) }, 200);
+    if (!a.compose && !body.image && body.composeVersion === undefined)
+      throw new HttpError(
+        422,
+        'IMAGE_NOT_PINNED',
+        'Container apps need an image pinned by digest.',
+        [{ field: 'image', message: 'Required' }],
+      );
     const d = createDeployment(u, a, String(body.image ?? ''), 'manual', requestId, {
       sourceRef: (body.sourceRef as Deployment['sourceRef']) ?? null,
       reason: typeof body.reason === 'string' ? body.reason : undefined,
@@ -1440,6 +1607,12 @@ export function registerP4Routes(c: P3Ctx) {
       const a = containerAppOf(params[0]!);
       const srv = p3Internals.serverOf(a.serverId);
       need(u, 'apps.deploy', srv);
+      if (a.compose && action === 'restart')
+        throw new HttpError(
+          409,
+          'OPERATION_NOT_SUPPORTED',
+          'Compose apps support stop, start, redeploy and rollback.',
+        );
       if (!a.container.currentDeploymentId)
         throw new HttpError(409, 'NO_CURRENT_DEPLOYMENT', 'Nothing is deployed yet.');
       if (srv.status !== 'online' && srv.status !== 'degraded')
@@ -1448,8 +1621,13 @@ export function registerP4Routes(c: P3Ctx) {
         throw new HttpError(409, 'ALREADY_RUNNING', 'The container is already running.');
       if (action !== 'start' && a.container.runtimeState === 'stopped')
         throw new HttpError(409, 'CONTAINER_STOPPED', 'The container is stopped.');
-      const job = p3Internals.newJob(srv.id, `container.${action}`, 1200);
+      const job = p3Internals.newJob(
+        srv.id,
+        a.compose ? `compose.${action}` : `container.${action}`,
+        1200,
+      );
       a.container.runtimeState = action === 'stop' ? 'stopped' : 'running';
+      if (a.compose) composeHooks.setState(a, action === 'stop' ? 'stopped' : 'running');
       a.updatedAt = iso(Date.now());
       p3Internals.save();
       s().logs[a.id] = [
@@ -1506,7 +1684,10 @@ export function registerP4Routes(c: P3Ctx) {
     if (!partial || 'branches' in b)
       if (!Array.isArray(b.branches) || !b.branches.length)
         errs.push({ field: 'branches', message: 'At least one branch' });
-    if (!partial || 'imageTemplate' in b)
+    const mode = b.mode ?? 'image';
+    if (mode !== 'image' && mode !== 'build')
+      errs.push({ field: 'mode', message: 'image or build' });
+    if (mode === 'image' && (!partial || 'imageTemplate' in b))
       if (!/\{sha7?\}/.test(String(b.imageTemplate ?? '')))
         errs.push({ field: 'imageTemplate', message: 'Must contain {sha} or {sha7}' });
     if (!partial || 'integrationId' in b)
@@ -1523,13 +1704,21 @@ export function registerP4Routes(c: P3Ctx) {
     need(u, 'apps.deploy', srv);
     need(u, 'policies.manage', srv);
     validatePolicy(body, false);
+    const mode = body.mode === 'build' ? 'build' : 'image';
+    if (mode === 'build' && !a.build)
+      throw new HttpError(
+        422,
+        'BUILD_CONFIG_MISSING',
+        'Build mode needs a build config (Settings → Build settings).',
+      );
     const p: AutoDeployPolicy = {
       id: c.rid(),
       applicationId: a.id,
       integrationId: String(body.integrationId),
+      mode,
       repo: String(body.repo),
       branches: body.branches as string[],
-      imageTemplate: String(body.imageTemplate),
+      imageTemplate: mode === 'image' ? String(body.imageTemplate) : null,
       enabled: body.enabled !== false,
       createdBy: u.id,
       createdAt: iso(Date.now()),

@@ -188,6 +188,14 @@ type RegistryAuth struct {
 type JobSecrets struct {
 	Env          map[string]string `json:"env"`
 	RegistryAuth *RegistryAuth     `json:"registryAuth,omitempty"`
+	// GitAuth is the git HTTP auth header for image.build / source.inspect with
+	// source.auth=true (e.g. "Authorization: Basic …"). Passed to git via env only.
+	GitAuth *GitAuth `json:"gitAuth,omitempty"`
+}
+
+// GitAuth carries one HTTP header line for git (http.extraHeader).
+type GitAuth struct {
+	Header string `json:"header"`
 }
 
 // FetchJobSecrets performs the one-time secrets fetch for a leased job. The

@@ -202,7 +202,7 @@ const SEEDS: ServerSeed[] = [
     status: 'online',
     hbAgo: 2,
     agent: '0.4.2',
-    caps: ['docker', 'nginx', 'systemd'],
+    caps: ['docker', 'nginx', 'systemd', 'build'],
     metrics: [12, 34, 29],
     pub: '167.71.12.9',
     pub6: null,
@@ -220,7 +220,7 @@ const SEEDS: ServerSeed[] = [
     status: 'online',
     hbAgo: 4,
     agent: '0.4.3-rc1',
-    caps: ['docker', 'nginx', 'systemd'],
+    caps: ['docker', 'nginx', 'systemd', 'build'],
     metrics: [9, 27, 44],
     pub: '178.128.40.2',
     pub6: null,
@@ -309,6 +309,8 @@ export function seedServers(): Server[] {
           }
         : null,
       capabilities: s.caps,
+      // P4b: dev-01 is the designated build node; app-uat-01 reports `build` but is not designated.
+      buildNode: s.name === 'dev-01',
       certificate: {
         serial: (0x5a3c00 + i * 7919).toString(16) + 'e1f04b2d9c',
         notAfter: new Date(Date.now() + 86400e3 * (54 - i)).toISOString(),

@@ -1,0 +1,33 @@
+# pPanel P4b lab compose stack. The Center validates this file, resolves images to digests and sends
+# the agent a normalised compose.apply plan (the agent never parses YAML). ${DB_PASSWORD} is an
+# application secret (secretEnv), never a literal.
+services:
+  db:
+    image: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_DB: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  worker:
+    build: .
+    command: ['php', '/app/worker.php']
+    environment:
+      DB_HOST: db
+      DB_NAME: app
+      DB_USER: app
+      DB_PASSWORD: ${DB_PASSWORD}
+    depends_on: [db]
+  app:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_NAME: app
+      DB_USER: app
+      DB_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - '127.0.0.1::8080'
+    depends_on: [db]
+volumes:
+  pgdata: {}

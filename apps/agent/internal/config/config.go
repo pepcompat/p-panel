@@ -54,6 +54,34 @@ type Config struct {
 	PhpFpmPoolGlob string `yaml:"phpFpmPoolGlob" json:"phpFpmPoolGlob"`
 	// Nginx configures the P3 typed nginx jobs (read_files/validate/apply/revert).
 	Nginx NginxConfig `yaml:"nginx" json:"nginx"`
+	// Build configures the P4b build node role (image.build / source.inspect).
+	Build BuildConfig `yaml:"build" json:"build"`
+}
+
+// BuildConfig is the `build:` section. Builds are an OPERATOR decision on the
+// host: the Center can never turn them on. A build node runs Dockerfile RUN
+// steps as containers on its Docker engine, so it must be a dedicated,
+// trusted host (this is not an isolation guarantee).
+type BuildConfig struct {
+	// Enabled makes this agent a build node (default false → NOT_A_BUILD_NODE).
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// GitHostsAllowlist lists the exact git hosts (host or host:port) sources may
+	// be fetched from. git:// URLs are accepted only for hosts listed here
+	// (intended for lab/dev git daemons; production should list https hosts only).
+	GitHostsAllowlist []string `yaml:"gitHostsAllowlist" json:"gitHostsAllowlist"`
+	// WorkDir holds per-build temp checkouts (default <stateDir>/builds).
+	WorkDir string `yaml:"workDir" json:"workDir"`
+}
+
+// GitHostRe is an allowlist entry: exact host[:port].
+var GitHostRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,252})(:[0-9]{1,5})?$`)
+
+// BuildWorkDir returns the effective build work directory.
+func (c *Config) BuildWorkDir() string {
+	if c.Build.WorkDir != "" {
+		return c.Build.WorkDir
+	}
+	return filepath.Join(c.StateDir, "builds")
 }
 
 // NginxRoot is the only nginx config root a production agent manages.
@@ -191,6 +219,16 @@ func (c *Config) Validate() error {
 		}
 	}
 	errs = append(errs, c.Nginx.ValidateNginx()...)
+	for i, h := range c.Build.GitHostsAllowlist {
+		h = strings.ToLower(strings.TrimSpace(h))
+		c.Build.GitHostsAllowlist[i] = h
+		if !GitHostRe.MatchString(h) {
+			errs = append(errs, fmt.Sprintf("build.gitHostsAllowlist: %q must be an exact host or host:port", h))
+		}
+	}
+	if w := c.Build.WorkDir; w != "" && (!filepath.IsAbs(w) || filepath.Clean(w) != w || w == "/") {
+		errs = append(errs, "build.workDir must be a clean absolute path (not /)")
+	}
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))
 	}

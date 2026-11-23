@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ type Engine struct {
 	socket string
 	hc     *http.Client // short requests
 	long   *http.Client // image pull (streams for minutes)
+	build  bool         // build-node engine: build/push/build-tag delete allowed
 }
 
 // ErrNotFound is returned for HTTP 404 from the engine.
@@ -82,9 +84,51 @@ func AllowedCall(method, path string) bool {
 	return false
 }
 
-type allowlist struct{ rt http.RoundTripper }
+// Build-node additions (docs/AGENT_PROTOCOL.md "Builds (P4b)"). Only an Engine
+// made with NewBuildEngine (agents whose local config sets build.enabled) may
+// make these calls; images may be pushed/deleted only by a build-<hex12> tag.
+const repoRe = `[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]{1,5})?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+`
+
+// BuildTagRe is the only tag form a build engine may push or delete.
+var BuildTagRe = regexp.MustCompile(`^build-[a-f0-9]{12}$`)
+
+var (
+	buildPathRe  = regexp.MustCompile(`^/build$`)
+	cancelPathRe = regexp.MustCompile(`^/build/cancel$`)
+	pushPathRe   = regexp.MustCompile(`^/images/` + repoRe + `/push$`)
+	rmiPathRe    = regexp.MustCompile(`^/images/` + repoRe + `:build-[a-f0-9]{12}$`)
+)
+
+// AllowedBuildCall reports whether a BUILD engine permits method+path+query
+// (everything AllowedCall permits, plus the build-node additions).
+func AllowedBuildCall(method, path string, q url.Values) bool {
+	if AllowedCall(method, path) {
+		return true
+	}
+	switch method {
+	case http.MethodPost:
+		if buildPathRe.MatchString(path) || cancelPathRe.MatchString(path) {
+			return true
+		}
+		return pushPathRe.MatchString(path) && len(q["tag"]) == 1 && BuildTagRe.MatchString(q.Get("tag"))
+	case http.MethodDelete:
+		return rmiPathRe.MatchString(path) && q.Get("force") != "1"
+	}
+	return false
+}
+
+type allowlist struct {
+	rt    http.RoundTripper
+	build bool
+}
 
 func (a allowlist) RoundTrip(r *http.Request) (*http.Response, error) {
+	if a.build {
+		if !AllowedBuildCall(r.Method, r.URL.Path, r.URL.Query()) {
+			return nil, fmt.Errorf("docker: %s %s refused (not in the container-ops allowlist)", r.Method, r.URL.Path)
+		}
+		return a.rt.RoundTrip(r)
+	}
 	if !AllowedCall(r.Method, r.URL.Path) {
 		return nil, fmt.Errorf("docker: %s %s refused (not in the container-ops allowlist)", r.Method, r.URL.Path)
 	}
@@ -92,7 +136,14 @@ func (a allowlist) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // NewEngine returns a write-capable client for the unix socket.
-func NewEngine(socket string) *Engine {
+func NewEngine(socket string) *Engine { return newEngine(socket, false) }
+
+// NewBuildEngine returns an Engine that additionally permits the build-node
+// calls (POST /build, /build/cancel, push and delete of build-<hex12> tags).
+// Only the build handlers of a build.enabled agent may hold one.
+func NewBuildEngine(socket string) *Engine { return newEngine(socket, true) }
+
+func newEngine(socket string, build bool) *Engine {
 	mk := func(hdr, total time.Duration) *http.Client {
 		tr := &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -103,10 +154,18 @@ func NewEngine(socket string) *Engine {
 			IdleConnTimeout:       10 * time.Second,
 			ResponseHeaderTimeout: hdr,
 		}
-		return &http.Client{Transport: allowlist{tr}, Timeout: total}
+		return &http.Client{Transport: allowlist{rt: tr, build: build}, Timeout: total}
 	}
-	return &Engine{socket: socket, hc: mk(30*time.Second, 60*time.Second), long: mk(60*time.Second, 0)}
+	e := &Engine{socket: socket, hc: mk(30*time.Second, 60*time.Second), long: mk(60*time.Second, 0), build: build}
+	if build {
+		// the daemon answers /build only after receiving the whole context
+		e.long = mk(10*time.Minute, 0)
+	}
+	return e
 }
+
+// BuildCapable reports whether this Engine may make build-node calls.
+func (e *Engine) BuildCapable() bool { return e.build }
 
 // Socket returns the socket path.
 func (e *Engine) Socket() string { return e.socket }
@@ -240,6 +299,12 @@ type ContainerInfo struct {
 	HostConfig struct {
 		PortBindings map[string][]PortBinding `json:"PortBindings"`
 	} `json:"HostConfig"`
+	RestartCount    int `json:"RestartCount"`
+	NetworkSettings struct {
+		Networks map[string]struct {
+			IPAddress string `json:"IPAddress"`
+		} `json:"Networks"`
+	} `json:"NetworkSettings"`
 }
 
 // InspectContainer returns the container or ErrNotFound.
@@ -522,4 +587,131 @@ func Demux(b []byte) []byte {
 	}
 	out.Write(b)
 	return out.Bytes()
+}
+
+// ---------------- build node (P4b) ----------------
+
+// StreamMsg is one JSON message of a build/push progress stream.
+type StreamMsg struct {
+	Stream      string `json:"stream"`
+	Status      string `json:"status"`
+	Progress    string `json:"progress"`
+	ID          string `json:"id"`
+	Error       string `json:"error"`
+	ErrorDetail *struct {
+		Message string `json:"message"`
+	} `json:"errorDetail"`
+	Aux json.RawMessage `json:"aux"`
+}
+
+// ErrMessage returns the stream error text ("" when none).
+func (m *StreamMsg) ErrMessage() string {
+	if m.ErrorDetail != nil && m.ErrorDetail.Message != "" {
+		return m.ErrorDetail.Message
+	}
+	return m.Error
+}
+
+// maxStreamBytes bounds how much of a build/push stream is read.
+const maxStreamBytes = 512 << 20
+
+func decodeStream(r io.Reader, fn func(*StreamMsg) error) error {
+	dec := json.NewDecoder(io.LimitReader(r, maxStreamBytes))
+	for {
+		var m StreamMsg
+		if err := dec.Decode(&m); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if err := fn(&m); err != nil {
+			return err
+		}
+	}
+}
+
+func (e *Engine) needBuild() error {
+	if !e.build {
+		return errors.New("docker: build calls refused (engine is not a build-node engine)")
+	}
+	return nil
+}
+
+// Build posts a tar build context to POST /build (classic builder, version=1)
+// and feeds every stream message to fn. The request is cancelled with ctx.
+func (e *Engine) Build(ctx context.Context, q url.Values, tarCtx io.Reader, fn func(*StreamMsg) error) error {
+	if err := e.needBuild(); err != nil {
+		return err
+	}
+	q.Set("version", "1")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://docker/build?"+q.Encode(), tarCtx)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-tar")
+	resp, err := e.long.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if strings.Contains(err.Error(), "refused (not in the container-ops allowlist)") {
+			return err
+		}
+		return &UnavailableError{Err: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return readErr(resp)
+	}
+	if err := decodeStream(resp.Body, fn); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	return ctx.Err()
+}
+
+// CancelBuild asks the daemon to cancel build id (best effort).
+func (e *Engine) CancelBuild(ctx context.Context, id string) error {
+	if err := e.needBuild(); err != nil {
+		return err
+	}
+	return e.call(ctx, http.MethodPost, "/build/cancel", url.Values{"id": {id}}, nil, nil)
+}
+
+// PushImage pushes repo:tag (tag must be build-<hex12>) and feeds the stream to fn.
+// authB64 is the X-Registry-Auth header value (never logged or returned).
+func (e *Engine) PushImage(ctx context.Context, repo, tag, authB64 string, fn func(*StreamMsg) error) error {
+	if err := e.needBuild(); err != nil {
+		return err
+	}
+	if authB64 == "" {
+		authB64 = base64.URLEncoding.EncodeToString([]byte("{}"))
+	}
+	hdr := http.Header{"X-Registry-Auth": {authB64}}
+	resp, err := e.do(ctx, e.long, http.MethodPost, "/images/"+repo+"/push", url.Values{"tag": {tag}}, hdr, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return readErr(resp)
+	}
+	if err := decodeStream(resp.Body, fn); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+	return ctx.Err()
+}
+
+// RemoveImage deletes a local repo:build-<hex12> tag (noprune=0, never forced).
+func (e *Engine) RemoveImage(ctx context.Context, ref string) error {
+	if err := e.needBuild(); err != nil {
+		return err
+	}
+	return e.call(ctx, http.MethodDelete, "/images/"+ref, url.Values{"noprune": {"0"}}, nil, nil)
 }

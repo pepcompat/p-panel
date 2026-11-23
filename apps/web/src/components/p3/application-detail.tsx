@@ -31,6 +31,8 @@ import {
   LogsTab,
 } from '@/components/p4/app-tabs';
 import { GatedButton } from '@/components/ui/gated-button';
+import { BuildSettings, BuildsTab } from '@/components/p4/builds-tab';
+import { ComposeTab } from '@/components/p4/compose-tab';
 import { useRouter } from 'next/navigation';
 import type { MessageKey } from '@/i18n/en';
 
@@ -39,6 +41,8 @@ export const APP_TABS = [
   'nginx',
   'ownership',
   'deployments',
+  'builds',
+  'compose',
   'domains',
   'env',
   'logs',
@@ -58,8 +62,28 @@ export const REAL_CONTAINER_TABS: readonly AppTab[] = [
   'logs',
   'settings',
 ];
+/** Compose apps (P4b): compose tab instead of builds; logs stay per container (preview). */
+export const REAL_COMPOSE_TABS: readonly AppTab[] = [
+  'overview',
+  'nginx',
+  'ownership',
+  'deployments',
+  'compose',
+  'env',
+  'settings',
+];
 export const realTabsFor = (app: Pick<Application, 'kind'>) =>
-  app.kind === 'container' ? REAL_CONTAINER_TABS : REAL_APP_TABS;
+  app.kind === 'container'
+    ? [...REAL_CONTAINER_TABS, 'builds' as const]
+    : app.kind === 'compose'
+      ? REAL_COMPOSE_TABS
+      : REAL_APP_TABS;
+/** Tabs shown in the strip: kind-specific P4b tabs only where they apply. */
+export const tabsFor = (app: Pick<Application, 'kind'>): readonly AppTab[] =>
+  APP_TABS.filter(
+    (k) =>
+      (k !== 'builds' || app.kind === 'container') && (k !== 'compose' || app.kind === 'compose'),
+  );
 export const isAppTab = (v: string): v is AppTab => (APP_TABS as readonly string[]).includes(v);
 
 function OverviewTab({ app }: { app: Application }) {
@@ -132,7 +156,11 @@ function OverviewTab({ app }: { app: Application }) {
           <p className="m-0 text-[12px] text-fg-muted">{t('app.flagsNote')}</p>
         </Card>
       </div>
-      {app.kind === 'container' ? <LifecyclePanel app={app} /> : <OwnershipPanel app={app} />}
+      {app.kind === 'container' || app.kind === 'compose' ? (
+        <LifecyclePanel app={app} />
+      ) : (
+        <OwnershipPanel app={app} />
+      )}
     </div>
   );
 }
@@ -143,7 +171,8 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
   const app = q.data;
   const router = useRouter();
   useSetPageEnv(app?.environment);
-  const realTabs = app ? realTabsFor(app) : REAL_APP_TABS;
+  const realTabs: readonly AppTab[] = app ? realTabsFor(app) : REAL_APP_TABS;
+  const deployable = app?.kind === 'container' || app?.kind === 'compose';
 
   let body: React.ReactNode = null;
   if (q.isPending) {
@@ -185,7 +214,7 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
               <EnvBadge env={app.environment} label={t(envBadgeKey(app.environment))} />
               <OwnershipBadge mode={app.ownershipMode} />
               <FlagBadges flags={app.flags} />
-              {app.kind === 'container' && (
+              {(app.kind === 'container' || app.kind === 'compose') && (
                 <>
                   <span className="flex-1" />
                   <GatedButton
@@ -201,7 +230,9 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
                 </>
               )}
             </div>
-            {app.kind === 'container' && <CurrentVersionLine app={app} />}
+            {(app.kind === 'container' || app.kind === 'compose') && (
+              <CurrentVersionLine app={app} />
+            )}
             <div className="text-[13px] text-fg-muted">
               {t(`apps.kind.${app.kind}` as MessageKey)} ·{' '}
               {app.serverName ?? app.serverId.slice(0, 8)} ·{' '}
@@ -219,7 +250,7 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
               aria-label={t('app.sections')}
               className="flex gap-0.5 overflow-x-auto border-b border-line"
             >
-              {APP_TABS.map((k) => {
+              {tabsFor(app).map((k) => {
                 const active = k === tab;
                 return (
                   <Link
@@ -256,10 +287,22 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
               <OwnershipHistory app={app} />
             </div>
           )}
-          {app.kind === 'container' && tab === 'deployments' && <AppDeploymentsTab app={app} />}
-          {app.kind === 'container' && tab === 'env' && <EnvSecretsTab app={app} />}
+          {deployable && tab === 'deployments' && <AppDeploymentsTab app={app} />}
+          {deployable && tab === 'env' && <EnvSecretsTab app={app} />}
           {app.kind === 'container' && tab === 'logs' && <LogsTab app={app} />}
-          {app.kind === 'container' && tab === 'settings' && <AutoDeploySettings app={app} />}
+          {app.kind === 'container' && tab === 'builds' && <BuildsTab app={app} />}
+          {app.kind === 'compose' && tab === 'compose' && <ComposeTab app={app} />}
+          {app.kind === 'container' && tab === 'settings' && (
+            <div className="flex flex-col gap-4">
+              <BuildSettings app={app} />
+              <AutoDeploySettings app={app} />
+            </div>
+          )}
+          {app.kind === 'compose' && tab === 'settings' && (
+            <Notice tone="neutral" glyph="◆" role="note">
+              {t('cmp.settingsNote')}
+            </Notice>
+          )}
           {!realTabs.includes(tab) && <ProposedBanner body={t('app.proposedTab')} />}
         </div>
       )}

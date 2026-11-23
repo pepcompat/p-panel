@@ -130,3 +130,60 @@ func TestDemuxAndDigestRef(t *testing.T) {
 		t.Fatal("tag accepted")
 	}
 }
+
+func TestBuildEngineAllowlist(t *testing.T) {
+	q := func(kv ...string) map[string][]string {
+		m := map[string][]string{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i]] = append(m[kv[i]], kv[i+1])
+		}
+		return m
+	}
+	allowed := []struct {
+		m, p string
+		q    map[string][]string
+	}{
+		{"POST", "/build", nil}, {"POST", "/build/cancel", q("id", "x")},
+		{"POST", "/images/lab-registry:5000/ppanel/websrc/push", q("tag", "build-0123456789ab")},
+		{"POST", "/images/ghcr.io/acme/web/push", q("tag", "build-0123456789ab")},
+		{"DELETE", "/images/lab-registry:5000/ppanel/websrc:build-0123456789ab", q("noprune", "0")},
+		{"POST", "/containers/create", nil}, {"GET", "/_ping", nil},
+	}
+	refused := []struct {
+		m, p string
+		q    map[string][]string
+	}{
+		{"POST", "/images/ghcr.io/acme/web/push", q("tag", "latest")},
+		{"POST", "/images/ghcr.io/acme/web/push", nil},
+		{"POST", "/images/ghcr.io/acme/web/push", q("tag", "build-0123456789ab", "tag", "latest")},
+		{"POST", "/images/web/push", q("tag", "build-0123456789ab")}, // no registry/path
+		{"DELETE", "/images/ghcr.io/acme/web:latest", nil},
+		{"DELETE", "/images/sha256:" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", nil},
+		{"DELETE", "/images/ghcr.io/acme/web:build-0123456789ab", q("force", "1")},
+		{"POST", "/build/prune", nil}, {"POST", "/images/prune", nil}, {"POST", "/containers/x/exec", nil},
+		{"DELETE", "/volumes/ppanel-shop-data", nil}, {"POST", "/images/ghcr.io/acme/web/tag", q("tag", "build-0123456789ab")},
+		{"GET", "/build", nil},
+	}
+	for _, a := range allowed {
+		if !AllowedBuildCall(a.m, a.p, a.q) {
+			t.Errorf("%s %s %v should be allowed on a build engine", a.m, a.p, a.q)
+		}
+	}
+	for _, r := range refused {
+		if AllowedBuildCall(r.m, r.p, r.q) {
+			t.Errorf("%s %s %v must be refused", r.m, r.p, r.q)
+		}
+	}
+	// a non-build engine refuses every build call before reaching the socket
+	e := NewEngine("/nonexistent.sock")
+	if e.BuildCapable() || e.Build(context.Background(), map[string][]string{}, nil, nil) == nil ||
+		e.RemoveImage(context.Background(), "ghcr.io/acme/web:build-0123456789ab") == nil {
+		t.Fatal("non-build engine must refuse build calls")
+	}
+	if AllowedCall("POST", "/build") || AllowedCall("DELETE", "/images/ghcr.io/acme/web:build-0123456789ab") {
+		t.Fatal("container-ops allowlist must not include build calls")
+	}
+	if !NewBuildEngine("/x").BuildCapable() {
+		t.Fatal("build engine")
+	}
+}

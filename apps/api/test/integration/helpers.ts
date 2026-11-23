@@ -64,6 +64,10 @@ export async function bootApp(overrides: Record<string, string> = {}): Promise<T
 }
 
 const TABLES = [
+  'source_inspections',
+  'compose_app_versions',
+  'builds',
+  'build_configs',
   'auto_deploy_policies',
   'webhook_deliveries',
   'integrations',

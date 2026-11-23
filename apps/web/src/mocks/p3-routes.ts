@@ -961,6 +961,54 @@ const MODE_ACTION: Record<OwnershipMode, string> = {
 function decorate(u: MockUserLike, a: Application): Application {
   const srv = serverOf(a.serverId);
   const actions: string[] = [];
+  if (a.kind === 'compose') {
+    // P4b compose app: no restart (stop/start/redeploy/rollback), compose edits instead of container.
+    if (can(u, 'apps.deploy', srv))
+      actions.push(
+        'deploy',
+        'redeploy',
+        'rollback',
+        'start',
+        'stop',
+        'manage_secrets',
+        'edit_compose',
+      );
+    if (can(u, 'apps.read', srv)) actions.push('view_logs');
+    // Runtime lives in the internal `container` record; the public read model is `compose` only.
+    const rt = a.container;
+    return {
+      ...a,
+      container: undefined,
+      compose: a.compose
+        ? {
+            ...a.compose,
+            yaml: undefined,
+            currentDeploymentId: rt?.currentDeploymentId ?? null,
+            previousDeploymentId: rt?.previousDeploymentId ?? null,
+            rollbackAvailable: !!rt?.rollbackAvailable,
+            containerName: rt?.containerName ?? null,
+            hostPort: rt?.hostPort ?? null,
+            runtimeState:
+              rt?.runtimeState === 'stopped'
+                ? 'stopped'
+                : rt?.currentDeploymentId
+                  ? 'running'
+                  : 'unknown',
+            services: a.compose.services.map((x) => ({
+              ...x,
+              state: !rt?.currentDeploymentId
+                ? 'unknown'
+                : rt.runtimeState === 'stopped'
+                  ? 'stopped'
+                  : 'running',
+            })),
+          }
+        : null,
+      serverName: srv.name,
+      environment: srv.environment,
+      allowedActions: actions as Application['allowedActions'],
+    };
+  }
   if (a.kind === 'container') {
     // P4 managed container app: lifecycle actions instead of ownership tiers.
     if (can(u, 'apps.deploy', srv))
@@ -973,6 +1021,9 @@ function decorate(u: MockUserLike, a: Application): Application {
         'stop',
         'manage_secrets',
         'edit_container',
+        'manage_build_config',
+        // build / inspect_source only once a build config exists (§8.1)
+        ...(a.build ? (['build', 'inspect_source'] as const) : []),
       );
     if (can(u, 'apps.read', srv)) actions.push('view_logs');
     if (can(u, 'apps.deploy', srv) && can(u, 'policies.manage', srv))

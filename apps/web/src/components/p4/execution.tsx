@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/states';
 import { ActionDialog } from '@/components/p3/action-dialog';
 import { Sha } from '@/components/p3/bits';
+import { ComposeServicesTable } from './compose-bits';
 import {
   DeploymentOutcome,
   DeploymentStatusBadge,
@@ -103,6 +104,11 @@ export function DeploymentExecution({
       <div aria-live="polite">
         <DeploymentOutcome d={d} previousNumber={prev?.number ?? null} />
       </div>
+      {d.compose && d.trigger === 'rollback' && (
+        <Notice tone="warn" glyph="▲" role="note" title={t('cmp.rollback.title')}>
+          <span data-testid="data-not-restored">{t('cmp.rollback.dataRestoredFalse')}</span>
+        </Notice>
+      )}
       {live && (
         <Notice tone="info" glyph="◌" role="status">
           {t('dep.live', { status: t(`dep.status.${d.status}`) })}
@@ -129,6 +135,24 @@ export function DeploymentExecution({
           )}
           <DeploymentTimeline d={d} now={now} />
         </Card>
+        {d.compose && (
+          <Card
+            className="flex flex-col gap-2 p-4 lg:col-start-1"
+            data-testid="compose-services-card"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="m-0 flex-1 text-[14.5px] font-semibold">{t('cmp.services')}</h3>
+              <span className="font-mono text-[12px] text-fg-muted">
+                {t('cmp.versionN', { v: d.compose.version })}
+              </span>
+            </div>
+            <ComposeServicesTable
+              services={d.compose.services}
+              routeService={d.compose.routeService}
+            />
+            <p className="m-0 text-[12px] text-fg-muted">{t('cmp.execNote')}</p>
+          </Card>
+        )}
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-2 p-4">
             <h3 className="m-0 text-[14.5px] font-semibold">{t('dep.plan')}</h3>
@@ -152,6 +176,20 @@ export function DeploymentExecution({
                   </Link>,
                 ],
                 [t('dep.col.image'), <ImageRef key="i" image={d.image} />],
+                ...(d.buildId
+                  ? ([
+                      [
+                        t('dep.build'),
+                        <Link
+                          key="b"
+                          href={`/applications/${d.applicationId}/builds?build=${d.buildId}`}
+                          className="font-mono"
+                        >
+                          {d.buildId.slice(0, 8)}
+                        </Link>,
+                      ],
+                    ] as Array<[string, React.ReactNode]>)
+                  : []),
                 [
                   t('dep.container'),
                   d.container

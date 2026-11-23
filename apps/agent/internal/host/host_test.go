@@ -114,4 +114,27 @@ func TestDockerCapabilityRequiresPing(t *testing.T) {
 	if !has() {
 		t.Fatal("docker capability missing although /_ping answered 200")
 	}
+	hasBuild := func() bool {
+		for _, c := range e.Capabilities() {
+			if c == "build" {
+				return true
+			}
+		}
+		return false
+	}
+	if hasBuild() {
+		t.Fatal("build capability without build.enabled")
+	}
+	e.BuildEnabled = true
+	if hasBuild() {
+		t.Fatal("build capability without a git binary")
+	}
+	e.GitBinary = "/usr/bin/git"
+	if !hasBuild() {
+		t.Fatal("build capability missing (enabled + docker + git)")
+	}
+	status = 500
+	if hasBuild() {
+		t.Fatal("build capability reported although docker does not answer")
+	}
 }

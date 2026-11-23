@@ -47,6 +47,11 @@ export const RESTRICTED_JOB_TYPES: readonly JobType[] = [
   'container.restart',
   'container.remove',
   'container.logs',
+  // P4b: builds / inspection / compose are created by the build + compose workflows only
+  'image.build',
+  'source.inspect',
+  'compose.apply',
+  'compose.stop',
 ];
 
 /** Mutating jobs lock a per-server resource so two never run concurrently on the same target. */
@@ -60,7 +65,10 @@ export function resourceKeyFor(
   // all mutating nginx jobs (validate writes candidate files too) share one lock per server
   if (type.startsWith('nginx.')) return `nginx:${serverId ?? ''}`;
   // one mutating container job per app at a time (app slugs are unique per server)
-  if (type.startsWith('container.')) return `app:${String(params.app)}`;
+  if (type.startsWith('container.') || type.startsWith('compose.'))
+    return `app:${String(params.app)}`;
+  // builds of one app run one at a time on the build node
+  if (type === 'image.build') return `build:${String(params.app)}`;
   return `type:${type}`;
 }
 

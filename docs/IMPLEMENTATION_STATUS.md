@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P4a (UI finishing); P4b next
+Current phase: P4 complete except BLOCKED externals; next P5
 Last verified revision: (no commits yet)
 
 ## P0
@@ -56,16 +56,16 @@ Phase tests: P3-T01, P3-T02, P3-T03, P3-T04, P3-T05 (see `TEST_REPORT.md`) · Ga
 
 ## P4
 
-| Task ID | Status      | Change/PR | Test command                    | Evidence                                                                                            | Notes                                                                                                           |
-| ------- | ----------- | --------- | ------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| P4.01   | BLOCKED     |           |                                 | repo webhooks PASS (docs/evidence/2026-11-23/p4-e2e.json); GitHub App install needs App credentials | GitHub App integration with scoped repo permissions, webhook signature/replay protection, commit SHA pinning.   |
-| P4.02   | IN_PROGRESS |           |                                 | registry image@digest deploy + compose validator PASS; Dockerfile build + compose execution = P4b   | Registry image deploy; Dockerfile build on separated/constrained builder; safe Compose parser/policy validator. |
-| P4.03   | PASS        |           | pnpm --filter @ppanel/api test  | detectFramework unit tests (shared-contracts)                                                       | Framework detection Next.js/NestJS/Laravel/Dockerfile/Compose; explicit override.                               |
-| P4.04   | PASS        |           | e2e_p4.py + web unit/Playwright | APIs lab-verified; wizard UI checked against real API                                               | Full wizard APIs and UI: source, runtime, server, env/secrets, domain, preflight, review, progress.             |
-| P4.05   | PASS        |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json (HTTP + operator TLS paths; ACME BLOCKED)                      | Nginx route management, TLS approach, DNS/port collision checks; preserve existing Nginx.                       |
-| P4.06   | PASS        |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json                                                                | Deployment history, immutable artifact digest, per-step logs, application healthchecks.                         |
-| P4.07   | PASS        |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json (stateless containers; compose/native limits documented)       | Rollback for supported stateless deployments; Compose/native limitations prominently documented.                |
-| P4.08   | PASS        |           | e2e_p4.py + deployments.spec    | docs/evidence/2026-11-23/p4-e2e.json                                                                | Branch rules, auto-deploy, prod approval and per-app deploy locks.                                              |
+| Task ID | Status  | Change/PR | Test command                    | Evidence                                                                                                                | Notes                                                                                                           |
+| ------- | ------- | --------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| P4.01   | BLOCKED |           |                                 | repo webhooks (image + build mode) PASS docs/evidence/2026-11-23/p4b-e2e.json; GitHub App install needs App credentials | GitHub App integration with scoped repo permissions, webhook signature/replay protection, commit SHA pinning.   |
+| P4.02   | PASS    |           | e2e_p4.py + e2e_p4b.py          | docs/evidence/2026-11-23/p4b-e2e.json (build on designated node, classic builder; compose executed via typed plan)      | Registry image deploy; Dockerfile build on separated/constrained builder; safe Compose parser/policy validator. |
+| P4.03   | PASS    |           | pnpm --filter @ppanel/api test  | detectFramework unit tests (shared-contracts)                                                                           | Framework detection Next.js/NestJS/Laravel/Dockerfile/Compose; explicit override.                               |
+| P4.04   | PASS    |           | e2e_p4.py + web unit/Playwright | APIs lab-verified; wizard UI checked against real API                                                                   | Full wizard APIs and UI: source, runtime, server, env/secrets, domain, preflight, review, progress.             |
+| P4.05   | PASS    |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json (HTTP + operator TLS paths; ACME BLOCKED)                                          | Nginx route management, TLS approach, DNS/port collision checks; preserve existing Nginx.                       |
+| P4.06   | PASS    |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json                                                                                    | Deployment history, immutable artifact digest, per-step logs, application healthchecks.                         |
+| P4.07   | PASS    |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json (stateless containers; compose/native limits documented)                           | Rollback for supported stateless deployments; Compose/native limitations prominently documented.                |
+| P4.08   | PASS    |           | e2e_p4.py + deployments.spec    | docs/evidence/2026-11-23/p4-e2e.json                                                                                    | Branch rules, auto-deploy, prod approval and per-app deploy locks.                                              |
 
 Phase tests: P4-T01, P4-T02, P4-T03, P4-T04, P4-T05, P4-T06, P4-T07 (see `TEST_REPORT.md`) · Gate: TODO
 

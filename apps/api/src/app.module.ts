@@ -18,6 +18,8 @@ import { DiscoveryService } from './discovery/discovery.service';
 import { NginxRevisionsController } from './nginx/nginx-revisions.controller';
 import { NginxRevisionsService } from './nginx/nginx-revisions.service';
 import { JobHooks } from './jobs/job-hooks';
+import { BuildsService } from './deploy/builds.service';
+import { ComposeAppsService } from './deploy/compose-apps.service';
 import { ContainerAppsService } from './deploy/container-apps.service';
 import { DeployController, IntegrationsController } from './deploy/deploy.controller';
 import { DeploymentsService } from './deploy/deployments.service';
@@ -92,6 +94,8 @@ export class AppModule {
         PreflightService,
         DeploymentsService,
         ContainerAppsService,
+        BuildsService,
+        ComposeAppsService,
         ManagedRoutingService,
         RegistryClient,
         WebhooksService,

@@ -64,6 +64,8 @@ export interface Server {
   connectionPolicy: ConnectionPolicy;
   metrics: ServerMetrics | null;
   capabilities: string[];
+  /** P4b: Center-side build node designation (builds also need the agent's `build` capability). */
+  buildNode: boolean;
   certificate: { serial: string; notAfter: string } | null;
   allowedActions: string[];
   createdAt: string;
@@ -112,6 +114,8 @@ export const updateServerSchema = z
     connectionPolicy: z.enum(CONNECTION_POLICIES).optional(),
     /** systemd units allowlisted for typed jobs such as service.restart (owned-resource allowlist). */
     ownedUnits: z.array(systemdUnitSchema).max(100).optional(),
+    /** P4b: designate as build node (needs `policies.manage`). */
+    buildNode: z.boolean().optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'at least one field is required' });

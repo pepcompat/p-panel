@@ -23,6 +23,9 @@ import {
   type WizardStep,
 } from '@/lib/p4-gates';
 import { useApplication, useApplications } from '@/lib/p3-queries';
+import { useSecrets } from '@/lib/p4-queries';
+import { isDeployable } from '@/lib/p4b-gates';
+import { useComposeCurrent } from '@/lib/p4b-queries';
 import { useServers } from '@/lib/queries';
 import { envBadgeKey } from '@/lib/servers';
 import { cn, uuid } from '@/lib/utils';
@@ -36,6 +39,8 @@ import { StepUpField } from '@/components/p3/bits';
 import { useSetPageEnv } from '@/components/shell/page-env';
 import { PreflightList } from './bits';
 import { DeploymentExecution } from './execution';
+import { BuildExecution } from './build-execution';
+import { ComposeReview, GitReview } from './review-p4b';
 import {
   ConfigureStep,
   DetectStep,
@@ -48,21 +53,60 @@ import type { MessageKey } from '@/i18n/en';
 
 type Env = 'production' | 'uat' | 'development';
 
-/** Prefill the wizard from an existing container application ("Deploy" entry point). */
+/** Prefill the wizard from an existing container / compose application ("Deploy" entry point). */
 function fromApp(app: Application): WizardState {
   const w = initialWizard('existing');
   const repo = app.container?.image?.split('@')[0] ?? '';
+  const b = app.build?.config;
+  const cmp = app.compose;
   return {
     ...w,
     appId: app.id,
-    source: { ...w.source, repo },
+    source: { ...w.source, repo, kind: cmp ? 'compose' : 'registry' },
+    git: b
+      ? {
+          ...w.git,
+          repoUrl: b.repoUrl,
+          subdir: b.subdir ?? '',
+          method: b.dockerfile ? 'dockerfile' : 'template',
+          dockerfile: b.dockerfile ?? 'Dockerfile',
+          template: (b.template ?? '') as WizardState['git']['template'],
+          buildArgs: Object.entries(b.buildArgs ?? {}).map(([key, value]) => ({
+            id: uuid(),
+            key,
+            value,
+          })),
+          target: b.target ?? '',
+          buildServerId: b.buildServerId,
+          pushRepo: b.pushRepo,
+          network: b.network ?? 'default',
+          memoryMb: String(b.limits?.memoryMb ?? 2048),
+          cpus: String(b.limits?.cpus ?? 2),
+          timeoutSec: String(b.limits?.timeoutSec ?? 900),
+        }
+      : w.git,
+    compose: cmp
+      ? {
+          ...w.compose,
+          yaml: cmp.yaml ?? '',
+          routeService: cmp.routeService,
+          routePort: String(cmp.routePort),
+          healthPath: cmp.healthPath || '/',
+        }
+      : w.compose,
     target: { serverId: app.serverId },
     config: { ...w.config, name: app.name },
     domain: { ...w.domain, domains: [...app.domains] },
   };
 }
 
-export function DeployWizard({ appId }: { appId: string | null }) {
+export function DeployWizard({
+  appId,
+  initialSource,
+}: {
+  appId: string | null;
+  initialSource?: 'git';
+}) {
   const { t } = useI18n();
   const { can, status } = useAuth();
   const appQ = useApplication(appId ?? '');
@@ -95,7 +139,7 @@ export function DeployWizard({ appId }: { appId: string | null }) {
           <ErrorState error={appQ.error} onRetry={() => void appQ.refetch()} />
         </Page>
       );
-    if (appQ.data && appQ.data.kind !== 'container')
+    if (appQ.data && !isDeployable(appQ.data))
       return (
         <Page>
           <PageHeader title={t('wiz.title')} />
@@ -105,19 +149,33 @@ export function DeployWizard({ appId }: { appId: string | null }) {
         </Page>
       );
   }
-  return <Wizard key={appQ.data?.id ?? 'new'} app={appQ.data ?? null} />;
+  return (
+    <Wizard key={appQ.data?.id ?? 'new'} app={appQ.data ?? null} initialSource={initialSource} />
+  );
 }
 
-function Wizard({ app: initialApp }: { app: Application | null }) {
+function Wizard({
+  app: initialApp,
+  initialSource,
+}: {
+  app: Application | null;
+  initialSource?: 'git';
+}) {
   const { t } = useI18n();
   const { can } = useAuth();
   const servers = useServers();
   const inventory = useApplications();
-  const [w, setW] = useState<WizardState>(() =>
-    initialApp ? fromApp(initialApp) : initialWizard('new'),
-  );
+  const [w, setW] = useState<WizardState>(() => {
+    const base = initialApp ? fromApp(initialApp) : initialWizard('new');
+    return initialSource === 'git' && base.source.kind !== 'compose'
+      ? { ...base, source: { ...base.source, kind: 'git' } }
+      : base;
+  });
   const [step, setStep] = useState<WizardStep>('source');
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
+  const [buildId, setBuildId] = useState<string | null>(null);
+  const [buildReused, setBuildReused] = useState(false);
+  const gitToken = useRef<string | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const firstRender = useRef(true);
   /** Secret values staged in Configure, keyed by row id. Not React state; cleared after writing. */
@@ -127,7 +185,25 @@ function Wizard({ app: initialApp }: { app: Application | null }) {
   const createdApp = useApplication(w.mode === 'existing' && w.appId ? w.appId : '');
   const app = createdApp.data ?? initialApp;
   const serverList = useMemo(() => servers.data?.items ?? [], [servers.data]);
-  const ctx = useMemo(() => ({ servers: serverList }), [serverList]);
+  const appSecrets = useSecrets(w.appId, !!w.appId && w.source.kind === 'compose');
+  const setSecrets = useMemo(
+    () => appSecrets.data?.items.map((x) => x.key) ?? [],
+    [appSecrets.data],
+  );
+  const ctx = useMemo(() => ({ servers: serverList, setSecrets }), [serverList, setSecrets]);
+  const started = !!deploymentId || !!buildId;
+  const composeCurrent = useComposeCurrent(
+    w.appId,
+    w.mode === 'existing' && app?.kind === 'compose' && !app.compose?.yaml,
+  );
+  // The compose read model has no YAML: prefill the editor from the current version once.
+  const yamlLoaded = useRef(false);
+  useEffect(() => {
+    const y = app?.compose?.yaml ?? composeCurrent.data?.yaml;
+    if (yamlLoaded.current || !y || w.compose.yaml) return;
+    yamlLoaded.current = true;
+    setW((x) => ({ ...x, compose: { ...x.compose, yaml: y } }));
+  }, [app?.compose?.yaml, composeCurrent.data?.yaml, w.compose.yaml]);
   const target = serverList.find((s) => s.id === w.target.serverId) ?? null;
   useSetPageEnv(target?.environment ?? app?.environment);
 
@@ -145,7 +221,7 @@ function Wizard({ app: initialApp }: { app: Application | null }) {
   }, [step]);
 
   function go(s: WizardStep) {
-    if (s === 'execution' ? !!deploymentId : canEnterStep(s, w, ctx)) setStep(s);
+    if (s === 'execution' ? started : canEnterStep(s, w, ctx)) setStep(s);
   }
 
   const image = useMemo(() => {
@@ -174,8 +250,8 @@ function Wizard({ app: initialApp }: { app: Application | null }) {
         <ol className="m-0 flex list-none flex-wrap gap-1.5 p-0">
           {WIZARD_STEPS.map((s, i) => {
             const current = s === step;
-            const done = deploymentId ? s !== 'execution' : i < idx;
-            const enabled = s === 'execution' ? !!deploymentId : !deploymentId && i <= reachable;
+            const done = started ? s !== 'execution' : i < idx;
+            const enabled = s === 'execution' ? started : !started && i <= reachable;
             return (
               <li key={s}>
                 <button
@@ -218,8 +294,19 @@ function Wizard({ app: initialApp }: { app: Application | null }) {
           <ErrorState error={servers.error} onRetry={() => void servers.refetch()} />
         )}
 
-        {step === 'source' && <SourceStep w={w} patch={patch} environment={target?.environment} />}
-        {step === 'detect' && <DetectStep w={w} patch={patch} />}
+        {step === 'source' && (
+          <SourceStep
+            w={w}
+            patch={patch}
+            environment={target?.environment ?? app?.environment}
+            servers={serverList}
+            app={app}
+            gitToken={gitToken}
+            setSecrets={setSecrets}
+            secretValues={secretValues}
+          />
+        )}
+        {step === 'detect' && <DetectStep w={w} patch={patch} app={app} />}
         {step === 'target' && <TargetStep w={w} patch={patch} servers={serverList} app={app} />}
         {step === 'configure' && (
           <ConfigureStep
@@ -238,7 +325,42 @@ function Wizard({ app: initialApp }: { app: Application | null }) {
             app={app}
           />
         )}
-        {step === 'review' && (
+        {step === 'review' && w.source.kind === 'git' && (
+          <GitReview
+            w={w}
+            setW={setW}
+            app={app}
+            servers={serverList}
+            createInput={toCreateInput(w, (target?.environment ?? 'development') as Env)}
+            serverName={target?.name ?? app?.serverName ?? ''}
+            environment={target?.environment ?? app?.environment ?? 'development'}
+            secretValues={secretValues}
+            registryPassword={registryPassword}
+            gitToken={gitToken}
+            onBuild={(b, reused) => {
+              setBuildReused(reused);
+              setBuildId(b.id);
+              setStep('execution');
+            }}
+          />
+        )}
+        {step === 'review' && w.source.kind === 'compose' && (
+          <ComposeReview
+            w={w}
+            setW={setW}
+            app={app}
+            serverName={target?.name ?? app?.serverName ?? ''}
+            environment={target?.environment ?? app?.environment ?? 'development'}
+            setSecrets={setSecrets}
+            secretValues={secretValues}
+            currentYaml={app?.compose?.yaml ?? composeCurrent.data?.yaml}
+            onDeployed={(d) => {
+              setDeploymentId(d.id);
+              setStep('execution');
+            }}
+          />
+        )}
+        {step === 'review' && w.source.kind === 'registry' && (
           <ReviewStep
             w={w}
             setW={setW}
@@ -255,7 +377,10 @@ function Wizard({ app: initialApp }: { app: Application | null }) {
             }}
           />
         )}
-        {step === 'execution' && deploymentId && (
+        {step === 'execution' && buildId && (
+          <BuildExecution buildId={buildId} serverName={target?.name} reused={buildReused} />
+        )}
+        {step === 'execution' && !buildId && deploymentId && (
           <div className="flex flex-col gap-3">
             <DeploymentExecution id={deploymentId} />
             <Link href={`/deployments/${deploymentId}`} className="self-start text-[13px]">

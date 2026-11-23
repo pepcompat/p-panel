@@ -155,3 +155,37 @@ In addition to `/etc/nginx/ppanel-managed/**`, the nginx path policy allows **cr
 ### Concurrency
 
 One mutating `container.*` job per app at a time (agent mutex per app; Center lock `app:<applicationId>`), and nginx mutations remain globally serialized.
+
+## Builds (P4b) — authoritative
+
+`image.build` and `source.inspect` run **only** on agents whose local config sets `build.enabled: true` (operator decision on the host, not Center-controlled) → otherwise `NOT_A_BUILD_NODE` before ack. The Center never builds. A Dockerfile's `RUN` steps execute as containers on the build node: **the build node must be a dedicated, trusted host** (documented; not an isolation guarantee).
+
+- **Source fetch** (no shell): `git` binary via `execx` with fixed argv in a fresh temp dir under `<stateDir>/builds/<buildId>`: `git init -q`, `git remote add origin <url>`, `git -c protocol.version=2 fetch --depth 1 --no-tags origin <commitSha>`, `git checkout -q --detach FETCH_HEAD`, then verify `git rev-parse HEAD` == `commitSha` (else `SOURCE_FETCH_FAILED`). Env: `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_NOSYSTEM=1`, `HOME=<tempdir>`, `GIT_ALLOW_PROTOCOL=https:git` (git only if allowlisted); auth header (from the secrets call, `gitAuth: {header}`) passed via `GIT_CONFIG_COUNT/KEY_0=http.extraHeader/VALUE_0` env — never argv, never logged. Submodules and LFS are not fetched. URL host must be in `build.gitHostsAllowlist` (exact host[:port]) → `GIT_HOST_NOT_ALLOWED`. Timeout counts toward `limits.timeoutSec`.
+- **Context**: `subdir` resolved inside the checkout (symlinks escaping the checkout → `SOURCE_FETCH_FAILED`), tarred without `.git`, ≤ 500 MiB. `dockerfile` must exist inside the context (`DOCKERFILE_NOT_FOUND`); `template` uses the agent-embedded Dockerfile (`templates/<name>/Dockerfile` in the repo, `go:embed`), written into the tar as `Dockerfile.ppanel`.
+- **Build**: Docker Engine `POST /build` (classic builder API) with `t=<pushRepo>:build-<buildId12>`, `dockerfile`, `buildargs`, `target`, `memory`, `cpuperiod/cpuquota`, `networkmode` (`default`|`none`), `rm=1`, `forcerm=1`, `pull=1`, labels `ppanel.build=<buildId>`, `ppanel.app`, `ppanel.commit`. Stream decoded; `errorDetail` → `BUILD_FAILED`; over time → cancel request + `BUILD_TIMEOUT`. Build log kept ≤ 2000 lines / 512 KiB, ANSI stripped, secret values redacted.
+- **Push**: `POST /images/<name>/push?tag=build-<id12>` with `X-Registry-Auth`; digest taken from the stream's `aux.Digest` → `PUSH_FAILED` if absent. Local build image then removed (`DELETE /images/<tag>?noprune=0`); dangling build cache is not pruned automatically (operator task, documented).
+- **Output**: `{ image: "<pushRepo>@sha256:…", tag, commitSha, durationMs, logTail: [last 200 lines], template?: name }`. Full log lines are returned in `output.log` (bounded) for the Center to store.
+- Engine allowlist additions (build-node agents only): `POST /build`, `POST /build/cancel`, `POST /images/{name}/push`, `DELETE /images/{name}` (only tags matching `build-<hex12>` created by this job).
+- **`source.inspect`** (read-only): same fetch, then returns `{ commitSha, files: { "<name>": content } }` only for names in `SOURCE_INSPECT_FILES` at the context root, each ≤ 64 KiB (larger → omitted with `truncated:[names]`). Temp dir removed after.
+
+## Compose (P4b) — authoritative
+
+The agent never parses YAML. The Center validates the compose file (§7.6 rules), resolves every image to a digest, topologically sorts services, and sends a normalised `compose.apply` plan.
+
+`compose.apply` (per-app mutex, ownership rules from §Containers, hardened HostConfig as in `run_candidate` for every service; only `routeService` gets `127.0.0.1:<hostPort>`; all services join network `ppanel-<app>` with DNS alias = service name):
+
+1. Fetch secrets once if any `secretEnv` or `registryAuth`.
+2. For each service in order: find the running managed container labelled `ppanel.service=<service>`. If its `ppanel.spec` label == `specHash` and it is running → **keep** (status `unchanged`). Else:
+   - **route service**: create the new container (new name) alongside the old one, wait health → `COMPOSE_SERVICE_UNHEALTHY` (new removed, old untouched, stop processing). The old container is left running; the Center switches the route and then stops it (`container.stop`).
+   - **other services**: wait for `dependsOn` services to be healthy, stop the old container (10 s grace), create + start the new one, wait health. Unhealthy → stop the new one, restart the old one, `COMPOSE_SERVICE_UNHEALTHY` with `details.service` (brief downtime for that service is inherent and reported).
+3. Output: `{ services: [{ service, name, action: "unchanged"|"created"|"replaced", previousName?, hostPort?, health }] }`.
+
+Health types: `http` (loopback for the route service, container IP on the app network otherwise — probed from the agent), `tcp` (connect to container IP:port), `running` (state running for `startPeriodSec` without restarts). Volumes are named `ppanel-<app>-<name>`, created if absent, **never removed** by any job. `compose.stop` stops all managed containers of the app (volumes kept) → `{ stopped: [names] }`.
+
+### P4b implementation notes (as built, 2026-11-23)
+
+- **Push digest**: Docker Engine 29 with the containerd image store sends no `aux.Digest` on push; the agent falls back to the status line `build-<id12>: digest: sha256:<64> size: N` for its own tag only, else `PUSH_FAILED`.
+- `image.build` output: `{ image, tag ("build-<id12>"), commitSha, durationMs, logTail, log, template? }`; failure details `{ logTail, log }`. A git-fetch timeout inside a build → `BUILD_TIMEOUT`; a push timeout → `PUSH_FAILED`; oversized context or escaping symlink → `SOURCE_FETCH_FAILED`. Git config also forces `core.hooksPath=/dev/null` and `http.followRedirects=false` (renamed GitHub repos therefore fail — use the canonical URL).
+- `source.inspect` output: `{ commitSha, files, truncated }` (`truncated` always present).
+- Compose service containers are named `ppanel-<app>-<service>-<8hex>` (accepted by the ownership name check, verified against the `ppanel.service` label). An `unchanged` service reports `health: {status:"running", attempts:0, elapsedMs:0}`. On `COMPOSE_SERVICE_UNHEALTHY` the failed new container is **removed** and details carry `{ service, services, logTail, reason, attempts, elapsedMs, exitCode?, lastStatus?, removed, restored, previousName?, dependency? }`.
+- Known gaps: classic builder only (no BuildKit secrets/`--mount`), dangling build cache not pruned automatically, Docker Hub short refs with tag+digest (`postgres:16-alpine@sha256:…`) are not normalised by the Center yet — use `docker.io/library/postgres@sha256:…`.

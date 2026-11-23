@@ -113,8 +113,8 @@ describe('deploy wizard gating', () => {
     expect(resolveImage(PINNED, '').kind).toBe('pinned');
   });
 
-  it('GitHub / Compose / Dockerfile sources cannot proceed', () => {
-    for (const kind of ['github', 'compose', 'dockerfile'] as const) {
+  it('GitHub App source cannot proceed; empty Git / Compose sources are blocked', () => {
+    for (const kind of ['github', 'compose', 'git'] as const) {
       const w = valid();
       w.source.kind = kind;
       expect(maxReachableStep(w, ctx)).toBe(0);

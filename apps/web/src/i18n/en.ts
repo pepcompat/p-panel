@@ -3,7 +3,10 @@
  * Design-derived strings come from the prototype's EN dictionary (design/W3 Server Panel.dc.html, D_EN / TH_D2).
  * Placeholders use {name}. Command output and host logs are never translated.
  */
+import { p4bEn } from './p4b';
+
 export const en = {
+  ...p4bEn,
   'app.name': 'pPanel',
   'app.tagline': 'center v0.1',
   'app.skipToContent': 'Skip to content',
@@ -973,10 +976,10 @@ export const en = {
   'wiz.step.execution.desc': 'Live timeline of the deployment.',
   'wiz.src.registry': 'Registry image',
   'wiz.src.registry.desc': 'Image from a registry, pinned by sha256 digest.',
-  'wiz.src.github': 'GitHub',
-  'wiz.src.github.desc': 'Connected repo, branch and commit.',
+  'wiz.src.github': 'GitHub App',
+  'wiz.src.github.desc': 'Connected repos via a GitHub App installation.',
   'wiz.src.compose': 'Compose',
-  'wiz.src.compose.desc': 'Paste a compose file — validated, not executed.',
+  'wiz.src.compose.desc': 'Multi-service app from a compose file; validated, then executed.',
   'wiz.src.dockerfile': 'Dockerfile',
   'wiz.src.dockerfile.desc': 'Build from a Dockerfile.',
   'fw.nextjs': 'Next.js',
@@ -985,9 +988,9 @@ export const en = {
   'fw.dockerfile': 'Dockerfile',
   'fw.compose': 'Compose (multi-service)',
   'fw.unknown': 'Unknown',
-  'wiz.det.build.compose': 'Compose (P4b)',
-  'wiz.det.build.dockerfile': 'Dockerfile build (P4b)',
-  'wiz.det.build.framework_default': 'Generated Dockerfile (P4b)',
+  'wiz.det.build.compose': 'Compose application',
+  'wiz.det.build.dockerfile': 'Dockerfile build (Git source)',
+  'wiz.det.build.framework_default': 'Built-in template (Git source)',
   'wiz.det.build.none': 'None — deploy a prebuilt image',
   'mr.status.disabled': 'Not enabled',
   'mr.status.awaiting_approval': 'Awaiting approval',
@@ -1191,7 +1194,8 @@ export const en = {
   'wiz.det.health': 'Health check path',
   'wiz.det.build': 'Build method',
   'wiz.det.apply': 'Use suggested port and health check',
-  'wiz.det.buildNote': 'Builds are P4b — deploy a prebuilt image from your CI.',
+  'wiz.det.buildNote':
+    'Choose Git source to build it on a build node, or deploy a prebuilt image from your CI.',
   'wiz.det.override': 'Manual override',
   'wiz.det.overrideHint': 'Use when detection is wrong.',
   'wiz.det.auto': 'Use detection',

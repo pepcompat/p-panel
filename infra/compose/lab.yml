@@ -3,6 +3,8 @@
 # Only ONE port is published, loopback-only: the P4 lab registry on 127.0.0.1:55000 (image push from the Mac).
 # Sites are reached via `docker exec ... curl -H Host:`.
 # P4: lab-node-b gets a docker-in-docker sidecar (lab-dind, PRIVILEGED — lab only, see infra/lab/README.md).
+# P4b: lab-node-b is the BUILD NODE (git installed, agent config mounted with build.enabled + gitHostsAllowlist
+#      [lab-git]); lab-git serves the fixture repos (.lab/git, scripts/lab/git-fixtures.sh) over git:// read-only.
 # Containers are NOT VMs — see infra/lab/README.md for limitations and which tests stay BLOCKED.
 name: ppanel-lab
 
@@ -50,7 +52,7 @@ services:
     build:
       context: ..
       dockerfile: lab/node/Dockerfile
-      args: { NODE_ROLE: b, WITH_PHP: '0' }
+      args: { NODE_ROLE: b, WITH_PHP: '0', WITH_GIT: '1' }
     container_name: ppanel-lab-node-b
     hostname: lab-node-b
     environment:
@@ -60,8 +62,11 @@ services:
       - ${PPANEL_AGENT_BIN_DIR:-../../.lab/agent-bin}:/opt/ppanel-agent:ro
       - node-b-agent-state:/var/lib/ppanel-agent
       - node-b-dind-sock:/run/dind
+      # P4b: operator-side agent config (build node). Produced by the lab tooling, read-only.
+      - ../lab/node/agent-config/node-b.yaml:/etc/ppanel-agent/config.yaml:ro
     depends_on:
       lab-upstream-b: { condition: service_healthy }
+      lab-git: { condition: service_healthy }
 
   # P4 deploy target engine for lab-node-b. Docker-in-docker that SHARES node-b's network namespace,
   # so containers it publishes on 127.0.0.1:<port> are on node-b's loopback (like a real host where
@@ -145,6 +150,30 @@ services:
       - registry-data:/var/lib/registry
     healthcheck:
       test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:5000/v2/']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    labels:
+      com.ppanel.lab: 'true'
+
+  # P4b lab git server: read-only `git daemon` (git://lab-git/<name>.git) for the fixture repos built by
+  # scripts/lab/git-fixtures.sh into .lab/git. Lab network only, not published. git:// is accepted by
+  # node-b's agent only because its build.gitHostsAllowlist names `lab-git` (lab-only; production = https).
+  lab-git:
+    image: ppanel-lab-git:dev
+    build:
+      context: ../lab/git-daemon
+    container_name: ppanel-lab-git
+    hostname: lab-git
+    restart: 'no'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    networks: [labnet]
+    volumes:
+      - ${PPANEL_LAB_GIT_DIR:-../../.lab/git}:/srv/git:ro
+    healthcheck:
+      test: ['CMD', 'sh', '-c', 'nc -z 127.0.0.1 9418']
       interval: 3s
       timeout: 3s
       retries: 20

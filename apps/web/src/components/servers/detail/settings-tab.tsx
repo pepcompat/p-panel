@@ -16,6 +16,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { ErrorState, Notice } from '@/components/ui/states';
 import { usePatchServer } from './use-patch-server';
 import { RevokeDialog } from './revoke-dialog';
+import { BuildNodeCard } from './build-node-card';
 
 export function SettingsTab({ server }: { server: Server }) {
   const { t, locale } = useI18n();
@@ -155,6 +156,7 @@ export function SettingsTab({ server }: { server: Server }) {
           </GatedButton>
         </div>
       </Card>
+      <BuildNodeCard server={server} />
       <RevokeDialog server={server} open={revokeOpen} onOpenChange={setRevokeOpen} />
     </div>
   );

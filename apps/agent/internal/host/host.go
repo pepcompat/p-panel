@@ -29,6 +29,10 @@ type Env struct {
 	PhpFpmPoolGlob  string
 	SystemdRunDir   string // default /run/systemd/system
 	ProcRoot        string // default /proc
+	// BuildEnabled mirrors the local build.enabled config; "build" is reported
+	// only when it is true, Docker answers and a git binary exists.
+	BuildEnabled bool
+	GitBinary    string // resolved git path ("" = none)
 }
 
 func (e *Env) nginx() (string, bool)     { return execx.Find("nginx", e.NginxBinary) }
@@ -48,13 +52,16 @@ func (e *Env) proc() string {
 	return "/proc"
 }
 
-// Capabilities returns the subset of docker|nginx|systemd|php-fpm present.
+// Capabilities returns the subset of docker|build|nginx|systemd|php-fpm present.
 func (e *Env) Capabilities() []string {
 	caps := []string{}
 	// docker only when the Engine API actually answers GET /_ping (a socket file
 	// or a docker CLI binary alone is not a usable capability).
 	if e.Docker != nil && e.Docker.Accessible() && e.Docker.Ping(context.Background()) {
 		caps = append(caps, "docker")
+		if e.BuildEnabled && e.GitBinary != "" {
+			caps = append(caps, "build")
+		}
 	}
 	if _, ok := e.nginx(); ok {
 		caps = append(caps, "nginx")

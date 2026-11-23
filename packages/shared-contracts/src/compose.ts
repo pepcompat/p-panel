@@ -25,6 +25,24 @@ export const COMPOSE_RULES = [
   'port_non_loopback',
   'image_not_pinned',
   'build_unsupported',
+  // P4b execution rules (compose applications; see docs/API_CONTRACTS.md §8.3)
+  'image_required',
+  'image_unresolvable',
+  'route_service_missing',
+  'ports_not_route_service',
+  'depends_on_unknown',
+  'depends_on_cycle',
+  'secret_missing',
+  'env_interpolation',
+  'env_key_invalid',
+  'service_name_invalid',
+  'service_key_unsupported',
+  'volume_unsupported',
+  'command_unsupported',
+  'name_too_long',
+  'too_many_services',
+  /** warning: key accepted but ignored (restart, networks, healthcheck test, …) */
+  'key_ignored',
 ] as const;
 export type ComposeRule = (typeof COMPOSE_RULES)[number];
 

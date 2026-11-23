@@ -10,7 +10,10 @@ LAB_COMPOSE_FILE="${REPO_ROOT}/infra/compose/lab.yml"
 LAB_NODES=(ppanel-lab-node-a ppanel-lab-node-b)
 # P4 services (node-b's docker-in-docker engine + local registry)
 # shellcheck disable=SC2034
-LAB_P4_SERVICES=(ppanel-lab-dind ppanel-lab-registry ppanel-lab-registry-fwd)
+LAB_P4_SERVICES=(ppanel-lab-dind ppanel-lab-registry ppanel-lab-registry-fwd ppanel-lab-git)
+
+# P4b: fixture repos served read-only by lab-git (scripts/lab/git-fixtures.sh fills it).
+mkdir -p "${REPO_ROOT}/.lab/git"
 
 # Agent binary mount: prefer apps/agent/bin if the agent team has built it, else an empty
 # gitignored placeholder so compose never creates directories inside apps/.

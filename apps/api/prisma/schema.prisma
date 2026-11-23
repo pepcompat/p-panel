@@ -128,6 +128,8 @@ model Server {
   metricsSampledAt DateTime? @map("metrics_sampled_at") @db.Timestamptz(3)
   /// systemd units this server's owner allowlisted for typed jobs (service.restart).
   ownedUnits       String[]  @default([]) @map("owned_units")
+  /// P4b: Center-side build node designation (agent must also report the `build` capability)
+  buildNode        Boolean   @default(false) @map("build_node")
   enrollmentId     String?   @map("enrollment_id") @db.Uuid
   version          Int       @default(1)
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
@@ -390,6 +392,10 @@ model Application {
   secrets            Secret[]
   deployments        Deployment[]
   autoDeployPolicies AutoDeployPolicy[]
+  buildConfig        BuildConfig?
+  builds             Build[]
+  composeVersions    ComposeAppVersion[]
+  sourceInspections  SourceInspection[]
 
   @@unique([serverId, sourceFindingFingerprint])
   @@unique([serverId, name])
@@ -531,6 +537,13 @@ model Deployment {
   /// commit SHA for webhook dedupe (one deployment per commit per app)
   commitSha              String?   @map("commit_sha")
   webhookDeliveryId      String?   @map("webhook_delivery_id") @db.Uuid
+  /// P4b: build that produced the image
+  buildId                String?   @map("build_id") @db.Uuid
+  /// P4b compose: version deployed + normalised plan with digests/specHashes (no secret values)
+  composeVersionId       String?   @map("compose_version_id") @db.Uuid
+  plan                   Json?
+  /// P4b compose: per-service results reported by compose.apply
+  serviceResults         Json?     @map("service_results")
   createdBy              String?   @map("created_by") @db.Uuid
   error                  Json?
   version                Int       @default(1)
@@ -657,6 +670,7 @@ model WebhookDelivery {
   result        String // deployed | awaiting_approval | ignored | failed
   reasons       String[] @default([])
   deploymentIds String[] @default([]) @map("deployment_ids")
+  buildIds      String[] @default([]) @map("build_ids")
   receivedAt    DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
 
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
@@ -672,7 +686,10 @@ model AutoDeployPolicy {
   integrationId String   @map("integration_id") @db.Uuid
   repo          String
   branches      String[]
-  imageTemplate String   @map("image_template")
+  /// image | build (P4b)
+  mode          String   @default("image")
+  /// required in image mode; null in build mode
+  imageTemplate String?  @map("image_template")
   enabled       Boolean  @default(true)
   createdBy     String   @map("created_by") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -684,4 +701,108 @@ model AutoDeployPolicy {
   @@unique([applicationId, integrationId, repo])
   @@index([integrationId, repo])
   @@map("auto_deploy_policies")
+}
+
+/// P4b: per-application build source (container apps).
+model BuildConfig {
+  applicationId String   @id @map("application_id") @db.Uuid
+  repoUrl       String   @map("repo_url")
+  subdir        String   @default("")
+  dockerfile    String?
+  template      String?
+  buildArgs     Json     @default("{}") @map("build_args")
+  target        String?
+  buildServerId String   @map("build_server_id") @db.Uuid
+  pushRepo      String   @map("push_repo")
+  network       String   @default("default")
+  limits        Json     @default("{}")
+  createdBy     String   @map("created_by") @db.Uuid
+  updatedBy     String   @map("updated_by") @db.Uuid
+  version       Int      @default(1)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([buildServerId])
+  @@map("build_configs")
+}
+
+/// P4b: image build from a pinned commit on a build node (image.build job).
+model Build {
+  id                String    @id @db.Uuid
+  applicationId     String    @map("application_id") @db.Uuid
+  buildServerId     String    @map("build_server_id") @db.Uuid
+  status            String
+  commitSha         String    @map("commit_sha")
+  branch            String?
+  trigger           String
+  repo              String?
+  dockerfile        String?
+  template          String?
+  pushRepo          String    @map("push_repo")
+  image             String?
+  deployAfter       Boolean   @map("deploy_after")
+  force             Boolean   @default(false)
+  logTail           String[]  @default([]) @map("log_tail")
+  /// full bounded log (≤ 2000 lines / 512 KiB), ANSI-free, secret values redacted
+  log               String[]  @default([])
+  logTruncated      Boolean   @default(false) @map("log_truncated")
+  error             Json?
+  durationMs        Int?      @map("duration_ms")
+  jobId             String?   @map("job_id") @db.Uuid
+  deploymentId      String?   @map("deployment_id") @db.Uuid
+  deployError       Json?     @map("deploy_error")
+  idempotencyKey    String?   @map("idempotency_key")
+  webhookDeliveryId String?   @map("webhook_delivery_id") @db.Uuid
+  createdBy         String?   @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, idempotencyKey])
+  @@index([applicationId, commitSha])
+  @@index([jobId])
+  @@index([status, updatedAt])
+  @@map("builds")
+}
+
+/// P4b: stored compose file versions (validated YAML + normalised plan metadata).
+model ComposeAppVersion {
+  id            String   @id @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  version       Int
+  yaml          String
+  yamlSha256    String   @map("yaml_sha256")
+  routeService  String   @map("route_service")
+  routePort     Int      @map("route_port")
+  healthPath    String   @default("/") @map("health_path")
+  /// normalised services in dependency order (images as written; no secret values)
+  plan          Json
+  secretKeys    String[] @default([]) @map("secret_keys")
+  warnings      Json     @default("[]")
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, version])
+  @@map("compose_app_versions")
+}
+
+/// P4b: source.inspect runs (framework detection on real source).
+model SourceInspection {
+  id            String   @id @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  jobId         String   @unique @map("job_id") @db.Uuid
+  commitSha     String   @map("commit_sha")
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("source_inspections")
 }

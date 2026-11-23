@@ -1,0 +1,18 @@
+# pPanel agent config for ppanel-lab-node-b (mounted read-only at /etc/ppanel-agent/config.yaml by
+# infra/compose/lab.yml). LAB ONLY.
+#
+# node-b is the lab's BUILD NODE: image.build / source.inspect run here because the operator (this
+# file) enabled them — the Center can never turn builds on. A Dockerfile's RUN steps execute as
+# containers on lab-dind; a real build node must be a dedicated, trusted host.
+#
+# `lab-git` serves git:// (unauthenticated, unencrypted). git:// sources are accepted ONLY because this
+# allowlist names that exact host; production allowlists should name https git hosts only.
+# node-a has no config file: builds stay disabled there (NOT_A_BUILD_NODE).
+stateDir: /var/lib/ppanel-agent
+logLevel: info
+dockerSocket: /var/run/docker.sock
+build:
+  enabled: true
+  gitHostsAllowlist:
+    - lab-git
+  # default workDir: <stateDir>/builds

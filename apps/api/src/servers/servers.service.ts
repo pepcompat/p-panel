@@ -149,6 +149,18 @@ export class ServersService {
         },
       );
     }
+    if (input.buildNode !== undefined && input.buildNode !== row.buildNode)
+      // P4b: build node designation decides where untrusted Dockerfiles run → policy-level change
+      await this.authz.enforce(
+        user,
+        'policies.manage',
+        { serverId: id, environment: row.environment },
+        {
+          action: 'servers.build_node',
+          targetType: 'server',
+          targetId: id,
+        },
+      );
     if (input.groupId) {
       const g = await this.prisma.serverGroup.findUnique({ where: { id: input.groupId } });
       if (!g) throw AppError.validation([{ path: 'groupId', message: 'unknown server group' }]);
@@ -160,6 +172,7 @@ export class ServersService {
       groupId: row.groupId,
       connectionPolicy: row.connectionPolicy,
       ownedUnits: row.ownedUnits,
+      buildNode: row.buildNode,
     };
     const updated = await this.prisma.$transaction(async (tx) => {
       const r = await tx.server.updateMany({

@@ -65,6 +65,7 @@ export function containerActions(
   user: AuthUser,
   row: AppWithServer,
   state: ContainerRuntimeState,
+  build: { configured: boolean } = { configured: false },
 ): ApplicationAction[] {
   if (row.server.status === 'revoked') return [];
   const scope = serverScope(row.server);
@@ -75,7 +76,8 @@ export function containerActions(
   const hasCurrent = !!state.current?.containerName;
   if (hasCurrent && authz.can(user, 'apps.read', scope)) out.push('view_logs');
   if (!authz.can(user, 'apps.deploy', scope)) return out;
-  out.push('manage_secrets', 'edit_container');
+  out.push('manage_secrets', 'edit_container', 'manage_build_config');
+  if (build.configured) out.push('build', 'inspect_source');
   if (authz.can(user, 'policies.manage', scope)) out.push('manage_auto_deploy');
   if (!state.hasActiveDeployment) {
     out.push('deploy');
@@ -127,4 +129,29 @@ export function deploymentPlanHash(p: PlanInput): string {
       routeConfigHash,
     }),
   );
+}
+
+/** Per-application actions for compose apps (no restart: compose is re-applied with redeploy). */
+export function composeActions(
+  authz: AuthzService,
+  user: AuthUser,
+  row: AppWithServer,
+  state: ContainerRuntimeState,
+): ApplicationAction[] {
+  if (row.server.status === 'revoked') return [];
+  const scope = serverScope(row.server);
+  const out: ApplicationAction[] = [];
+  if (authz.can(user, 'nginx.read', scope) && Array.isArray(row.nginxFiles))
+    if ((row.nginxFiles as unknown[]).length > 0) out.push('read_files');
+  if (authz.can(user, 'nginx.write', scope) && row.flagDriftDetected) out.push('acknowledge_drift');
+  const hasCurrent = !!state.current?.containerName;
+  if (hasCurrent && authz.can(user, 'apps.read', scope)) out.push('view_logs');
+  if (!authz.can(user, 'apps.deploy', scope)) return out;
+  out.push('manage_secrets', 'edit_compose');
+  if (!state.hasActiveDeployment) {
+    out.push('deploy');
+    if (hasCurrent) out.push('redeploy', 'start', 'stop');
+    if (state.rollbackAvailable) out.push('rollback');
+  }
+  return out;
 }

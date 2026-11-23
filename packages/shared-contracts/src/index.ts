@@ -13,3 +13,4 @@ export * from './discovery';
 export * from './deploy';
 export * from './compose';
 export * from './detect';
+export * from './build';

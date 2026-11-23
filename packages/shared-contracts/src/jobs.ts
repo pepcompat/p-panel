@@ -135,6 +135,165 @@ export const containerRunCandidateParams = z
   })
   .strict();
 
+// ---- P4b: builds and compose execution (see docs/AGENT_PROTOCOL.md §Builds, §Compose) ----
+
+export const COMMIT_SHA_RE = /^[a-f0-9]{40}$/;
+/** Git source: https URL (or git:// in dev/lab when the agent's allowlist permits it). Host must be
+ * in the agent's `build.gitHostsAllowlist`; no credentials in the URL. */
+export const GIT_URL_RE =
+  /^(https|git):\/\/[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?\/[A-Za-z0-9._~\/-]{1,300}$/;
+export const gitSourceSchema = z
+  .object({
+    url: z.string().max(600).regex(GIT_URL_RE),
+    commitSha: z.string().regex(COMMIT_SHA_RE),
+    /** Build context sub-directory inside the repo. */
+    subdir: z
+      .string()
+      .regex(/^[A-Za-z0-9._\/-]{0,200}$/)
+      .refine((p) => !p.split('/').includes('..') && !p.startsWith('/'), 'subdir must be relative')
+      .default(''),
+    /** true → a git auth header is fetched via the job secrets call. */
+    auth: z.boolean().default(false),
+  })
+  .strict();
+
+export const DOCKERFILE_TEMPLATES = ['nextjs', 'nestjs', 'laravel'] as const;
+/** Image repository to push to (no tag/digest): `registry[:port]/path`. */
+export const IMAGE_REPO_RE =
+  /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]{1,5})?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$/;
+
+export const imageBuildParams = z
+  .object({
+    buildId: z.string().uuid(),
+    app: appSlugSchema,
+    source: gitSourceSchema,
+    /** Either a Dockerfile path inside the context or a built-in template (agent-embedded). */
+    dockerfile: z
+      .string()
+      .regex(/^[A-Za-z0-9._\/-]{1,200}$/)
+      .refine(
+        (p) => !p.split('/').includes('..') && !p.startsWith('/'),
+        'dockerfile must be relative',
+      )
+      .optional(),
+    template: z.enum(DOCKERFILE_TEMPLATES).optional(),
+    /** Non-secret build args only (secret build args are not supported by the classic builder). */
+    buildArgs: z.record(z.string().regex(ENV_KEY_RE), z.string().max(1024)).default({}),
+    target: z
+      .string()
+      .regex(/^[A-Za-z0-9._-]{1,64}$/)
+      .optional(),
+    /** Push destination repository; the agent tags `<pushRepo>:build-<buildId first 12 hex>`. */
+    pushRepo: z.string().max(300).regex(IMAGE_REPO_RE),
+    registryAuth: z.boolean().default(false),
+    network: z.enum(['default', 'none']).default('default'),
+    limits: z
+      .object({
+        memoryMb: z.number().int().min(256).max(32768).default(2048),
+        cpus: z.number().min(0.5).max(32).default(2),
+        timeoutSec: z.number().int().min(60).max(3600).default(900),
+      })
+      .strict()
+      .default({}),
+  })
+  .strict()
+  .refine((p) => (p.dockerfile ? !p.template : !!p.template), {
+    message: 'exactly one of dockerfile or template is required',
+  });
+
+/** Read-only: shallow fetch at commit and return small, allowlisted files for framework detection. */
+export const SOURCE_INSPECT_FILES = [
+  'package.json',
+  'composer.json',
+  'Dockerfile',
+  'docker-compose.yml',
+  'docker-compose.yaml',
+  'compose.yml',
+  'compose.yaml',
+  'artisan',
+  'next.config.js',
+  'next.config.mjs',
+  'next.config.ts',
+  'nest-cli.json',
+] as const;
+
+/** Normalised compose service (produced by the Center from validated YAML; never raw YAML). */
+export const composeServiceSchema = z
+  .object({
+    service: z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/),
+    /** Container name ppanel-<app>-<service>-<8hex>. */
+    name: managedContainerSchema,
+    image: imageDigestRefSchema,
+    /** sha256 of the normalised service spec; unchanged + running → kept as is. */
+    specHash: z.string().regex(/^[a-f0-9]{64}$/),
+    env: z.record(z.string().regex(ENV_KEY_RE), z.string().max(4096)).default({}),
+    /** VAR → application secret key (fetched once via the secrets call). */
+    secretEnv: z.record(z.string().regex(ENV_KEY_RE), z.string().regex(ENV_KEY_RE)).default({}),
+    command: z.array(z.string().max(1024)).max(64).optional(),
+    volumes: z
+      .array(
+        z
+          .object({
+            name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/),
+            mountPath: z.string().regex(/^\/[A-Za-z0-9._\/-]{1,200}$/),
+          })
+          .strict(),
+      )
+      .max(10)
+      .default([]),
+    dependsOn: z
+      .array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/))
+      .max(20)
+      .default([]),
+    /** Container-level healthcheck: HTTP probe (route service) or Docker exec-free TCP check. */
+    health: z
+      .discriminatedUnion('type', [
+        z.object({ type: z.literal('http'), port: z.number().int().min(1).max(65535) }).merge(
+          containerHealthcheckSchema.pick({
+            path: true,
+            expectStatus: true,
+            intervalSec: true,
+            timeoutSec: true,
+            startPeriodSec: true,
+          }),
+        ),
+        z
+          .object({
+            type: z.literal('tcp'),
+            port: z.number().int().min(1).max(65535),
+            startPeriodSec: z.number().int().min(1).max(600).default(60),
+          })
+          .strict(),
+        z
+          .object({
+            type: z.literal('running'),
+            startPeriodSec: z.number().int().min(1).max(600).default(10),
+          })
+          .strict(),
+      ])
+      .default({ type: 'running', startPeriodSec: 10 }),
+    resources: containerResourcesSchema.default({}),
+    /** Only the route service gets a 127.0.0.1 host port. */
+    hostPort: z.number().int().min(MANAGED_PORT_MIN).max(MANAGED_PORT_MAX).optional(),
+    containerPort: z.number().int().min(1).max(65535).optional(),
+  })
+  .strict();
+
+export const composeApplyParams = z
+  .object({
+    deploymentId: z.string().uuid(),
+    app: appSlugSchema,
+    /** Services in dependency order (Center topologically sorts and rejects cycles). */
+    services: z.array(composeServiceSchema).min(1).max(20),
+    /** Service that receives traffic (candidate + health, Center switches the route afterwards). */
+    routeService: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,30}$/)
+      .optional(),
+    registryAuth: z.boolean().default(false),
+  })
+  .strict();
+
 export const DISCOVERY_SOURCES = ['nginx', 'docker', 'systemd', 'php-fpm', 'ports'] as const;
 
 export const JOB_STATUSES = [
@@ -246,9 +405,34 @@ export const JOB_TYPES = {
       })
       .strict(),
   },
+  /** Build on a designated build node from a pinned commit, push, return the digest. */
+  'image.build': { mutating: true, params: imageBuildParams },
+  /** Read-only: fetch a pinned commit and return allowlisted small files (framework detection). */
+  'source.inspect': {
+    mutating: false,
+    params: z.object({ source: gitSourceSchema }).strict(),
+  },
+  /** Apply a normalised compose plan (keep unchanged services, recreate changed ones in order). */
+  'compose.apply': { mutating: true, params: composeApplyParams },
+  /** Stop all managed containers of a compose app (volumes kept). */
+  'compose.stop': {
+    mutating: true,
+    params: z.object({ app: appSlugSchema }).strict(),
+  },
 } as const;
 
-/** Agent result error codes added in P3. */
+/** Agent result error codes added in P4b. */
+export const BUILD_ERROR_CODES = [
+  'GIT_HOST_NOT_ALLOWED',
+  'SOURCE_FETCH_FAILED',
+  'DOCKERFILE_NOT_FOUND',
+  'BUILD_FAILED',
+  'BUILD_TIMEOUT',
+  'PUSH_FAILED',
+  'NOT_A_BUILD_NODE',
+  'COMPOSE_SERVICE_UNHEALTHY',
+] as const;
+
 /** Agent result error codes added in P4. */
 export const CONTAINER_ERROR_CODES = [
   'DOCKER_UNAVAILABLE',

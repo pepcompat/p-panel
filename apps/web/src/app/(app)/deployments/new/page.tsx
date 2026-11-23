@@ -6,7 +6,10 @@ import { DeployWizard } from '@/components/p4/deploy-wizard';
 
 function WizardPage() {
   const params = useSearchParams();
-  return <DeployWizard appId={params.get('app')} />;
+  const source = params.get('source');
+  return (
+    <DeployWizard appId={params.get('app')} initialSource={source === 'git' ? 'git' : undefined} />
+  );
 }
 
 export default function Page() {

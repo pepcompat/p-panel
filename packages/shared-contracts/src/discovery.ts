@@ -1,6 +1,7 @@
 // P3 — discovery scans, findings, applications (ownership tiers), Nginx config revisions.
 // Source of truth: docs/API_CONTRACTS.md §6.
 import { z } from 'zod';
+import type { ApplicationBuildSummary, ComposeAppConfig } from './build';
 import type { ContainerAppConfig } from './deploy';
 import {
   DISCOVERY_SOURCES,
@@ -128,6 +129,8 @@ export const APPLICATION_KINDS = [
   'unknown',
   /** P4a: managed container application (source of truth = pPanel). */
   'container',
+  /** P4b: managed Compose application (normalised plan executed by compose.apply). */
+  'compose',
 ] as const;
 export type ApplicationKind = (typeof APPLICATION_KINDS)[number];
 
@@ -151,6 +154,11 @@ export const APPLICATION_ACTIONS = [
   'view_logs',
   'edit_container',
   'manage_auto_deploy',
+  // P4b builds / compose
+  'build',
+  'inspect_source',
+  'manage_build_config',
+  'edit_compose',
 ] as const;
 export type ApplicationAction = (typeof APPLICATION_ACTIONS)[number];
 
@@ -183,6 +191,10 @@ export interface Application {
   lastScanId: string | null;
   /** Present iff kind === 'container' (§7.1). */
   container?: ContainerAppConfig;
+  /** P4b: present iff kind === 'compose' (§8.3). */
+  compose?: ComposeAppConfig;
+  /** P4b: container apps with a build config (§8.1); null when none is configured. */
+  build?: ApplicationBuildSummary | null;
   allowedActions: ApplicationAction[];
   version: number;
   createdAt: string;

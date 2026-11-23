@@ -22,6 +22,7 @@ export type {
   NginxRevisionStatus as RevisionStatus,
 } from '@ppanel/shared-contracts';
 import type { ContainerSpec } from './p4-types';
+import type { ComposeAppConfig } from './p4b-types';
 import type {
   NginxRevisionStatus,
   OwnershipMode as OM,
@@ -45,9 +46,13 @@ export const FINDING_KINDS: FK[] = [
 export const OWNERSHIP_ORDER: OM[] = ['discovered', 'observed', 'adopted', 'managed'];
 export type ImportMode = Extract<OM, 'discovered' | 'observed'>;
 
-/** Application read model (`container` present iff kind === 'container', §7.1). */
-export type Application = Omit<SharedApplication, 'container'> & {
+/**
+ * Application read model (`container` present iff kind === 'container', §7.1; `compose` iff
+ * kind === 'compose', §8.3; `build` for container apps with a build config, §8.1).
+ */
+export type Application = Omit<SharedApplication, 'container' | 'compose'> & {
   container?: ContainerSpec | null;
+  compose?: ComposeAppConfig | null;
   /** web-requested: display name of the server. */
   serverName?: string;
 };

@@ -38,6 +38,15 @@ import { appInclude, type AppWithServer, nginxFilesOf, serverScope } from '../di
 import { type FinishedJob, JobHooks } from '../jobs/job-hooks';
 import { JobsService } from '../jobs/jobs.service';
 import { contentSha256 } from '../nginx/nginx-plan';
+import { stableHash } from '../common/crypto';
+import {
+  composeApplyParamsOf,
+  composePlanDigest,
+  type ComposeServiceResult,
+  healthStatusOf,
+  planOf,
+  type StoredComposePlan,
+} from './compose-plan';
 import {
   containerNameFor,
   deploymentPlanHash,
@@ -93,13 +102,60 @@ function errOf(job: FinishedJob): { code: string; message: string; details?: unk
   };
 }
 
+/** What the rendered route depends on (besides the deployment-id comment). */
+function routeKeyOf(
+  domains: string[],
+  tls: { certPath: string; keyPath: string } | null,
+  hostPort: number,
+): string {
+  return stableHash({ domains: [...domains].sort(), tls, hostPort });
+}
+
+/** Deployment read model `compose` (plan + per-service results). */
+function composeView(d: DeploymentRow): Deployment['compose'] {
+  const plan = planOf(d.plan);
+  if (!plan) return null;
+  const results = Array.isArray(d.serviceResults)
+    ? (d.serviceResults as unknown as ComposeServiceResult[])
+    : [];
+  return {
+    versionId: plan.versionId,
+    version: plan.version,
+    routeService: plan.routeService,
+    services: plan.services.map((s) => {
+      const r = results.find((x) => x.service === s.service);
+      return {
+        service: s.service,
+        image: s.resolvedImage,
+        sourceImage: s.image,
+        specHash: s.specHash,
+        name: r?.name ?? s.name,
+        plannedAction: s.plannedAction,
+        action: r?.action ?? null,
+        previousName: r?.previousName ?? s.previousName ?? null,
+        hostPort: r?.hostPort ?? null,
+        health: healthStatusOf(r?.health ?? null),
+      };
+    }),
+    dataRestored: false,
+  };
+}
+
 function logTailOf(details: unknown): string[] {
   const t = (details as { logTail?: unknown } | null)?.logTail;
   return Array.isArray(t) ? t.filter((x): x is string => typeof x === 'string').slice(-50) : [];
 }
 
 export interface CreateDeploymentOptions {
+  /** pre-generated id (compose: container names derive from it) */
+  id?: string;
   image: string;
+  /** P4b: build that produced the image */
+  buildId?: string;
+  /** P4b compose: resolved plan (digests + spec hashes) */
+  compose?: StoredComposePlan;
+  /** rollback: deployment whose plan/container is being restored */
+  rollbackOfDeploymentId?: string;
   trigger: DeploymentTrigger;
   sourceRef?: SourceRef;
   reason?: string;
@@ -135,6 +191,7 @@ export class DeploymentsService implements OnModuleInit {
       'container.stop',
       'container.remove',
       'nginx.apply',
+      'compose.apply',
     ])
       this.hooks.register(type, (j) => this.onJobFinished(j));
     this.hooks.registerReconciler(() => this.reconcile());
@@ -205,6 +262,8 @@ export class DeploymentsService implements OnModuleInit {
       error: (d.error as Deployment['error']) ?? null,
       allowedActions: this.allowedActions(user, d, app),
       version: d.version,
+      buildId: d.buildId,
+      ...(app.kind === 'compose' ? { compose: composeView(d) } : {}),
     };
   }
 
@@ -298,12 +357,14 @@ export class DeploymentsService implements OnModuleInit {
     image: string,
     trigger: string,
     targetContainer?: string | null,
+    compose?: StoredComposePlan | null,
   ): Promise<string> {
     const { versions } = await this.secrets.keyVersions(ref.app.id);
     return deploymentPlanHash({
       applicationId: ref.app.id,
       serverId: ref.app.serverId,
-      image,
+      // compose: the plan (every service digest + spec hash) is part of what gets approved
+      image: compose ? `${image}|compose:${composePlanDigest(compose)}` : image,
       trigger,
       targetContainer,
       container: ref.container,
@@ -325,7 +386,7 @@ export class DeploymentsService implements OnModuleInit {
 
   // ---------------------------------------------------------------- create
 
-  private async enforceDeploy(user: AuthUser, ref: ContainerAppRef, action: string) {
+  async enforceDeploy(user: AuthUser, ref: ContainerAppRef, action: string) {
     await this.authz.enforce(user, 'apps.deploy', serverScope(ref.app.server), {
       action,
       targetType: 'application',
@@ -341,10 +402,16 @@ export class DeploymentsService implements OnModuleInit {
     input: CreateDeploymentInput,
     idempotencyKey: string | undefined,
   ) {
-    const ref = await loadContainerApp(this.apps, this.prisma, user, appId);
+    const ref = await loadContainerApp(this.apps, this.prisma, user, appId, ['container']);
     await this.enforceDeploy(user, ref, 'deployments.create');
     if (idempotencyKey !== undefined && !/^[A-Za-z0-9_.:-]{8,128}$/.test(idempotencyKey))
       throw AppError.badRequest('Idempotency-Key must be 8-128 chars of [A-Za-z0-9_.:-]');
+    if (!input.image)
+      throw new AppError(
+        422,
+        ERROR_CODES.IMAGE_NOT_PINNED,
+        'image is required (registry/repo@sha256:<64 hex>)',
+      );
     const { row, created } = await this.create({ user, id: user.id }, ref, {
       image: input.image,
       trigger: 'manual',
@@ -357,7 +424,7 @@ export class DeploymentsService implements OnModuleInit {
   }
 
   async redeploy(user: AuthUser, appId: string, reason?: string) {
-    const ref = await loadContainerApp(this.apps, this.prisma, user, appId);
+    const ref = await loadContainerApp(this.apps, this.prisma, user, appId, ['container']);
     await this.enforceDeploy(user, ref, 'deployments.redeploy');
     const current = ref.container.currentDeploymentId
       ? await this.prisma.deployment.findUnique({
@@ -419,9 +486,15 @@ export class DeploymentsService implements OnModuleInit {
     if (lock)
       throw AppError.conflict(lock.message, ERROR_CODES.DEPLOYMENT_IN_PROGRESS, lock.details);
     const failed = firstFailure(checks);
-    const planHash = await this.planHashFor(ref, opts.image, opts.trigger);
+    const planHash = await this.planHashFor(
+      ref,
+      opts.image,
+      opts.trigger,
+      opts.trigger === 'rollback' && !opts.compose ? undefined : null,
+      opts.compose,
+    );
     const approvalRequired = app.server.environment === 'production';
-    const id = uuidv7();
+    const id = opts.id ?? uuidv7();
     try {
       const row = await this.prisma.$transaction(async (tx) => {
         await this.lockApp(tx, app.id);
@@ -459,6 +532,14 @@ export class DeploymentsService implements OnModuleInit {
             idempotencyKey: opts.idempotencyKey ?? null,
             commitSha: opts.commitSha ?? null,
             webhookDeliveryId: opts.webhookDeliveryId ?? null,
+            buildId: opts.buildId ?? null,
+            rollbackOfDeploymentId: opts.rollbackOfDeploymentId ?? null,
+            ...(opts.compose
+              ? {
+                  composeVersionId: opts.compose.versionId,
+                  plan: opts.compose as unknown as Prisma.InputJsonValue,
+                }
+              : {}),
             createdBy: actor.id,
             ...(failed
               ? {
@@ -472,11 +553,23 @@ export class DeploymentsService implements OnModuleInit {
           message: failed ? failed.message : 'All preflight checks passed',
           errorCode: failed?.code ?? null,
         });
+        if (opts.compose && !failed)
+          await this.addStep(tx, id, 'resolve_images', 'succeeded', {
+            message: opts.compose.services
+              .map((s) => `${s.service}: ${s.resolvedImage}`)
+              .join('; ')
+              .slice(0, 2000),
+            data: {
+              images: Object.fromEntries(
+                opts.compose.services.map((s) => [s.service, s.resolvedImage]),
+              ),
+            },
+          });
         await this.audit.record(
           {
             actorId: actor.id,
             ...(actor.id ? {} : { actorType: 'system' as const }),
-            action: 'deployments.create',
+            action: opts.trigger === 'rollback' ? 'deployments.rollback' : 'deployments.create',
             targetType: 'deployment',
             targetId: id,
             result: failed ? 'failure' : 'success',
@@ -489,6 +582,16 @@ export class DeploymentsService implements OnModuleInit {
               planHash,
               status,
               ...(opts.commitSha ? { commitSha: opts.commitSha } : {}),
+              ...(opts.buildId ? { buildId: opts.buildId } : {}),
+              ...(opts.compose
+                ? {
+                    composeVersion: opts.compose.version,
+                    images: Object.fromEntries(
+                      opts.compose.services.map((s) => [s.service, s.resolvedImage]),
+                    ),
+                  }
+                : {}),
+              ...(opts.rollbackOfDeploymentId ? { rollbackOf: opts.rollbackOfDeploymentId } : {}),
               ...(failed
                 ? { preflightFailed: checks.filter((c) => !c.ok).map((c) => c.code) }
                 : {}),
@@ -576,6 +679,8 @@ export class DeploymentsService implements OnModuleInit {
   private async begin(tx: Tx, d: DeploymentRow, ref: ContainerAppRef, actorId: string | null) {
     const { app, container } = ref;
     const hc = healthcheckOf(container);
+    const plan = planOf(d.plan);
+    if (plan) return this.beginCompose(tx, d, ref, plan, actorId);
     if (d.trigger === 'rollback') {
       const job = await this.jobs.createInternal(tx, {
         serverId: d.serverId,
@@ -641,6 +746,59 @@ export class DeploymentsService implements OnModuleInit {
     await this.addStep(tx, d.id, 'pull_start', 'running', {
       jobId: job.id,
       message: `Pulling ${d.image} and starting ${name} on 127.0.0.1:${hostPort}`,
+    });
+    return job;
+  }
+
+  /**
+   * Compose: allocate a fresh 127.0.0.1 port for the route service (released again when the agent
+   * keeps the running route container) and send the normalised plan as one `compose.apply` job.
+   */
+  private async beginCompose(
+    tx: Tx,
+    d: DeploymentRow,
+    ref: ContainerAppRef,
+    plan: StoredComposePlan,
+    actorId: string | null,
+  ) {
+    const { app } = ref;
+    const hostPort = await this.allocatePort(tx, d.serverId, app.id, d.id);
+    if (hostPort === null) {
+      await this.move(tx, d.id, ['queued', 'awaiting_approval'], {
+        status: 'failed',
+        finishedAt: new Date(),
+        error: { code: 'NO_PORT_AVAILABLE', message: 'No free managed host port on this server' },
+      });
+      await this.addStep(tx, d.id, 'compose_apply', 'failed', {
+        errorCode: 'NO_PORT_AVAILABLE',
+        message: 'No free managed host port',
+      });
+      return null;
+    }
+    const route = plan.services.find((s) => s.service === plan.routeService)!;
+    const { registry } = await this.secrets.keyVersions(app.id);
+    const job = await this.jobs.createInternal(tx, {
+      serverId: d.serverId,
+      type: 'compose.apply',
+      params: composeApplyParamsOf(d.id, app.name, plan, hostPort, registry),
+      actorId,
+      ttlSec: RUN_TTL_SEC,
+      metadata: { deploymentId: d.id, applicationId: app.id },
+    });
+    await tx.hostPortAllocation.update({
+      where: { serverId_port: { serverId: d.serverId, port: hostPort } },
+      data: { containerName: route.name },
+    });
+    await this.move(tx, d.id, ['queued', 'awaiting_approval'], { status: 'pulling' });
+    const changed = plan.services
+      .filter((s) => s.plannedAction === 'replace')
+      .map((s) => s.service);
+    await this.addStep(tx, d.id, 'compose_apply', 'running', {
+      jobId: job.id,
+      message: changed.length
+        ? `Applying compose v${plan.version}: ${changed.join(', ')} change (route candidate 127.0.0.1:${hostPort})`
+        : `Applying compose v${plan.version}: no service changes expected`,
+      data: { hostPort, routeName: route.name },
     });
     return job;
   }
@@ -760,11 +918,13 @@ export class DeploymentsService implements OnModuleInit {
         ERROR_CODES.APPROVAL_NOT_REQUIRED,
       );
     const ref = await this.refFor(d.applicationId);
+    const plan = planOf(d.plan);
     const current = await this.planHashFor(
       ref,
       d.image,
       d.trigger,
-      d.trigger === 'rollback' ? d.containerName : null,
+      d.trigger === 'rollback' && !plan ? d.containerName : null,
+      plan,
     );
     if (current !== d.planHash || planHash !== d.planHash)
       throw AppError.conflict(
@@ -779,7 +939,9 @@ export class DeploymentsService implements OnModuleInit {
       container: ref.container,
       image: d.image,
       deploymentId: d.id,
-      ...(d.trigger === 'rollback' ? { skip: ['secrets_present', 'port_alloc'] as const } : {}),
+      ...(d.trigger === 'rollback' && !plan
+        ? { skip: ['secrets_present', 'port_alloc'] as const }
+        : {}),
     } as Parameters<PreflightService['run']>[0]);
     const failed = firstFailure(checks);
     const now = new Date();
@@ -895,6 +1057,10 @@ export class DeploymentsService implements OnModuleInit {
             await this.releasePort(tx, d.serverId, d.hostPort, d.containerName);
             await tx.deployment.update({ where: { id: d.id }, data: { containerRemovedAt: now } });
           }
+          if (s.name === 'compose_apply') {
+            const data = s.data as { hostPort?: number; routeName?: string };
+            await this.releasePort(tx, d.serverId, data.hostPort ?? null, data.routeName);
+          }
         }
       }
       await this.audit.record(
@@ -915,7 +1081,7 @@ export class DeploymentsService implements OnModuleInit {
   // ---------------------------------------------------------------- rollback
 
   async rollback(user: AuthUser, appId: string, reason?: string) {
-    const ref = await loadContainerApp(this.apps, this.prisma, user, appId);
+    const ref = await loadContainerApp(this.apps, this.prisma, user, appId, ['container']);
     await this.enforceDeploy(user, ref, 'deployments.rollback');
     const { app, container } = ref;
     const prev = container.previousDeploymentId
@@ -1062,6 +1228,8 @@ export class DeploymentsService implements OnModuleInit {
       switch (step.name as DeploymentStepName) {
         case 'pull_start':
           return this.onCandidate(tx, step, d, job);
+        case 'compose_apply':
+          return this.onComposeApply(tx, step, d, job);
         case 'start_target':
           return this.onStartTarget(tx, step, d, job);
         case 'route_switch':
@@ -1192,6 +1360,164 @@ export class DeploymentsService implements OnModuleInit {
     return false;
   }
 
+  /**
+   * compose.apply finished. Route service created/replaced → switch the route to its new port (then
+   * the old route container is stopped by `stop_previous`). Route service unchanged → release the
+   * spare port; switch only if the rendered route differs (domains/TLS), else promote directly.
+   */
+  private async onComposeApply(tx: Tx, step: StepRow, d: DeploymentRow, job: FinishedJob) {
+    const plan = planOf(d.plan)!;
+    const data = step.data as { hostPort: number; routeName: string };
+    if (job.status === 'succeeded') {
+      const out = (job.result ?? {}) as { services?: ComposeServiceResult[] };
+      const results = (out.services ?? []).filter((r) => r && typeof r.service === 'string');
+      const route = results.find((r) => r.service === plan.routeService);
+      const summary = results.map((r) => `${r.service}: ${r.action}`).join(', ');
+      if (!(await this.finishStep(tx, step, true, job, { message: `Applied (${summary})` })))
+        return false;
+      await tx.deployment.update({
+        where: { id: d.id },
+        data: { serviceResults: results as unknown as Prisma.InputJsonValue },
+      });
+      await this.addStep(tx, d.id, 'health_check', 'succeeded', {
+        jobId: job.id,
+        message: results
+          .map((r) => `${r.service}: ${healthStatusOf(r.health) ?? 'healthy'}`)
+          .join(', '),
+      });
+      const routeNew = !!route && route.action !== 'unchanged';
+      if (!routeNew) await this.releasePort(tx, d.serverId, data.hostPort, data.routeName);
+      if (d.status !== 'pulling') {
+        // cancelled while applying: remove a freshly created route candidate, touch nothing else
+        if (routeNew) {
+          await tx.deployment.update({
+            where: { id: d.id },
+            data: { containerName: route.name, hostPort: data.hostPort },
+          });
+          await this.startCleanup(
+            tx,
+            { ...d, containerName: route.name, hostPort: data.hostPort },
+            job.actorId,
+            true,
+          );
+        }
+        return true;
+      }
+      const container = await tx.containerApp.findUniqueOrThrow({
+        where: { applicationId: d.applicationId },
+      });
+      const current = container.currentDeploymentId
+        ? await tx.deployment.findUnique({ where: { id: container.currentDeploymentId } })
+        : null;
+      const target = routeNew
+        ? { containerName: route.name, hostPort: data.hostPort }
+        : {
+            containerName: route?.name ?? current?.containerName ?? null,
+            hostPort: route?.hostPort ?? current?.hostPort ?? null,
+          };
+      if (!target.hostPort) {
+        await this.fail(tx, d, ['pulling'], {
+          ...job,
+          status: 'failed',
+          error: {
+            code: 'COMPOSE_ROUTE_UNKNOWN',
+            message: 'Route service was kept but its host port is unknown; redeploy',
+          },
+        });
+        return false;
+      }
+      const moved = await this.move(tx, d.id, ['pulling'], { status: 'routing', ...target });
+      if (!moved) return false;
+      await this.systemAudit(tx, d, 'routing', job, {
+        services: results.map((r) => [r.service, r.action]),
+      });
+      const routed = { ...d, status: 'routing', ...target } as DeploymentRow;
+      const app = await tx.application.findUniqueOrThrow({ where: { id: d.applicationId } });
+      const last = await tx.deploymentStep.findFirst({
+        where: {
+          name: 'route_switch',
+          status: 'succeeded',
+          deployment: { applicationId: d.applicationId },
+        },
+        orderBy: { finishedAt: 'desc' },
+        select: { data: true },
+      });
+      const sameRoute =
+        !routeNew &&
+        (last?.data as { routeKey?: string } | null)?.routeKey ===
+          routeKeyOf(app.domains, tlsOf(container), target.hostPort);
+      if (!sameRoute) {
+        await this.startRouteSwitch(tx, routed, job.actorId);
+        return true;
+      }
+      await this.addStep(tx, d.id, 'route_switch', 'skipped', {
+        message: 'Route service unchanged — route not switched',
+      });
+      await this.promote(tx, routed, container.currentDeploymentId);
+      await this.succeed(tx, routed, job);
+      return true;
+    }
+    const e = errOf(job);
+    const logTail = logTailOf(e.details);
+    if (!(await this.finishStep(tx, step, false, job, { logTail }))) return false;
+    const det = (e.details ?? {}) as { service?: string; services?: ComposeServiceResult[] };
+    if (Array.isArray(det.services))
+      await tx.deployment.update({
+        where: { id: d.id },
+        data: { serviceResults: det.services as unknown as Prisma.InputJsonValue },
+      });
+    if (e.code === 'COMPOSE_SERVICE_UNHEALTHY')
+      await this.addStep(tx, d.id, 'health_check', 'failed', {
+        jobId: job.id,
+        errorCode: e.code,
+        message: `${det.service ?? 'service'}: ${e.message}`,
+        logTail,
+      });
+    await this.fail(tx, d, ['pulling'], job);
+    const leftover = (det.services ?? []).find(
+      (r) => r.service === plan.routeService && r.action !== 'unchanged' && r.name,
+    );
+    if (leftover && det.service !== plan.routeService) {
+      // route candidate was created before a later service failed: stop + remove it
+      await tx.deployment.update({
+        where: { id: d.id },
+        data: { containerName: leftover.name, hostPort: data.hostPort },
+      });
+      await this.startCleanup(
+        tx,
+        { ...d, containerName: leftover.name, hostPort: data.hostPort },
+        job.actorId,
+        true,
+      );
+      return true;
+    }
+    await this.releasePort(tx, d.serverId, data.hostPort, data.routeName);
+    return false;
+  }
+
+  /** current ← d, previous ← old current (route not switched: compose with an unchanged route). */
+  private async promote(tx: Tx, d: DeploymentRow, oldCurrentId: string | null) {
+    const container = await tx.containerApp.findUniqueOrThrow({
+      where: { applicationId: d.applicationId },
+    });
+    const oldCurrent =
+      oldCurrentId && oldCurrentId !== d.id
+        ? await tx.deployment.findUnique({ where: { id: oldCurrentId } })
+        : null;
+    await tx.containerApp.update({
+      where: { applicationId: d.applicationId },
+      data: {
+        currentDeploymentId: d.id,
+        previousDeploymentId: oldCurrent?.id ?? container.previousDeploymentId,
+      },
+    });
+    if (d.trigger === 'rollback' && oldCurrent && oldCurrent.status === 'succeeded')
+      await tx.deployment.update({
+        where: { id: oldCurrent.id },
+        data: { status: 'rolled_back', version: { increment: 1 } },
+      });
+  }
+
   private async onStartTarget(tx: Tx, step: StepRow, d: DeploymentRow, job: FinishedJob) {
     if (job.status === 'succeeded') {
       if (!(await this.finishStep(tx, step, true, job, { message: 'Previous container started' })))
@@ -1250,7 +1576,12 @@ export class DeploymentsService implements OnModuleInit {
     await this.addStep(tx, d.id, 'route_switch', 'running', {
       jobId: job.id,
       message: `Switching ${app.domains.join(', ')} to 127.0.0.1:${d.hostPort}`,
-      data: { path, beforeSha256: before, afterSha256: contentSha256(content) },
+      data: {
+        path,
+        beforeSha256: before,
+        afterSha256: contentSha256(content),
+        routeKey: routeKeyOf(app.domains, tlsOf(container), d.hostPort!),
+      },
     });
   }
 

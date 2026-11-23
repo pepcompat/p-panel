@@ -47,6 +47,11 @@ const envSchema = z.object({
   /** Comma list of allowlisted registry hosts spoken to over plain HTTP (lab only). */
   PPANEL_REGISTRY_INSECURE: z.string().default(''),
   PPANEL_DISABLE_GATEWAY: bool,
+  /**
+   * P4b: comma list of git hosts (host or host:port) build configs may fetch from. An entry without a
+   * port matches any port of that host. Outside production `lab-git` is always allowed.
+   */
+  PPANEL_GIT_HOST_ALLOWLIST: z.string().default('github.com'),
 });
 
 export type AppConfig = z.infer<typeof envSchema> & {

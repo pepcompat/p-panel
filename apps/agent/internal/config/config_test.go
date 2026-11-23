@@ -96,3 +96,30 @@ func TestNginxSectionGate(t *testing.T) {
 		t.Fatal("unknown nginx key accepted")
 	}
 }
+
+func TestBuildSection(t *testing.T) {
+	d := t.TempDir()
+	y := filepath.Join(d, "c.yaml")
+	os.WriteFile(y, []byte("stateDir: /var/lib/x\n"), 0o600)
+	c, err := Load(y)
+	if err != nil || c.Build.Enabled || c.BuildWorkDir() != "/var/lib/x/builds" {
+		t.Fatalf("build must default to disabled: %v %+v", err, c.Build)
+	}
+	os.WriteFile(y, []byte("stateDir: /var/lib/x\nbuild:\n  enabled: true\n  gitHostsAllowlist: [GitHub.com, 'lab-git', 'git.example.com:8443']\n  workDir: /srv/builds\n"), 0o600)
+	c, err = Load(y)
+	if err != nil || !c.Build.Enabled || c.BuildWorkDir() != "/srv/builds" || strings.Join(c.Build.GitHostsAllowlist, ",") != "github.com,lab-git,git.example.com:8443" {
+		t.Fatalf("%v %+v", err, c.Build)
+	}
+	for name, body := range map[string]string{
+		"url not host":  "build:\n  gitHostsAllowlist: ['https://github.com']\n",
+		"path in host":  "build:\n  gitHostsAllowlist: ['github.com/acme']\n",
+		"relative dir":  "build:\n  workDir: builds\n",
+		"root dir":      "build:\n  workDir: /\n",
+		"unknown field": "build:\n  enable: true\n",
+	} {
+		os.WriteFile(y, []byte(body), 0o600)
+		if _, err := Load(y); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

@@ -3,6 +3,25 @@
 #
 # Build context: infra/   (compose sets context: ..)
 # Base pinned by tag AND multi-arch index digest (resolved 2026-11-17 via `docker buildx imagetools inspect ubuntu:24.04`).
+
+# P6: host restic for the agent's `paths` backups (backup.resticPath default /usr/local/bin/restic).
+# Official release binary, verified against the release SHA256SUMS (Ubuntu 24.04 ships restic 0.16.4 < 0.17).
+FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8 AS restic
+ARG TARGETARCH
+ARG RESTIC_VERSION=0.19.1
+ARG RESTIC_SHA256_arm64=a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465
+ARG RESTIC_SHA256_amd64=f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl bzip2; \
+    arch="${TARGETARCH:-arm64}"; \
+    case "$arch" in arm64) sum="$RESTIC_SHA256_arm64";; amd64) sum="$RESTIC_SHA256_amd64";; *) echo "unsupported arch $arch"; exit 1;; esac; \
+    curl -fsSL -o /tmp/restic.bz2 "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_${arch}.bz2"; \
+    echo "${sum}  /tmp/restic.bz2" | sha256sum -c -; \
+    bunzip2 /tmp/restic.bz2; \
+    install -m 0755 /tmp/restic /usr/local/bin/restic; \
+    /usr/local/bin/restic version
+
 FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 
 ARG NODE_ROLE=a
@@ -48,6 +67,8 @@ RUN set -eux; \
     chmod 0600 /etc/ssl/ppanel-lab/secure.example.lab.key
 # NOTE: `nginx -t` is NOT run at build time: upstream hostnames (lab-upstream-*) only
 # resolve on the compose network. The entrypoint runs `nginx -t` before starting.
+
+COPY --from=restic /usr/local/bin/restic /usr/local/bin/restic
 
 COPY lab/node/entrypoint.sh /usr/local/bin/ppanel-lab-entrypoint
 RUN chmod 0755 /usr/local/bin/ppanel-lab-entrypoint

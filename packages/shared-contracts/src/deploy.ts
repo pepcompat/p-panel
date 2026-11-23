@@ -172,6 +172,8 @@ export interface AgentSecretsResponse {
   registryAuth?: { username: string; password: string; serveraddress: string };
   /** P4b `image.build` / `source.inspect`: `{ header: "Authorization: Basic …" }` for git (never logged). */
   gitAuth?: { header: string };
+  /** P6 `backup.*` / `restore.run`: restic repo password + rest-server credentials (env only, never argv). */
+  restic?: { repoPassword: string; restUser: string; restPassword: string };
 }
 
 // ---------------------------------------------------------------- deployments (§7.3)

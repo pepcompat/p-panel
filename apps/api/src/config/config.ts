@@ -93,12 +93,32 @@ const envSchema = z.object({
   PPANEL_NOTIFY_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5000),
   /** Backoff base between the 3 notification retries (base, 2×base, 4×base). */
   PPANEL_NOTIFY_RETRY_BASE_MS: z.coerce.number().int().min(0).max(60_000).default(1000),
+
+  // ---------------------------------------------------------------- P6 backups
+  /** Bearer for POST /backup-maintenance/reports (operator maintenance script). Unset = endpoint 404. */
+  PPANEL_BACKUP_REPORT_TOKEN: z.string().optional(),
+  /** Backup scheduler tick (cron slots are minute-granular). */
+  PPANEL_BACKUP_SCHEDULER_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(600_000)
+    .default(30_000),
+  /** TTL of backup.run / restore.run jobs (an agent that never finishes → run `expired`). */
+  PPANEL_BACKUP_JOB_TTL_SEC: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(86_400)
+    .default(6 * 3600),
 });
 
 export type AppConfig = z.infer<typeof envSchema> & {
   masterKey: Buffer;
   /** resolved scrape bearer (env or file), null = scrape endpoint disabled */
   metricsScrapeToken: string | null;
+  /** P6 maintenance report bearer, null = endpoint disabled */
+  backupReportToken: string | null;
   lokiRetentionDays: number;
   webhookHttpAllowlist: string[];
   webhookAllowlist: string[];
@@ -139,6 +159,11 @@ export function loadConfig(overrides: Record<string, string | undefined> = {}): 
       throw new Error('Invalid configuration: PPANEL_METRICS_SCRAPE_TOKEN_FILE is not readable');
     }
   }
+  const backupReportToken = c.PPANEL_BACKUP_REPORT_TOKEN?.trim() || null;
+  if (backupReportToken && backupReportToken.length < 32)
+    throw new Error(
+      'Invalid configuration: PPANEL_BACKUP_REPORT_TOKEN must be at least 32 characters',
+    );
   if (metricsScrapeToken && metricsScrapeToken.length < 32)
     throw new Error('Invalid configuration: metrics scrape token must be at least 32 characters');
   const retention = /^(\d+)([hd])$/.exec(c.LOKI_RETENTION_PERIOD)!;
@@ -150,6 +175,7 @@ export function loadConfig(overrides: Record<string, string | undefined> = {}): 
   return {
     ...c,
     metricsScrapeToken,
+    backupReportToken,
     lokiRetentionDays:
       retention[2] === 'd'
         ? Number(retention[1])

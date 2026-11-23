@@ -30,6 +30,7 @@ import { ProposedTab } from './proposed-tab';
 import { ServerAppsTab } from '@/components/p3/server-apps-tab';
 import { ServerMonitoringTab } from '@/components/p5/monitoring-view';
 import { LogExplorer } from '@/components/p5/log-explorer';
+import { ServerBackupsTab } from '@/components/p6/scoped-backups';
 import type { MessageKey } from '@/i18n/en';
 
 function Header({ server, now }: { server: Server; now: number }) {
@@ -187,12 +188,14 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
             <ServerMonitoringTab serverId={server.id} status={server.status} />
           )}
           {tab === 'logs' && <LogExplorer fixed={{ serverId: server.id }} />}
+          {tab === 'backups' && <ServerBackupsTab server={server} />}
           {tab !== 'overview' &&
             tab !== 'network' &&
             tab !== 'settings' &&
             tab !== 'applications' &&
             tab !== 'monitoring' &&
-            tab !== 'logs' && <ProposedTab server={server} tab={tab} now={now} />}
+            tab !== 'logs' &&
+            tab !== 'backups' && <ProposedTab server={server} tab={tab} now={now} />}
         </div>
       )}
     </div>

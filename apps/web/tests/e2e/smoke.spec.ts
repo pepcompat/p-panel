@@ -53,7 +53,7 @@ test('server detail network tab, TH locale, preview banner', async ({ page }) =>
   await expect(page.getByText('Backend not implemented yet (PROPOSED)')).toBeVisible();
   await page.getByRole('radio', { name: 'TH' }).click();
   await expect(page.getByRole('link', { name: 'ภาพรวม' }).first()).toBeVisible();
-  // /logs is real since P5 (no preview banner); /backups is still a preview.
+  // /logs (P5) and /backups (P6) are real: no preview banner.
   await page.goto('/logs');
   await expect(page.getByTestId('log-explorer')).toBeVisible();
   await expect(page.getByTestId('preview-banner')).toHaveCount(0);
@@ -61,7 +61,8 @@ test('server detail network tab, TH locale, preview banner', async ({ page }) =>
   expect(await page.evaluate(() => localStorage.getItem('ppanel.lang'))).toBe('th');
   await page.screenshot({ path: 'test-results/logs-th.png', fullPage: true });
   await page.goto('/backups');
-  await expect(page.getByTestId('preview-banner')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'สำรองข้อมูล', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('preview-banner')).toHaveCount(0);
 });
 
 test('enroll shows one-time token once', async ({ page }) => {
@@ -82,7 +83,6 @@ const PREVIEW_ROUTES = [
   '/plugins',
   '/runtimes',
   '/databases',
-  '/backups',
   '/ai-mcp',
 ];
 
@@ -102,6 +102,7 @@ test('every preview route renders with the preview banner and no page errors', a
     '/monitoring',
     '/logs',
     '/alerts',
+    '/backups',
     '/applications',
     '/imports',
     '/settings/users',

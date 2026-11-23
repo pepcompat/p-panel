@@ -35,6 +35,7 @@ import { BuildSettings, BuildsTab } from '@/components/p4/builds-tab';
 import { ComposeTab } from '@/components/p4/compose-tab';
 import { LogExplorer } from '@/components/p5/log-explorer';
 import { AppMetricsTab } from '@/components/p5/app-metrics-tab';
+import { AppBackupsTab } from '@/components/p6/scoped-backups';
 import { useRouter } from 'next/navigation';
 import type { MessageKey } from '@/i18n/en';
 
@@ -63,6 +64,7 @@ export const REAL_CONTAINER_TABS: readonly AppTab[] = [
   'env',
   'logs',
   'metrics',
+  'backups',
   'settings',
 ];
 /** Compose apps (P4b): compose tab instead of builds; P5 central logs + metrics are real. */
@@ -75,6 +77,7 @@ export const REAL_COMPOSE_TABS: readonly AppTab[] = [
   'env',
   'logs',
   'metrics',
+  'backups',
   'settings',
 ];
 export const realTabsFor = (app: Pick<Application, 'kind'>) =>
@@ -301,6 +304,7 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
             </div>
           )}
           {deployable && tab === 'metrics' && <AppMetricsTab appId={app.id} />}
+          {deployable && tab === 'backups' && <AppBackupsTab app={app} />}
           {app.kind === 'container' && tab === 'builds' && <BuildsTab app={app} />}
           {app.kind === 'compose' && tab === 'compose' && <ComposeTab app={app} />}
           {app.kind === 'container' && tab === 'settings' && (

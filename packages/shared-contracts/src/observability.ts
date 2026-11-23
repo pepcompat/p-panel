@@ -313,12 +313,13 @@ export const alertParamsSchemas = {
   backup_failed: z.object({}).strict(),
 } satisfies Record<AlertKind, z.ZodTypeAny>;
 
-/** Kinds evaluated today; `backup_failed` is accepted but inactive until P6. */
+/** Kinds evaluated by the alert engine (all of them since P6 activated `backup_failed`). */
 export const ACTIVE_ALERT_KINDS: readonly AlertKind[] = [
   'server_offline',
   'metric_threshold',
   'app_down',
   'log_dropped',
+  'backup_failed',
 ];
 
 /** Which scope types each kind accepts. */
@@ -447,7 +448,7 @@ export interface AlertRule {
   severity: AlertSeverity;
   forSec: number;
   channelIds: string[];
-  /** false for kinds accepted but not evaluated yet (backup_failed) */
+  /** false for kinds accepted but not evaluated yet (none since P6) */
   active: boolean;
   createdBy: string;
   version: number;
@@ -458,7 +459,7 @@ export interface AlertRule {
 
 export const INCIDENT_STATUSES = ['firing', 'acknowledged', 'resolved'] as const;
 export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
-export const INCIDENT_TARGET_TYPES = ['server', 'app'] as const;
+export const INCIDENT_TARGET_TYPES = ['server', 'app', 'backup_policy'] as const;
 export type IncidentTargetType = (typeof INCIDENT_TARGET_TYPES)[number];
 export const INCIDENT_EVENT_TYPES = [
   'fired',

@@ -869,3 +869,10 @@ func (m *Manager) Logs(ctx context.Context, p LogsParams) (*LogsOutput, error) {
 	lines, t2 := LogLines(text, m.heldSecrets(p.App), p.TailLines, MaxLogBytes)
 	return &LogsOutput{Lines: lines, Truncated: truncated || t2}, nil
 }
+
+// LockApp exposes the per-app mutex to the P6 backup/restore jobs, so a
+// volume/DB backup or restore never runs concurrently with a container or
+// compose job of the same app.
+func (m *Manager) LockApp(ctx context.Context, app string) (func(), error) {
+	return m.lockApp(ctx, app)
+}

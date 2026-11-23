@@ -16,3 +16,12 @@ build:
   gitHostsAllowlist:
     - lab-git
   # default workDir: <stateDir>/builds
+# P6 backups: enabled by the operator (this file). Host restic (>= 0.17, verified at agent start) runs
+# `paths` targets; volume/postgres/mysql targets run in the helper image below — a job's helperImage must
+# equal it (else HELPER_IMAGE_NOT_ALLOWED). The digest is written by scripts/lab/backup-images.sh
+# (in place, so the read-only bind mount sees it); empty = helper targets refused.
+backup:
+  enabled: true
+  resticPath: /usr/local/bin/restic
+  helperImage: 'lab-registry:5000/ppanel-backup/helper@sha256:cd60f2443977c2911f86392c3091fbf4e2f3c6b61ccff2bc38dcf5fe935278f7' # ppanel-lab:helperImage
+  # default workDir: <stateDir>/backup ; staging restores: <stateDir>/restores/<restoreId>

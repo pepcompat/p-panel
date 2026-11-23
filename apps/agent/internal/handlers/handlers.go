@@ -1,7 +1,7 @@
 // Package handlers contains the allowlisted, typed job handlers:
 // inventory.collect, discovery.scan (read-only), service.restart (mutating,
 // owned units only), the P3 nginx.* jobs (see nginx_jobs.go) the P4 container.* jobs (container_jobs.go) and the P4b image.build /
-// source.inspect / compose.* jobs (build_jobs.go). There is no generic command handler by design.
+// source.inspect / compose.* jobs (build_jobs.go) and the P6 backup.* / restore.run jobs (backup_jobs.go). There is no generic command handler by design.
 package handlers
 
 import (
@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ppanel/ppanel/apps/agent/internal/backupops"
 	"github.com/ppanel/ppanel/apps/agent/internal/buildops"
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
 	"github.com/ppanel/ppanel/apps/agent/internal/containerops"
@@ -43,6 +44,9 @@ type Deps struct {
 	// Builds runs image.build / source.inspect; nil unless the local config
 	// sets build.enabled (→ NOT_A_BUILD_NODE before ack).
 	Builds *buildops.Manager
+	// Backups runs backup.* / restore.run; nil unless the local config sets
+	// backup.enabled and a host restic >= 0.17 was verified (→ RESTIC_UNAVAILABLE).
+	Backups *backupops.Manager
 }
 
 // RegisterAll registers every allowlisted handler.
@@ -65,6 +69,10 @@ func RegisterAll(r *jobs.Registry, d *Deps) {
 	r.Register(&SourceInspect{d})
 	r.Register(&ComposeApply{d})
 	r.Register(&ComposeStop{d})
+	r.Register(&BackupRun{d})
+	r.Register(&BackupSnapshots{d})
+	r.Register(&BackupVerify{d})
+	r.Register(&RestoreRun{d})
 }
 
 // ---------------- inventory.collect ----------------

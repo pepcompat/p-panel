@@ -1247,14 +1247,14 @@ describe('P5-T01: alerts → incidents → notifications → ack → resolve', (
     ).toBeGreaterThanOrEqual(2);
   });
 
-  it('backup_failed is accepted but inactive; deleting a channel detaches it from rules', async () => {
+  it('backup_failed is active since P6; deleting a channel detaches it from rules', async () => {
     const ch = await webhookChannel();
     const r = await t.http
       .post('/api/v1/alert-rules')
       .set(bearer(owner))
       .send({ name: 'bk', scopeType: 'global', kind: 'backup_failed', channelIds: [ch] });
     expect(r.status).toBe(201);
-    expect(r.body.data.active).toBe(false);
+    expect(r.body.data.active).toBe(true); // P6 activated backup_failed (backups.spec covers firing)
     expect(
       (await t.http.delete(`/api/v1/notification-channels/${ch}`).set(bearer(owner))).status,
     ).toBe(204);

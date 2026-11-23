@@ -52,6 +52,11 @@ export const RESTRICTED_JOB_TYPES: readonly JobType[] = [
   'source.inspect',
   'compose.apply',
   'compose.stop',
+  // P6: backup/restore jobs carry repo credentials via the secrets call → Center workflows only
+  'backup.run',
+  'backup.snapshots',
+  'backup.verify',
+  'restore.run',
 ];
 
 /** Mutating jobs lock a per-server resource so two never run concurrently on the same target. */
@@ -69,6 +74,15 @@ export function resourceKeyFor(
     return `app:${String(params.app)}`;
   // builds of one app run one at a time on the build node
   if (type === 'image.build') return `build:${String(params.app)}`;
+  // P6: backups serialize per repository (agent holds a per-repo mutex too); restores of an app
+  // target share the app lock with container/compose jobs
+  if (type === 'backup.run')
+    return `backup:${String((params.repo as { repositoryId?: string } | undefined)?.repositoryId)}`;
+  if (type === 'restore.run') {
+    const target = params.target as { app?: string } | undefined;
+    if (target?.app) return `app:${target.app}`;
+    return `restore:${String((params.repo as { repositoryId?: string } | undefined)?.repositoryId)}`;
+  }
   return `type:${type}`;
 }
 

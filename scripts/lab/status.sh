@@ -27,4 +27,11 @@ else
 fi
 echo "== ppanel-lab-registry (127.0.0.1:55000 on the Mac, lab-registry:5000 in the lab)"
 if curl -fsS http://127.0.0.1:55000/v2/_catalog 2>/dev/null; then echo; else echo "   NOT REACHABLE"; rc=1; fi
+echo "== P6 backup services"
+for c in "${LAB_P6_SERVICES[@]}"; do
+  printf '   %s: %s\n' "$c" "$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$c" 2>/dev/null || echo 'NOT PRESENT')"
+done
+for n in "${LAB_NODES[@]}"; do
+  printf '   %s restic: %s\n' "$n" "$(docker exec "$n" /usr/local/bin/restic version 2>/dev/null || echo 'missing')"
+done
 exit $rc

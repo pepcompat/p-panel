@@ -1,0 +1,11 @@
+# pPanel agent config for ppanel-lab-node-a (mounted read-only at /etc/ppanel-agent/config.yaml by
+# infra/compose/lab.yml). LAB ONLY. node-a is NOT a build node and has no Docker engine.
+# Defaults otherwise (identical to running without a config file before P6).
+stateDir: /var/lib/ppanel-agent
+logLevel: info
+# P6 backups: `paths` targets with the host restic. node-a has no Docker engine, so volume/DB targets
+# fail with DOCKER_UNAVAILABLE here; the helper digest is still written by scripts/lab/backup-images.sh.
+backup:
+  enabled: true
+  resticPath: /usr/local/bin/restic
+  helperImage: 'lab-registry:5000/ppanel-backup/helper@sha256:cd60f2443977c2911f86392c3091fbf4e2f3c6b61ccff2bc38dcf5fe935278f7' # ppanel-lab:helperImage

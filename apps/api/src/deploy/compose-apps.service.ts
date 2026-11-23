@@ -529,6 +529,49 @@ export class ComposeAppsService {
     return row;
   }
 
+  /**
+   * P6 in-place restore `start_app`: re-apply the current plan (stopped services are recreated with
+   * their health checks) as a `redeploy` deployment pre-approved by the restore's approval.
+   */
+  async startForRestore(
+    appId: string,
+    actorId: string,
+    restoreId: string,
+  ): Promise<{ deploymentId: string; status: string } | null> {
+    const app = await this.prisma.application.findUniqueOrThrow({
+      where: { id: appId },
+      include: { server: { select: { id: true, environment: true, status: true } } },
+    });
+    const container = await this.prisma.containerApp.findUniqueOrThrow({
+      where: { applicationId: appId },
+    });
+    const ref: ContainerAppRef = { app, container };
+    const cur = await this.currentPlan(ref);
+    if (!cur.plan) return null;
+    const id = uuidv7();
+    const { versions } = await this.secrets.keyVersions(app.id);
+    const plan = await this.withPlanMeta(
+      ref,
+      id,
+      {
+        versionId: cur.plan.versionId,
+        version: cur.plan.version,
+        routeService: cur.plan.routeService,
+      },
+      cur.plan.services.map((s) => ({ ...s })),
+      versions,
+    );
+    const { row } = await this.deployments.create({ user: null, id: actorId }, ref, {
+      id,
+      image: this.routeImage(plan),
+      trigger: 'redeploy',
+      compose: plan,
+      reason: `start after in-place restore ${restoreId}`,
+      preApprovedByRestoreId: restoreId,
+    });
+    return { deploymentId: row.id, status: row.status };
+  }
+
   // ---------------------------------------------------------------- start / stop / restart
 
   async operate(

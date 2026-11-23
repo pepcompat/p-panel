@@ -1,0 +1,91 @@
+{
+  "ranAt": "2026-11-23T09:29:38Z",
+  "steps": [
+    {
+      "step": "node-a (production) and node-b (uat) online with backup capability",
+      "ok": true
+    },
+    {
+      "step": "repository + access configured; passwords never returned",
+      "ok": true
+    },
+    {
+      "step": "files backup uploaded with manifest; verification honestly 'none'",
+      "ok": true,
+      "snapshots": 1,
+      "manifest": {
+        "files": 26,
+        "bytes": 325006,
+        "databases": 0,
+        "truncated": false
+      },
+      "nextRunAt": "2026-11-23T20:00:00.000Z"
+    },
+    {
+      "step": "test restore verification -> restore_verified",
+      "ok": true
+    },
+    {
+      "step": "P6-T03 production restore: approval required, creator & viewer refused, approver w/ step-up",
+      "ok": true,
+      "executeBeforeApproval": [409, "APPROVAL_REQUIRED"],
+      "creatorApprove": 403,
+      "viewerExecute": 403,
+      "audit": [
+        "restores.approve",
+        "restores.create",
+        "restores.dry_run",
+        "restores.dry_run_finished",
+        "restores.execute",
+        "restores.finished"
+      ]
+    },
+    {
+      "step": "P6-T01 restored files identical to originals (sha256 of all files)",
+      "ok": true,
+      "files": 26,
+      "stagingPath": "/var/lib/ppanel-agent/restores/01a207ba-b86b-7c53-b85e-ee2e5bcbadb4"
+    },
+    {
+      "step": "compose app with Postgres deployed and seeded (42 customers, 137 orders)",
+      "ok": true
+    },
+    {
+      "step": "P6-T02 postgres dump -> isolated scratch restore: rows + constraints identical, scratch removed",
+      "ok": true,
+      "tables": {
+        "customers": 42,
+        "orders": 137
+      },
+      "constraints": [
+        "public.customers:customers_email_key",
+        "public.customers:customers_pkey",
+        "public.orders:orders_customer_id_fkey",
+        "public.orders:orders_pkey",
+        "public.orders:orders_total_check"
+      ],
+      "verify": {
+        "ok": true,
+        "method": "manifest",
+        "compared": 7,
+        "mismatches": []
+      }
+    },
+    {
+      "step": "DB password never in API responses",
+      "ok": true
+    },
+    {
+      "step": "P6-T04 agent killed mid-backup: run not uploaded, no snapshot for that run",
+      "ok": true,
+      "status": "expired",
+      "snapshotLookup": 200
+    },
+    {
+      "step": "maintenance offsite copy reported to the Center; report token can't read anything else",
+      "ok": true,
+      "rc": 0,
+      "stderr": "[ppanel-backup 09:29:34Z] restic copy node-a \u2192 s3:http://lab-minio:9000/ppanel-offsite/node-a\n"
+    }
+  ]
+}

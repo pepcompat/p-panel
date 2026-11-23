@@ -23,6 +23,7 @@ import { registerP3Routes, resetP3State } from './p3-routes';
 import { registerP4Routes, resetP4State } from './p4-routes';
 import { registerP4bRoutes, resetP4bState } from './p4b-routes';
 import { registerP5Routes, resetP5State } from './p5-routes';
+import { registerP6Routes, resetP6State } from './p6-routes';
 
 const SESSION_KEY = 'ppanel.mock.session';
 const NOT_BOOTSTRAPPED_KEY = 'ppanel.mock.notBootstrapped';
@@ -64,6 +65,7 @@ export function resetMockState() {
   resetP4State();
   resetP4bState();
   resetP5State();
+  resetP6State();
   safeSession()?.removeItem(SESSION_KEY);
 }
 
@@ -621,6 +623,8 @@ registerP4Routes(p3ctx);
 registerP4bRoutes(p3ctx);
 // ---------- P5: metrics / central logs / alerts / incidents / channels ----------
 registerP5Routes(p3ctx);
+// ---------- P6: backups / snapshots / restores ----------
+registerP6Routes(p3ctx);
 
 /** fetch-compatible entry point. */
 export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

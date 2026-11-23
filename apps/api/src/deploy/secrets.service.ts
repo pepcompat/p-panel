@@ -13,6 +13,7 @@ import {
 } from '@ppanel/shared-contracts';
 import type { ContainerApp, Job as JobRow } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
+import { BackupCredentialsService } from '../backup/backup-credentials.service';
 import { AuthService } from '../auth/auth.service';
 import { AuthzService } from '../auth/authz.service';
 import { AppError } from '../common/app-error';
@@ -30,12 +31,22 @@ export interface ContainerAppRef {
   container: ContainerApp;
 }
 
+/** P6 job types whose secrets are repo credentials (+ DB passwords of DB targets). */
+export const BACKUP_SECRET_JOB_TYPES = [
+  'backup.run',
+  'backup.snapshots',
+  'backup.verify',
+  'restore.run',
+];
+
 /** Job types the agent may fetch secrets for (fetch-once). */
 export const SECRET_JOB_TYPES = [
   'container.run_candidate',
   'compose.apply',
   'image.build',
   'source.inspect',
+  // P6: `{ restic: { repoPassword, restUser, restPassword }, env: { <passwordSecretKey>: value } }`
+  ...BACKUP_SECRET_JOB_TYPES,
 ];
 
 interface StoredRegistryAuth {
@@ -84,6 +95,7 @@ export class SecretsService {
     private readonly audit: AuditService,
     private readonly auth: AuthService,
     private readonly apps: ApplicationsService,
+    private readonly backupCreds: BackupCredentialsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -414,6 +426,24 @@ export class SecretsService {
       );
     if ((job.leaseUntil && job.leaseUntil <= now) || job.expiresAt <= now)
       throw await deny(ERROR_CODES.TASK_EXPIRED, 409, 'Task lease or TTL expired', 'expired');
+    if (BACKUP_SECRET_JOB_TYPES.includes(job.type)) {
+      const repoId = (job.params as { repo?: { repositoryId?: string } }).repo?.repositoryId;
+      const access = repoId ? await this.backupCreds.access(repoId, serverId) : null;
+      if (!access)
+        throw await deny(ERROR_CODES.TASK_NOT_LEASED, 409, 'Task has no owner', 'no_repo_access');
+      const claimedB = await this.prisma.job.updateMany({
+        where: { id: jobId, serverId, secretsFetchedAt: null },
+        data: { secretsFetchedAt: now },
+      });
+      if (claimedB.count !== 1)
+        throw await deny(
+          ERROR_CODES.SECRETS_ALREADY_FETCHED,
+          409,
+          'Secrets for this task were already delivered',
+          'already_fetched',
+        );
+      return this.deliverBackup(serverId, job, access);
+    }
     const owner = await this.ownerOf(job);
     if (!owner || owner.serverId !== serverId)
       throw await deny(ERROR_CODES.TASK_NOT_LEASED, 409, 'Task has no owner', 'no_owner');
@@ -429,6 +459,74 @@ export class SecretsService {
         'already_fetched',
       );
     return this.deliver(serverId, job, owner);
+  }
+
+  /**
+   * P6: restic credentials of the server's repo access row + the DB password of every DB target
+   * (app secret `passwordSecretKey` of the target's app on this server). Audited by key name only.
+   */
+  private async deliverBackup(
+    serverId: string,
+    job: JobRow,
+    access: NonNullable<Awaited<ReturnType<BackupCredentialsService['access']>>>,
+  ): Promise<AgentSecretsResponse> {
+    let restic: AgentSecretsResponse['restic'];
+    try {
+      restic = this.backupCreds.credentials(access);
+    } catch (err) {
+      logger.emit('error', 'backup credential undecryptable', {
+        repositoryId: access.repositoryId,
+        serverId,
+        err,
+      });
+    }
+    const params = job.params as {
+      targets?: Array<{ app?: string; passwordSecretKey?: string }>;
+      target?: { app?: string; passwordSecretKey?: string };
+    };
+    const dbTargets = [...(params.targets ?? []), ...(params.target ? [params.target] : [])].filter(
+      (t): t is { app: string; passwordSecretKey: string } => !!t.app && !!t.passwordSecretKey,
+    );
+    const env: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const t of dbTargets) {
+      const app = await this.prisma.application.findUnique({
+        where: { serverId_name: { serverId, name: t.app } },
+        select: { id: true },
+      });
+      const row = app
+        ? await this.prisma.secret.findUnique({
+            where: { applicationId_key: { applicationId: app.id, key: t.passwordSecretKey } },
+          })
+        : null;
+      if (!app || !row) {
+        missing.push(t.passwordSecretKey);
+        continue;
+      }
+      try {
+        env[t.passwordSecretKey] = this.decrypt(app.id, t.passwordSecretKey, row.valueEncrypted);
+      } catch (err) {
+        missing.push(t.passwordSecretKey);
+        logger.emit('error', 'secret undecryptable', { applicationId: app.id, key: row.key, err });
+      }
+    }
+    await this.audit.record({
+      actorId: serverId,
+      actorType: 'agent',
+      action: 'secrets.delivered',
+      targetType: 'backup_repository',
+      targetId: access.repositoryId,
+      result: 'success',
+      metadata: {
+        jobId: job.id,
+        jobType: job.type,
+        restUser: access.restUser,
+        restic: !!restic,
+        keys: Object.keys(env).sort(),
+        missing: missing.sort(),
+      },
+    });
+    return { env, ...(restic ? { restic } : {}) };
   }
 
   /** Workflow object that owns a secrets-bearing job (deployment / build / inspection). */

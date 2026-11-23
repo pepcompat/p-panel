@@ -59,6 +59,38 @@ type Config struct {
 	// Logs configures P5 log shipping (local config only: the Center can never
 	// add sources or paths).
 	Logs LogsConfig `yaml:"logs" json:"logs"`
+	// Backup configures P6 backups/restores (local config only).
+	Backup BackupConfig `yaml:"backup" json:"backup"`
+}
+
+// BackupConfig is the `backup:` section (P6). Like builds, backups are an
+// operator decision on the host: the Center can never enable them or choose
+// the helper image.
+type BackupConfig struct {
+	// Enabled turns the backup.* / restore.run jobs on (default false →
+	// RESTIC_UNAVAILABLE before ack).
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// ResticPath is the host restic binary (default: restic from the fixed
+	// system dirs). Version >= 0.17 is required and verified at startup.
+	ResticPath string `yaml:"resticPath" json:"resticPath"`
+	// HelperImage is the digest-pinned helper image (restic + pg_dump +
+	// mysqldump) for volume/postgres/mysql targets. A job's helperImage must
+	// equal it (else HELPER_IMAGE_NOT_ALLOWED). Empty = helper targets refused.
+	HelperImage string `yaml:"helperImage" json:"helperImage"`
+	// WorkDir holds the restic cache and temporary verify restores (default
+	// <stateDir>/backup). Staging restores go to <stateDir>/restores/<id>.
+	WorkDir string `yaml:"workDir" json:"workDir"`
+}
+
+// ImageDigestRefRe mirrors shared-contracts IMAGE_DIGEST_REF_RE.
+var ImageDigestRefRe = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]{1,5})?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[a-f0-9]{64}$`)
+
+// BackupWorkDir returns the effective backup work directory.
+func (c *Config) BackupWorkDir() string {
+	if c.Backup.WorkDir != "" {
+		return c.Backup.WorkDir
+	}
+	return filepath.Join(c.StateDir, "backup")
 }
 
 // Log source names (docs/AGENT_PROTOCOL.md "Telemetry").
@@ -354,6 +386,16 @@ func (c *Config) Validate() error {
 		errs = append(errs, "build.workDir must be a clean absolute path (not /)")
 	}
 	errs = append(errs, c.Logs.validate()...)
+	c.Backup.HelperImage = strings.TrimSpace(c.Backup.HelperImage)
+	if p := c.Backup.ResticPath; p != "" && (!filepath.IsAbs(p) || filepath.Clean(p) != p) {
+		errs = append(errs, "backup.resticPath must be a clean absolute path")
+	}
+	if w := c.Backup.WorkDir; w != "" && (!filepath.IsAbs(w) || filepath.Clean(w) != w || w == "/") {
+		errs = append(errs, "backup.workDir must be a clean absolute path (not /)")
+	}
+	if h := c.Backup.HelperImage; h != "" && (len(h) > 400 || !ImageDigestRefRe.MatchString(h)) {
+		errs = append(errs, "backup.helperImage must be an image reference pinned by digest (repo@sha256:<64 hex>)")
+	}
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))
 	}

@@ -64,15 +64,30 @@ type Cmd struct {
 	Dir     string
 	Timeout time.Duration
 	MaxOut  int
+	// Long allows a timeout up to MaxLongTimeout (P6 backups/restores);
+	// otherwise timeouts are capped at 10 minutes.
+	Long bool
+	// Interrupt sends SIGINT (instead of SIGKILL) when ctx is cancelled or the
+	// timeout fires, then kills after InterruptGrace. restic uses this to
+	// remove its repository lock and never writes a snapshot for an aborted run.
+	Interrupt bool
 }
+
+// MaxLongTimeout bounds Cmd.Long invocations (24 h job limit + margin).
+const MaxLongTimeout = 25 * time.Hour
+
+// InterruptGrace is how long an interrupted process may take to exit.
+const InterruptGrace = 15 * time.Second
 
 // CmdRunner runs a Cmd. System implements it; tests may fake it.
 type CmdRunner interface {
 	RunCmd(ctx context.Context, c Cmd) (Result, error)
 }
 
-// ExtraEnvKeyRe limits the environment keys a Cmd may add.
-var ExtraEnvKeyRe = regexp.MustCompile(`^(HOME|GIT_[A-Z0-9_]{1,64})$`)
+// ExtraEnvKeyRe limits the environment keys a Cmd may add: HOME, GIT_* (P4b
+// source fetch) and the restic credential/cache variables (P6; secrets are
+// passed to restic ONLY via env, never argv).
+var ExtraEnvKeyRe = regexp.MustCompile(`^(HOME|TMPDIR|GIT_[A-Z0-9_]{1,64}|RESTIC_(PASSWORD|REST_USERNAME|REST_PASSWORD|CACHE_DIR))$`)
 
 // RunCmd executes c.Binary (absolute path) with c.Args.
 func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
@@ -101,7 +116,11 @@ func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
 		dir = c.Dir
 	}
 	timeout, maxOut := c.Timeout, c.MaxOut
-	if timeout <= 0 || timeout > 10*time.Minute {
+	maxTimeout := 10 * time.Minute
+	if c.Long {
+		maxTimeout = MaxLongTimeout
+	}
+	if timeout <= 0 || timeout > maxTimeout {
 		timeout = 30 * time.Second
 	}
 	if maxOut <= 0 {
@@ -114,6 +133,10 @@ func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
 	cmd.Dir = dir
 	cmd.Stdin = nil
 	cmd.WaitDelay = 2 * time.Second
+	if c.Interrupt {
+		cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+		cmd.WaitDelay = InterruptGrace
+	}
 	stdout := &capped{max: maxOut}
 	stderr := &capped{max: 64 << 10}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
@@ -125,6 +148,9 @@ func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return res, fmt.Errorf("execx: %s timed out after %s: %w", filepath.Base(binary), timeout, context.DeadlineExceeded)
+	}
+	if ctx.Err() == context.Canceled {
+		return res, fmt.Errorf("execx: %s cancelled: %w", filepath.Base(binary), context.Canceled)
 	}
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {

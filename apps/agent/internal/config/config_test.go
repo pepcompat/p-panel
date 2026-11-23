@@ -191,3 +191,30 @@ logs:
 		t.Error("unknown logs key accepted")
 	}
 }
+
+func TestBackupConfig(t *testing.T) {
+	ok := "stateDir: /var/lib/ppanel-agent\nbackup:\n  enabled: true\n  resticPath: /usr/local/bin/restic\n  helperImage: lab-registry:5000/ppanel-backup/helper@sha256:" +
+		strings.Repeat("a", 64) + "\n"
+	c := Default()
+	if err := Parse([]byte(ok), c); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil || !c.Backup.Enabled || c.BackupWorkDir() != "/var/lib/ppanel-agent/backup" {
+		t.Fatalf("%v %+v", err, c.Backup)
+	}
+	for _, bad := range []string{
+		"backup:\n  helperImage: lab-registry:5000/helper:latest\n",
+		"backup:\n  resticPath: restic\n",
+		"backup:\n  workDir: /\n",
+		"backup:\n  prune: true\n",
+	} {
+		c := Default()
+		err := Parse([]byte(bad), c)
+		if err == nil {
+			err = c.Validate()
+		}
+		if err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}

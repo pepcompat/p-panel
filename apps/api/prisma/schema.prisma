@@ -149,6 +149,8 @@ model Server {
   containerSamples ContainerSample[]
   telemetry        ServerTelemetry?
   incidents        Incident[]
+  backupAccess     BackupRepoAccess[]
+  backupPolicies   BackupPolicy[]
 
   @@index([environment])
   @@index([lastHeartbeatAt])
@@ -1014,4 +1016,220 @@ model NotificationDelivery {
   @@index([channelId, createdAt])
   @@index([incidentId])
   @@map("notification_deliveries")
+}
+
+// ---------------------------------------------------------------- P6 backups and restores (§10)
+
+/// restic repository behind rest-server (`--private-repos --append-only` for agents, ADR-0009).
+model BackupRepository {
+  id        String   @id @db.Uuid
+  name      String   @unique
+  kind      String   @default("rest")
+  /// rest-server base URL (no credentials, no per-server path)
+  baseUrl   String   @map("base_url")
+  /// { kind: "s3", endpoint, bucket } | null — copy is done by the maintenance identity
+  offsite   Json?
+  createdBy String   @map("created_by") @db.Uuid
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  access   BackupRepoAccess[]
+  policies BackupPolicy[]
+  reports  BackupMaintenanceReport[]
+
+  @@map("backup_repositories")
+}
+
+/// Per-server credentials (AES-256-GCM, AAD binds repo+server+purpose). Only the recovery export returns them.
+model BackupRepoAccess {
+  repositoryId    String    @map("repository_id") @db.Uuid
+  serverId        String    @map("server_id") @db.Uuid
+  restUser        String    @map("rest_user")
+  restPasswordEnc String    @map("rest_password_enc")
+  repoPasswordEnc String    @map("repo_password_enc")
+  /// set when the operator recorded `maintenance.sh init` (agents are append-only and cannot init)
+  initializedAt   DateTime? @map("initialized_at") @db.Timestamptz(3)
+  initializedBy   String?   @map("initialized_by") @db.Uuid
+  createdBy       String    @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  repository BackupRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  server     Server           @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@id([repositoryId, serverId])
+  @@unique([repositoryId, restUser])
+  @@index([serverId])
+  @@map("backup_repo_access")
+}
+
+/// Reported by the operator's maintenance script with PPANEL_BACKUP_REPORT_TOKEN (prune/copy/check/unlock).
+model BackupMaintenanceReport {
+  id           String   @id @db.Uuid
+  repositoryId String   @map("repository_id") @db.Uuid
+  serverUser   String   @map("server_user")
+  kind         String
+  ok           Boolean
+  finishedAt   DateTime @map("finished_at") @db.Timestamptz(3)
+  /// bounded (≤ 8 KiB serialized), redacted
+  detail       Json     @default("{}")
+  receivedAt   DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  repository BackupRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@index([repositoryId, serverUser, kind, finishedAt])
+  @@map("backup_maintenance_reports")
+}
+
+model BackupPolicy {
+  id                String    @id @db.Uuid
+  name              String
+  serverId          String    @map("server_id") @db.Uuid
+  repositoryId      String    @map("repository_id") @db.Uuid
+  /// resolved targets (backupTargetSchema + applicationId for app targets)
+  targets           Json
+  scheduleCron      String    @map("schedule_cron")
+  timezone          String
+  retention         Json
+  verify            Json
+  helperImage       String?   @map("helper_image")
+  enabled           Boolean   @default(true)
+  /// scheduler state (durable across restarts): next slot to run, last slot that produced a run
+  nextRunAt         DateTime? @map("next_run_at") @db.Timestamptz(3)
+  lastScheduledAt   DateTime? @map("last_scheduled_at") @db.Timestamptz(3)
+  lastRestoreTestAt DateTime? @map("last_restore_test_at") @db.Timestamptz(3)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdBy         String    @map("created_by") @db.Uuid
+  updatedBy         String    @map("updated_by") @db.Uuid
+  version           Int       @default(1)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server     Server           @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  repository BackupRepository @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  runs       BackupRun[]
+
+  @@index([serverId])
+  @@index([enabled, nextRunAt])
+  @@map("backup_policies")
+}
+
+model BackupRun {
+  id              String    @id @db.Uuid
+  policyId        String    @map("policy_id") @db.Uuid
+  serverId        String    @map("server_id") @db.Uuid
+  repositoryId    String    @map("repository_id") @db.Uuid
+  trigger         String // schedule | manual | safety
+  status          String    @default("queued")
+  verification    String    @default("none")
+  verifiedAt      DateTime? @map("verified_at") @db.Timestamptz(3)
+  /// targets as dispatched (resolved)
+  targets         Json
+  snapshots       Json      @default("[]")
+  /// { files, bytes, databases, truncated }
+  manifestSummary Json      @default("{}") @map("manifest_summary")
+  /// bounded: ≤ BACKUP_MANIFEST_MAX_ENTRIES entries (agent truncates beyond)
+  manifest        Json      @default("[]")
+  resticVersion   String?   @map("restic_version")
+  error           Json?
+  jobId           String?   @unique @map("job_id") @db.Uuid
+  idempotencyKey  String?   @map("idempotency_key")
+  scheduledFor    DateTime? @map("scheduled_for") @db.Timestamptz(3)
+  /// safety run taken before an in-place restore
+  restoreId       String?   @map("restore_id") @db.Uuid
+  createdBy       String?   @map("created_by") @db.Uuid
+  startedAt       DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  policy        BackupPolicy         @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  verifications BackupVerification[]
+
+  @@unique([policyId, idempotencyKey])
+  @@index([serverId, createdAt])
+  @@index([policyId, createdAt])
+  @@index([status, updatedAt])
+  @@map("backup_runs")
+}
+
+/// One verification attempt of a run: `check` (backup.verify) or `restore_test` (restore.run staging/scratch).
+model BackupVerification {
+  id         String    @id @db.Uuid
+  runId      String    @map("run_id") @db.Uuid
+  level      String // check | restore_test
+  status     String    @default("running") // running | passed | failed
+  jobIds     String[]  @default([]) @map("job_ids") @db.Uuid
+  /// per job: { jobId, snapshotId, status, ok, result | error }
+  results    Json      @default("[]")
+  error      Json?
+  createdBy  String?   @map("created_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  run BackupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, createdAt])
+  @@index([status])
+  @@map("backup_verifications")
+}
+
+model Restore {
+  id                  String    @id @db.Uuid
+  runId               String    @map("run_id") @db.Uuid
+  snapshotId          String    @map("snapshot_id")
+  serverId            String    @map("server_id") @db.Uuid
+  repositoryId        String    @map("repository_id") @db.Uuid
+  applicationId       String?   @map("application_id") @db.Uuid
+  /// restoreTargetSchema
+  target              Json
+  /// index of the backup target in the run this snapshot belongs to
+  targetIndex         Int       @map("target_index")
+  status              String    @default("planned")
+  /// RestoreImpactItem[]
+  impact              Json
+  /// { jobId, ok, listing (bounded), error }
+  dryRun              Json?     @map("dry_run")
+  planHash            String    @map("plan_hash")
+  approvalRequired    Boolean   @map("approval_required")
+  approvalReasons     String[]  @default([]) @map("approval_reasons")
+  safetySnapshotRunId String?   @map("safety_snapshot_run_id") @db.Uuid
+  result              Json?
+  error               Json?
+  createdBy           String    @map("created_by") @db.Uuid
+  version             Int       @default(1)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt          DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  steps RestoreStepRow[]
+
+  @@index([serverId, createdAt])
+  @@index([runId])
+  @@index([status, updatedAt])
+  @@map("restores")
+}
+
+model RestoreStepRow {
+  id           String    @id @db.Uuid
+  restoreId    String    @map("restore_id") @db.Uuid
+  seq          Int
+  name         String
+  status       String
+  jobId        String?   @map("job_id") @db.Uuid
+  backupRunId  String?   @map("backup_run_id") @db.Uuid
+  deploymentId String?   @map("deployment_id") @db.Uuid
+  message      String?
+  errorCode    String?   @map("error_code")
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  restore Restore @relation(fields: [restoreId], references: [id], onDelete: Cascade)
+
+  @@unique([restoreId, seq])
+  @@index([jobId])
+  @@index([backupRunId])
+  @@index([deploymentId])
+  @@map("restore_steps")
 }

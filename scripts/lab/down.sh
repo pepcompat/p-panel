@@ -27,5 +27,6 @@ leftover_vols="$(docker volume ls --filter "label=com.docker.compose.project=${L
 if [[ -n "${leftover_vols}" ]]; then
   log "ERROR: leftover ${LAB_PROJECT} volumes: ${leftover_vols}"; exit 1
 fi
-rm -f "${REPO_ROOT}/.lab/images.env"
+rm -f "${REPO_ROOT}/.lab/images.env" "${REPO_ROOT}/.lab/backup.env"
+# .lab/backup/ (generated lab credentials) is kept; the repositories themselves were in the backup-data volume.
 log "down. no ${LAB_PROJECT} containers or volumes remain"

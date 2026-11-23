@@ -230,6 +230,16 @@ type JobSecrets struct {
 	// GitAuth is the git HTTP auth header for image.build / source.inspect with
 	// source.auth=true (e.g. "Authorization: Basic …"). Passed to git via env only.
 	GitAuth *GitAuth `json:"gitAuth,omitempty"`
+	// Restic carries the repository credentials for backup.* / restore.run
+	// (passed to restic via env only: RESTIC_PASSWORD, RESTIC_REST_*).
+	Restic *ResticSecrets `json:"restic,omitempty"`
+}
+
+// ResticSecrets are a server's restic repository credentials.
+type ResticSecrets struct {
+	RepoPassword string `json:"repoPassword"`
+	RestUser     string `json:"restUser"`
+	RestPassword string `json:"restPassword"`
 }
 
 // GitAuth carries one HTTP header line for git (http.extraHeader).

@@ -33,6 +33,9 @@ type Env struct {
 	// only when it is true, Docker answers and a git binary exists.
 	BuildEnabled bool
 	GitBinary    string // resolved git path ("" = none)
+	// BackupReady is true when the local config enabled backups and a host
+	// restic >= 0.17 was verified at startup ("backup" capability).
+	BackupReady bool
 }
 
 func (e *Env) nginx() (string, bool)     { return execx.Find("nginx", e.NginxBinary) }
@@ -73,6 +76,9 @@ func (e *Env) Capabilities() []string {
 	}
 	if e.phpFpmPresent() {
 		caps = append(caps, "php-fpm")
+	}
+	if e.BackupReady {
+		caps = append(caps, "backup")
 	}
 	return caps
 }

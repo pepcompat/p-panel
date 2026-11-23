@@ -294,6 +294,182 @@ export const composeApplyParams = z
   })
   .strict();
 
+// ---- P6: backups and restores (see docs/AGENT_PROTOCOL.md §Backups) ----
+
+/** Absolute host path for path backups/restores (no traversal, no NUL/newline). */
+export const HOST_PATH_RE = /^\/[A-Za-z0-9._@+\/-]{0,400}$/;
+export const hostPathSchema = z
+  .string()
+  .regex(HOST_PATH_RE)
+  .refine((p) => !p.split('/').includes('..') && !p.includes('//'), 'path must be canonical');
+/** restic snapshot id (full 64 hex or short 8 hex). */
+export const RESTIC_SNAPSHOT_RE = /^[a-f0-9]{8}([a-f0-9]{56})?$/;
+export const BACKUP_TAG_RE = /^[a-z0-9][a-z0-9_.=:-]{0,80}$/;
+
+export const backupTargetSchema = z.discriminatedUnion('type', [
+  /** Host paths backed up with the host restic binary. */
+  z
+    .object({
+      type: z.literal('paths'),
+      paths: z.array(hostPathSchema).min(1).max(50),
+      excludes: z
+        .array(z.string().regex(/^[A-Za-z0-9._*?\/\[\]-]{1,200}$/))
+        .max(100)
+        .default([]),
+    })
+    .strict(),
+  /** A managed app's named volume, mounted read-only into the backup helper container. */
+  z
+    .object({
+      type: z.literal('volume'),
+      app: appSlugSchema,
+      volume: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/),
+    })
+    .strict(),
+  /** Logical DB dump via the helper (`restic backup --stdin-from-command -- pg_dump …`). */
+  z
+    .object({
+      type: z.enum(['postgres', 'mysql']),
+      app: appSlugSchema,
+      /** Compose service (network alias) of the DB on the app network. */
+      service: z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/),
+      database: z.string().regex(/^[A-Za-z0-9_-]{1,63}$/),
+      user: z.string().regex(/^[A-Za-z0-9_-]{1,63}$/),
+      /** App secret key holding the DB password (delivered via the secrets call). */
+      passwordSecretKey: z.string().regex(ENV_KEY_RE),
+      port: z.number().int().min(1).max(65535).optional(),
+    })
+    .strict(),
+]);
+
+export const backupRepoRefSchema = z
+  .object({
+    /** rest-server URL incl. the server's private repo path, e.g. https://backup:8000/<serverUser>/ (no credentials). */
+    url: z
+      .string()
+      .max(500)
+      .regex(/^(rest:)?https?:\/\/[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?\/[A-Za-z0-9._\/-]{0,200}$/),
+    repositoryId: z.string().uuid(),
+  })
+  .strict();
+
+export const backupRunParams = z
+  .object({
+    runId: z.string().uuid(),
+    policyId: z.string().uuid(),
+    repo: backupRepoRefSchema,
+    targets: z.array(backupTargetSchema).min(1).max(20),
+    tags: z.array(z.string().regex(BACKUP_TAG_RE)).max(20).default([]),
+    /** Helper image (restic + pg_dump + mysqldump), must equal the agent's `backup.helperImage`. */
+    helperImage: imageDigestRefSchema.optional(),
+    limits: z
+      .object({
+        timeoutSec: z.number().int().min(60).max(86400).default(3600),
+        uploadKiBps: z.number().int().min(0).max(10_000_000).default(0),
+      })
+      .strict()
+      .default({}),
+  })
+  .strict();
+
+/** One hashed file of a paths / volume target (computed by the agent from the source during backup). */
+export const backupManifestFileSchema = z
+  .object({
+    path: z.string().min(1).max(4096),
+    size: z.number().int().min(0),
+    sha256: sha256HexSchema,
+  })
+  .strict();
+/**
+ * Manifest of ONE backed-up target (backup.run result `manifest[]`, one entry per target; stored by the
+ * Center and handed back verbatim to backup.verify / restore.run for the compare). Files for paths /
+ * volume targets (≤ BACKUP_MANIFEST_MAX_ENTRIES per run, `truncated` beyond); dump facts for DB targets.
+ */
+export const backupManifestEntrySchema = z
+  .object({
+    target: z.number().int().min(0).max(19),
+    type: z.enum(['paths', 'volume', 'postgres', 'mysql']),
+    snapshotId: z.string().regex(RESTIC_SNAPSHOT_RE),
+    paths: z.array(z.string().max(4096)).max(50).optional(),
+    app: z.string().max(64).optional(),
+    volume: z.string().max(64).optional(),
+    files: z.array(backupManifestFileSchema).max(10_000).optional(),
+    fileCount: z.number().int().min(0).default(0),
+    truncated: z.boolean().default(false),
+    database: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,63}$/)
+      .optional(),
+    bytes: z.number().int().min(0).optional(),
+    sha256: sha256HexSchema.optional(),
+    tables: z
+      .array(
+        z
+          .object({
+            name: z.string().regex(/^[A-Za-z0-9_$.]{1,130}$/),
+            rows: z.number().int().min(0),
+          })
+          .strict(),
+      )
+      .max(200)
+      .optional(),
+    constraints: z.array(z.string().max(500)).max(1000).optional(),
+  })
+  .strict();
+export type BackupManifestEntry = z.infer<typeof backupManifestEntrySchema>;
+/** Max hashed files per run manifest (agent sets `truncated: true` beyond). */
+export const BACKUP_MANIFEST_MAX_ENTRIES = 10_000;
+
+export const restoreTargetSchema = z.discriminatedUnion('type', [
+  /** Restore files into an isolated staging dir (default) or in place (approval-gated by the Center). */
+  z
+    .object({
+      type: z.literal('paths'),
+      include: z.array(hostPathSchema).max(50).default([]),
+      mode: z.enum(['staging', 'in_place']),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('volume'),
+      app: appSlugSchema,
+      volume: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/),
+      /** staging → a NEW volume ppanel-<app>-restore-<8hex>; in_place → the original volume (app stopped first by the Center). */
+      mode: z.enum(['staging', 'in_place']),
+    })
+    .strict(),
+  /** DB restore into an isolated scratch DB container (verification) or into the app DB (approval-gated). */
+  z
+    .object({
+      type: z.enum(['postgres', 'mysql']),
+      app: appSlugSchema,
+      service: z.string().regex(/^[a-z0-9][a-z0-9-]{0,30}$/),
+      database: z.string().regex(/^[A-Za-z0-9_-]{1,63}$/),
+      user: z.string().regex(/^[A-Za-z0-9_-]{1,63}$/),
+      passwordSecretKey: z.string().regex(ENV_KEY_RE),
+      mode: z.enum(['scratch', 'in_place']),
+      /** Image for the scratch DB container (digest-pinned; same major as the source). */
+      scratchImage: imageDigestRefSchema.optional(),
+    })
+    .strict(),
+]);
+
+export const restoreRunParams = z
+  .object({
+    restoreId: z.string().uuid(),
+    repo: backupRepoRefSchema,
+    snapshotId: z.string().regex(RESTIC_SNAPSHOT_RE),
+    target: restoreTargetSchema,
+    dryRun: z.boolean().default(false),
+    helperImage: imageDigestRefSchema.optional(),
+    /** Verification after restore: compare with the snapshot manifest (files) / row counts (DB). */
+    verify: z.boolean().default(true),
+    /** P6: expected manifest of this snapshot's target (from the backup.run result) for the compare. */
+    manifest: z.array(backupManifestEntrySchema).max(20).optional(),
+    timeoutSec: z.number().int().min(60).max(86400).default(3600),
+  })
+  .strict();
+
 export const DISCOVERY_SOURCES = ['nginx', 'docker', 'systemd', 'php-fpm', 'ports'] as const;
 
 export const JOB_STATUSES = [
@@ -419,7 +595,49 @@ export const JOB_TYPES = {
     mutating: true,
     params: z.object({ app: appSlugSchema }).strict(),
   },
+  /** Back up targets into the server's append-only restic repo; writes a manifest; never prunes. */
+  'backup.run': { mutating: true, params: backupRunParams },
+  /** Read-only: list snapshots (optionally of one run) in the server's repo. */
+  'backup.snapshots': {
+    mutating: false,
+    params: z
+      .object({
+        repo: backupRepoRefSchema,
+        tag: z.string().regex(BACKUP_TAG_RE).optional(),
+      })
+      .strict(),
+  },
+  /** Read-only: `restic check` (+ optional read-data subset) and manifest re-hash of a snapshot. */
+  'backup.verify': {
+    mutating: false,
+    params: z
+      .object({
+        repo: backupRepoRefSchema,
+        snapshotId: z.string().regex(RESTIC_SNAPSHOT_RE),
+        readDataSubsetPct: z.number().int().min(0).max(100).default(5),
+        /** Expected manifest of this snapshot (from the backup.run result) for the re-hash compare. */
+        manifest: z.array(backupManifestEntrySchema).max(20).optional(),
+      })
+      .strict(),
+  },
+  /** Restore a snapshot (staging/scratch by default; in_place only after Center approval). */
+  'restore.run': { mutating: true, params: restoreRunParams },
 } as const;
+
+/** Agent result error codes added in P6. */
+export const BACKUP_ERROR_CODES = [
+  'RESTIC_UNAVAILABLE',
+  'REPO_UNREACHABLE',
+  'REPO_LOCKED',
+  'BACKUP_FAILED',
+  'BACKUP_PARTIAL',
+  'DUMP_FAILED',
+  'SNAPSHOT_NOT_FOUND',
+  'VERIFY_FAILED',
+  'RESTORE_FAILED',
+  'RESTORE_TARGET_EXISTS',
+  'HELPER_IMAGE_NOT_ALLOWED',
+] as const;
 
 /** Agent result error codes added in P4b. */
 export const BUILD_ERROR_CODES = [

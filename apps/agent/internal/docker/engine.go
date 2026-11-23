@@ -66,6 +66,41 @@ var writeAllow = []struct {
 	{http.MethodPost, regexp.MustCompile(`^/containers/create$`)},
 	{http.MethodPost, regexp.MustCompile(`^/containers/` + idOrName + `/(start|stop|restart)$`)},
 	{http.MethodDelete, regexp.MustCompile(`^/containers/` + idOrName + `$`)},
+	// P6 backup helpers: wait for exit; upload a DB dump into a (not yet started)
+	// helper container — by helper NAME only; remove the isolated restore networks.
+	{http.MethodPost, regexp.MustCompile(`^/containers/` + idOrName + `/wait$`)},
+	{http.MethodPut, regexp.MustCompile(`^/containers/` + HelperNamePattern + `/archive$`)},
+	{http.MethodDelete, regexp.MustCompile(`^/networks/` + RestoreNetworkPattern + `$`)},
+}
+
+// P6 name patterns (docs/AGENT_PROTOCOL.md "Backups and restores (P6)").
+const (
+	// HelperNamePattern is a backup helper container (ppanel-bk-<16 hex>).
+	HelperNamePattern = `ppanel-bk-[a-f0-9]{16}`
+	// RestoreNetworkPattern is an isolated restore network (ppanel-restore-<8 hex>).
+	RestoreNetworkPattern = `ppanel-restore-[a-f0-9]{8}`
+	// ScratchNamePattern is a scratch DB container (ppanel-restore-<8 hex>-db).
+	ScratchNamePattern = `ppanel-restore-[a-f0-9]{8}-db`
+)
+
+var (
+	// HelperNameRe matches a backup helper container name.
+	HelperNameRe = regexp.MustCompile(`^` + HelperNamePattern + `$`)
+	// RestoreNetworkRe matches an isolated restore network name.
+	RestoreNetworkRe = regexp.MustCompile(`^` + RestoreNetworkPattern + `$`)
+	// ScratchNameRe matches a scratch DB container name.
+	ScratchNameRe       = regexp.MustCompile(`^` + ScratchNamePattern + `$`)
+	scratchDeletePathRe = regexp.MustCompile(`^/containers/` + ScratchNamePattern + `$`)
+)
+
+// AllowedQuery applies the query-dependent rules: a container delete may remove
+// its anonymous volumes (v=1) only for a P6 scratch DB container (named
+// volumes are never removed by Docker either way).
+func AllowedQuery(method, path string, q url.Values) bool {
+	if method == http.MethodDelete && strings.HasPrefix(path, "/containers/") && q.Get("v") != "" && q.Get("v") != "0" {
+		return scratchDeletePathRe.MatchString(path)
+	}
+	return true
 }
 
 // getDeny blocks GET endpoints that could leak secrets or are irrelevant.
@@ -123,6 +158,9 @@ type allowlist struct {
 }
 
 func (a allowlist) RoundTrip(r *http.Request) (*http.Response, error) {
+	if !AllowedQuery(r.Method, r.URL.Path, r.URL.Query()) {
+		return nil, fmt.Errorf("docker: %s %s refused (not in the container-ops allowlist)", r.Method, r.URL.Path)
+	}
 	if a.build {
 		if !AllowedBuildCall(r.Method, r.URL.Path, r.URL.Query()) {
 			return nil, fmt.Errorf("docker: %s %s refused (not in the container-ops allowlist)", r.Method, r.URL.Path)

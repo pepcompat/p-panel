@@ -93,7 +93,6 @@ export const NAV: NavItem[] = [
     href: '/backups',
     label: 'nav.backups',
     section: 'nav.section.observe',
-    preview: true,
   },
   {
     id: 'alerts',

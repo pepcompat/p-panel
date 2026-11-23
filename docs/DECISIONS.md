@@ -33,3 +33,5 @@ Add a row for every decision; supersede rather than edit accepted ADRs.
 | D-012 | 2026-11-17 | Screen IDs `SCR-*` defined in `FEATURE_MATRIX.md` (design prototype has routes but no screen IDs) — to be reconciled with design handoff (D10-05)                               | design §12 needs `screen_id`                                                                    |
 
 | ADR-0008 | Agent is the telemetry adapter (no per-node Alloy in v1) | Accepted | [adr/0008](adr/0008-agent-as-telemetry-adapter.md) |
+
+| ADR-0009 | Append-only restic repos; deletion only by a separate maintenance identity | Accepted | [adr/0009](adr/0009-append-only-restic-with-separate-maintenance-identity.md) |

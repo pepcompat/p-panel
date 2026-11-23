@@ -9,6 +9,7 @@
 package dockertest
 
 import (
+	"archive/tar"
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
@@ -19,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +54,14 @@ type Container struct {
 	Aliases      []string
 	RestartCount int
 	srv          *http.Server
+
+	// ---- P6 backup helpers ----
+	// Stdout/Stderr, when set, are served as separate log streams.
+	Stdout, Stderr string
+	// Files is the container filesystem as seen by the archive API (abs path -> content).
+	Files map[string][]byte
+	// RemovedWithVolumes records a DELETE with v=1.
+	RemovedWithVolumes bool
 }
 
 // Engine is a fake Docker Engine.
@@ -85,6 +95,54 @@ type Engine struct {
 	CancelCalls    int
 	// Images are local tags created by /build (removed by DELETE /images/...).
 	Images map[string]bool
+
+	// ---- P6 ----
+	// HelperHook runs when a container labelled ppanel.backup is started; it
+	// sets ExitCode/Stdout/Stderr/Files (default: exit 0, no output). When it
+	// returns block=true the container stays running until stopped.
+	HelperHook func(e *Engine, c *Container) (block bool)
+	// Removed lists every removed container (name), in order.
+	Removed []*Container
+	// VolumeData is the content of named volumes (vol -> rel path -> data),
+	// mapped into helper containers at their mount target for the archive API.
+	VolumeData map[string]map[string][]byte
+}
+
+// Mounts returns the (source, target, readOnly) mounts of a created container.
+func (c *Container) Mounts() []map[string]any {
+	hc, _ := c.CreatedBody["HostConfig"].(map[string]any)
+	ms, _ := hc["Mounts"].([]any)
+	out := []map[string]any{}
+	for _, m := range ms {
+		if mm, ok := m.(map[string]any); ok {
+			out = append(out, mm)
+		}
+	}
+	return out
+}
+
+// Cmd returns the container command of a created container.
+func (c *Container) Cmd() []string {
+	var out []string
+	if xs, ok := c.CreatedBody["Cmd"].([]any); ok {
+		for _, x := range xs {
+			s, _ := x.(string)
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Entrypoint returns the entrypoint override of a created container.
+func (c *Container) Entrypoint() []string {
+	var out []string
+	if xs, ok := c.CreatedBody["Entrypoint"].([]any); ok {
+		for _, x := range xs {
+			s, _ := x.(string)
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // New starts a fake engine; it is closed with t.Cleanup.
@@ -99,7 +157,8 @@ func New(t testing.TB) *Engine {
 		t.Fatal(err)
 	}
 	e := &Engine{t: t, Socket: sock, Containers: map[string]*Container{}, Networks: map[string]map[string]string{},
-		Volumes: map[string]map[string]string{}, inflight: map[string]int{}, MaxInflight: map[string]int{}, Images: map[string]bool{}}
+		Volumes: map[string]map[string]string{}, inflight: map[string]int{}, MaxInflight: map[string]int{}, Images: map[string]bool{},
+		VolumeData: map[string]map[string][]byte{}}
 	e.srv = &http.Server{Handler: http.HandlerFunc(e.serve), ReadHeaderTimeout: 5 * time.Second}
 	go e.srv.Serve(ln)
 	t.Cleanup(func() {
@@ -211,7 +270,7 @@ func (e *Engine) serve(w http.ResponseWriter, r *http.Request) {
 	case p == "/containers/create" && r.Method == http.MethodPost:
 		e.create(w, r, body)
 	case strings.HasPrefix(p, "/containers/"):
-		e.container(w, r, strings.Split(strings.TrimPrefix(p, "/containers/"), "/"))
+		e.container(w, r, strings.Split(strings.TrimPrefix(p, "/containers/"), "/"), body)
 	case p == "/build" && r.Method == http.MethodPost:
 		e.build(w, r, body)
 	case p == "/build/cancel" && r.Method == http.MethodPost:
@@ -263,6 +322,27 @@ func (e *Engine) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		jsonOut(w, 200, map[string]any{"Id": "net-" + name, "Name": name, "Driver": "bridge", "Labels": l})
+	case strings.HasPrefix(p, "/networks/") && r.Method == http.MethodDelete:
+		name := strings.TrimPrefix(p, "/networks/")
+		e.mu.Lock()
+		_, ok := e.Networks[name]
+		delete(e.Networks, name)
+		e.mu.Unlock()
+		if !ok {
+			msg(w, 404, "network "+name+" not found")
+			return
+		}
+		w.WriteHeader(204)
+	case strings.HasPrefix(p, "/volumes/") && r.Method == http.MethodGet:
+		name := strings.TrimPrefix(p, "/volumes/")
+		e.mu.Lock()
+		l, ok := e.Volumes[name]
+		e.mu.Unlock()
+		if !ok {
+			msg(w, 404, "get "+name+": no such volume")
+			return
+		}
+		jsonOut(w, 200, map[string]any{"Name": name, "Driver": "local", "Labels": l})
 	case p == "/volumes/create" && r.Method == http.MethodPost:
 		var b struct {
 			Name   string
@@ -364,7 +444,7 @@ func (e *Engine) create(w http.ResponseWriter, r *http.Request, body []byte) {
 	jsonOut(w, 201, map[string]any{"Id": c.ID, "Warnings": []string{}})
 }
 
-func (e *Engine) container(w http.ResponseWriter, r *http.Request, parts []string) {
+func (e *Engine) container(w http.ResponseWriter, r *http.Request, parts []string, body []byte) {
 	e.mu.Lock()
 	c := e.byRef(parts[0])
 	e.mu.Unlock()
@@ -393,6 +473,25 @@ func (e *Engine) container(w http.ResponseWriter, r *http.Request, parts []strin
 		})
 	case r.Method == http.MethodGet && op == "logs":
 		e.logs(w, r, c)
+	case r.Method == http.MethodPost && op == "wait":
+		for {
+			e.mu.Lock()
+			st, code := c.Status, c.ExitCode
+			e.mu.Unlock()
+			if st != "running" {
+				jsonOut(w, 200, map[string]any{"StatusCode": code})
+				return
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	case r.Method == http.MethodGet && op == "archive":
+		e.getArchive(w, r, c)
+	case r.Method == http.MethodPut && op == "archive":
+		e.putArchive(w, r, c, body)
 	case r.Method == http.MethodPost && (op == "start" || op == "restart"):
 		app := c.Labels["ppanel.app"]
 		e.mu.Lock()
@@ -424,6 +523,9 @@ func (e *Engine) container(w http.ResponseWriter, r *http.Request, parts []strin
 			return
 		}
 		e.stopLocked(c)
+		if c.Labels["ppanel.backup"] != "" {
+			c.ExitCode = 130
+		}
 		w.WriteHeader(204)
 	case r.Method == http.MethodDelete && op == "":
 		e.mu.Lock()
@@ -433,7 +535,9 @@ func (e *Engine) container(w http.ResponseWriter, r *http.Request, parts []strin
 			return
 		}
 		e.stopLocked(c)
+		c.RemovedWithVolumes = r.URL.Query().Get("v") == "1"
 		delete(e.Containers, c.Name)
+		e.Removed = append(e.Removed, c)
 		w.WriteHeader(204)
 	default:
 		msg(w, 404, "unsupported")
@@ -451,6 +555,22 @@ func (e *Engine) stopLocked(c *Container) {
 }
 
 func (e *Engine) start(c *Container) {
+	if c.Labels["ppanel.backup"] != "" {
+		e.mu.Lock()
+		hook := e.HelperHook
+		c.Status = "running"
+		e.mu.Unlock()
+		block := false
+		if hook != nil && c.Labels["ppanel.backup.role"] != "scratch" {
+			block = hook(e, c)
+		}
+		if !block {
+			e.mu.Lock()
+			c.Status = "exited"
+			e.mu.Unlock()
+		}
+		return
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if c.srv != nil {
@@ -565,7 +685,20 @@ func (e *Engine) logs(w http.ResponseWriter, r *http.Request, c *Container) {
 	e.mu.Lock()
 	text := c.Logs
 	tty := c.Tty
+	so, se := c.Stdout, c.Stderr
 	e.mu.Unlock()
+	if so != "" || se != "" {
+		var buf bytes.Buffer
+		if so != "" && r.URL.Query().Get("stdout") == "1" {
+			buf.Write(frame(1, []byte(so)))
+		}
+		if se != "" && r.URL.Query().Get("stderr") == "1" {
+			buf.Write(frame(2, []byte(se)))
+		}
+		w.Header().Set("Content-Type", "application/vnd.docker.multiplexed-stream")
+		w.Write(buf.Bytes())
+		return
+	}
 	lines := strings.SplitAfter(text, "\n")
 	if lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -597,3 +730,114 @@ func FreePort(t testing.TB) int {
 	t.Fatal("no free port")
 	return 0
 }
+
+// containerFiles returns the files visible in c: its own Files plus the data
+// of mounted volumes at their targets.
+func (e *Engine) containerFiles(c *Container) map[string][]byte {
+	out := map[string][]byte{}
+	for k, v := range c.Files {
+		out[k] = v
+	}
+	for _, m := range c.Mounts() {
+		src, _ := m["Source"].(string)
+		tgt, _ := m["Target"].(string)
+		for rel, data := range e.VolumeData[src] {
+			out[tgt+"/"+rel] = data
+		}
+	}
+	return out
+}
+
+func (e *Engine) getArchive(w http.ResponseWriter, r *http.Request, c *Container) {
+	root := r.URL.Query().Get("path")
+	e.mu.Lock()
+	files := e.containerFiles(c)
+	e.mu.Unlock()
+	base := root[strings.LastIndex(root, "/")+1:]
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	n := 0
+	names := make([]string, 0, len(files))
+	for k := range files {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		var name string
+		switch {
+		case k == root:
+			name = base
+		case strings.HasPrefix(k, root+"/"):
+			name = base + "/" + strings.TrimPrefix(k, root+"/")
+		default:
+			continue
+		}
+		data := files[k]
+		_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write(data)
+		n++
+	}
+	_ = tw.Close()
+	if n == 0 {
+		msg(w, 404, "Could not find the file "+root+" in container "+c.Name)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-tar")
+	w.Write(buf.Bytes())
+}
+
+func (e *Engine) putArchive(w http.ResponseWriter, r *http.Request, c *Container, body []byte) {
+	dir := r.URL.Query().Get("path")
+	tr := tar.NewReader(bytes.NewReader(body))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if c.Files == nil {
+		c.Files = map[string][]byte{}
+	}
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			break
+		}
+		data, _ := io.ReadAll(tr)
+		if h.Typeflag == tar.TypeReg {
+			c.Files[dir+"/"+h.Name] = data
+		}
+	}
+	w.WriteHeader(200)
+}
+
+// SetVolumeFile stores a file of a named volume (rel path).
+func (e *Engine) SetVolumeFile(vol, rel string, data []byte) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.VolumeData[vol] == nil {
+		e.VolumeData[vol] = map[string][]byte{}
+	}
+	e.VolumeData[vol][rel] = data
+}
+
+// AddVolume registers a named volume with labels.
+func (e *Engine) AddVolume(name string, labels map[string]string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Volumes[name] = labels
+}
+
+// AddNetwork registers a network with labels.
+func (e *Engine) AddNetwork(name string, labels map[string]string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Networks[name] = labels
+}
+
+// RemovedSnapshot returns the removed containers.
+func (e *Engine) RemovedSnapshot() []*Container {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]*Container(nil), e.Removed...)
+}
+
+// Lock/Unlock expose the fake's mutex to hooks that edit a container.
+func (e *Engine) Lock()   { e.mu.Lock() }
+func (e *Engine) Unlock() { e.mu.Unlock() }

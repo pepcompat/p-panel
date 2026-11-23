@@ -29,6 +29,7 @@ export const REAL_TABS: readonly ServerTab[] = [
   'network',
   'monitoring',
   'logs',
+  'backups',
   'settings',
 ];
 export const isServerTab = (v: string): v is ServerTab =>

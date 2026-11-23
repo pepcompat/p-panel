@@ -1,0 +1,59 @@
+{
+  "ranAt": "2026-11-23T09:37:00Z",
+  "steps": [
+    {
+      "step": "two agents with P5 telemetry online",
+      "ok": true,
+      "serverA": "01a207c1-eb10-71b0-b250-c4f40da9585f",
+      "serverB": "01a207c1-ebae-728c-8401-c66404d4db52"
+    },
+    {
+      "step": "P5-T03 api_key and JWT redacted in API result AND in Loki storage",
+      "ok": true,
+      "line": "127.0.0.1 - - [23/Nov/2026:09:34:42 +0000] \"GET /p5probe26474?api_key=[REDACTED]&token=[REDACTED] HTTP/1.1\" 404 146 \"-\" \"curl/8.5.0\""
+    },
+    {
+      "step": "metrics: Prometheus scrapes the Center; series has real points",
+      "ok": true,
+      "points": 1,
+      "unit": "percent"
+    },
+    {
+      "step": "P5-T02 server-scoped viewer: other server 404, own server ok, LogQL injection contained",
+      "ok": true,
+      "logsA": 404,
+      "metricsA": 404,
+      "logsB": 200,
+      "injection": 200,
+      "rawQueryParam": 422
+    },
+    {
+      "step": "email + telegram test deliveries; channel secrets never returned",
+      "ok": true,
+      "email": {
+        "delivered": true,
+        "deliveryId": "01a207c2-3f2c-7d9b-b9c1-1f9a1f0da098"
+      },
+      "telegram": {
+        "delivered": true,
+        "deliveryId": "01a207c2-3f95-76c7-bedd-abeaf8f2264a"
+      }
+    },
+    {
+      "step": "P5-T01 node-b agent loss -> incident -> HMAC-signed webhook -> ack recorded -> auto-resolved",
+      "ok": true,
+      "firedAfterSec": 85,
+      "signatureValid": true,
+      "viewerAck": 403,
+      "timeline": ["fired", "notified", "acknowledged", "resolved", "notified"]
+    },
+    {
+      "step": "P5-T04 Center down: site kept serving, agent buffered within cap, all lines delivered after reconnect",
+      "ok": true,
+      "bufferedDuringOutageBytes": 91317,
+      "cap": 67108864,
+      "delivered": 300,
+      "dropped": 0
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth/auth-provider';
 import { Card } from '@/components/ui/card';
 import { ToneBadge } from '@/components/ui/badge';
 import { PreviewBanner } from '@/components/ui/states';
+import { RecoveryCard } from '@/components/p6/recovery-card';
 
 export function SecurityView() {
   const t = useT();
@@ -34,6 +35,7 @@ export function SecurityView() {
         <PreviewBanner />
         <p className="m-0 text-[13px] text-fg-3">{t('users.policyNote')}</p>
       </Card>
+      <RecoveryCard />
     </div>
   );
 }

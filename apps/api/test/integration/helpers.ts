@@ -64,6 +64,14 @@ export async function bootApp(overrides: Record<string, string> = {}): Promise<T
 }
 
 const TABLES = [
+  'restore_steps',
+  'restores',
+  'backup_verifications',
+  'backup_runs',
+  'backup_policies',
+  'backup_maintenance_reports',
+  'backup_repo_access',
+  'backup_repositories',
   'notification_deliveries',
   'notification_channels',
   'incident_events',

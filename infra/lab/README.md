@@ -3,17 +3,22 @@
 Disposable **container approximations** of two Ubuntu 24.04 managed hosts, for discovery,
 agent and read-only-import tests. Compose project name is fixed to **`ppanel-lab`**.
 
-| Container               | Role                           | Contents                                                                                           |
-| ----------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `ppanel-lab-node-a`     | legacy native host             | Ubuntu 24.04 (pinned digest), nginx 1.24, php8.3-fpm, fixtures 00–08                               |
-| `ppanel-lab-node-b`     | container-style host           | Ubuntu 24.04, nginx 1.24, proxy to a compose-like app, `/opt/apps/shop/docker-compose.yml` fixture |
-| `ppanel-lab-upstream-a` | upstream for `api.example.lab` | busybox httpd :8080 (read-only rootfs)                                                             |
-| `ppanel-lab-upstream-b` | the "shop" compose app         | busybox httpd :8080 (read-only rootfs)                                                             |
-| `ppanel-lab-dind`       | **P4** Docker engine of node-b | `docker:29.0.4-dind` (pinned digest), **privileged (lab only)**, shares node-b's network namespace |
-| `ppanel-lab-registry`   | **P4** local OCI registry      | `registry:2.8.3` (pinned digest), `lab-registry:5000` in the lab, `127.0.0.1:55000` on the Mac     |
+| Container                 | Role                           | Contents                                                                                                    |
+| ------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `ppanel-lab-node-a`       | legacy native host             | Ubuntu 24.04 (pinned digest), nginx 1.24, php8.3-fpm, fixtures 00–08                                        |
+| `ppanel-lab-node-b`       | container-style host           | Ubuntu 24.04, nginx 1.24, proxy to a compose-like app, `/opt/apps/shop/docker-compose.yml` fixture          |
+| `ppanel-lab-upstream-a`   | upstream for `api.example.lab` | busybox httpd :8080 (read-only rootfs)                                                                      |
+| `ppanel-lab-upstream-b`   | the "shop" compose app         | busybox httpd :8080 (read-only rootfs)                                                                      |
+| `ppanel-lab-dind`         | **P4** Docker engine of node-b | `docker:29.0.4-dind` (pinned digest), **privileged (lab only)**, shares node-b's network namespace          |
+| `ppanel-lab-registry`     | **P4** local OCI registry      | `registry:2.8.3` (pinned digest), `lab-registry:5000` in the lab, `127.0.0.1:55000` on the Mac              |
+| `ppanel-lab-backup`       | **P6** agents' backup repo     | `restic/rest-server:0.14.0` (pinned digest) `--private-repos --append-only`, `lab-backup:8000`              |
+| `ppanel-lab-backup-admin` | **P6** maintenance identity    | same image + SAME data volume, full access, `127.0.0.1:58001` only (not on the nodes' network)              |
+| `ppanel-lab-minio`        | **P6** offsite S3              | `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` (pinned digest), `127.0.0.1:59000` only, bucket `ppanel-offsite` |
 
-Network `ppanel-lab-net` (bridge). The **only** published port is the lab registry on
-**`127.0.0.1:55000`** (loopback only, for pushing test images from the Mac). Site probes run inside
+Network `ppanel-lab-net` (bridge). Published ports are all loopback-only: the lab registry on
+**`127.0.0.1:55000`** (pushing test images from the Mac) and, P6, the backup maintenance listener
+**`127.0.0.1:58001`** and MinIO **`127.0.0.1:59000`** (both on the separate `ppanel-lab-backup-admin`
+network, which the nodes are NOT attached to). Site probes run inside
 the nodes with `docker exec … curl -H 'Host: …' http://127.0.0.1/`.
 Each node has `extra_hosts: host.docker.internal:host-gateway` so an in-container agent can
 reach the Center on the Mac (`https://host.docker.internal:4443`, API `:4000`).
@@ -29,6 +34,10 @@ scripts/lab/images.sh          # P4: build+push test images, write digest refs t
 scripts/lab/agent_containers_lab.sh   # P4: agent container.* ops against the real lab-dind engine
 scripts/lab/git-fixtures.sh    # P4b: deterministic fixture repos -> .lab/git/*.git + .lab/git.env
 scripts/lab/agent_build_lab.sh # P4b: image.build + compose.apply on the build node (node-b) against dind/lab-git/registry
+scripts/lab/backup-secrets.sh  # P6: lab backup credentials -> .lab/backup/ (called by up.sh; --bucket after up)
+scripts/lab/backup-images.sh   # P6: build+push helper image + scratch postgres, digests -> .lab/backup.env + node configs
+scripts/backup/maintenance.sh --lab init node-a   # P6: restic init via the maintenance listener (agents cannot)
+scripts/lab/agent_backup_lab.sh  # P6: real-lab backups/restores (P6-T01/T02/T04, append-only, prune, offsite copy)
 scripts/lab/down.sh [--images] # removes ONLY ppanel-lab containers/network/volumes (incl. dind + registry volumes)
 ```
 
@@ -116,6 +125,51 @@ PPANEL_LAB_GIT_SHA_NESTJS_MIN=835407782b691d33da83da39fcf8f0cc408532d6
   `build-<id12>` tag is deleted after the push. Dangling build cache in dind is **not** pruned
   automatically (operator task; `down.sh` drops the whole dind data volume).
 
+## Backups and restores (P6)
+
+Model (ADR-0009, `docs/AGENT_PROTOCOL.md` "Backups and restores (P6)"): agents write to **restic**
+repositories behind **rest-server `--private-repos --append-only`** with their own credential; retention
+(`forget --prune`), the offsite copy, `check` and `unlock` run only as a separate **maintenance identity**.
+
+| Piece            | Lab                                                                                                                                                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| host restic      | **0.19.1** in both node images (`/usr/local/bin/restic`, official release binary, sha256 checked in `infra/lab/node/Dockerfile`; Ubuntu 24.04's apt restic is 0.16.4 < 0.17)                                                                                                          |
+| agent config     | `infra/lab/node/agent-config/node-{a,b}.yaml` (mounted read-only): `backup.enabled: true`, `resticPath`, `helperImage` (digest written in place by `backup-images.sh`; restart the agents after it changes)                                                                           |
+| helper image     | `infra/backup/helper/Dockerfile`: ubuntu 24.04 (pinned) + restic 0.19.1 (sha256) + postgresql-client-16 + mariadb-client, user 10001, `ENTRYPOINT restic`; pushed as `lab-registry:5000/ppanel-backup/helper@sha256:…`                                                                |
+| scratch DB image | `postgres:16.10-bookworm` (pinned digest) re-pushed as `lab-registry:5000/ppanel-backup/postgres@sha256:…`                                                                                                                                                                            |
+| agents' repo     | `http://lab-backup:8000/<serverUser>/` (`node-a`, `node-b`), lab network only. Helper containers in lab-dind cannot resolve lab names, so the agent passes `ExtraHosts: lab-backup:<ip>` resolved on the host (also done in production: helpers resolve the repo host like the agent) |
+| maintenance      | `lab-backup-admin` on the same `backup-data` volume, one `admin` user, `127.0.0.1:58001` (Mac) / `lab-backup-admin:8000` (admin network)                                                                                                                                              |
+| offsite          | `lab-minio` S3 `ppanel-offsite/<serverUser>` (restic `s3:` repo, same repo password as the primary)                                                                                                                                                                                   |
+
+Generated, gitignored **`.lab/backup/`** (`scripts/lab/backup-secrets.sh`, idempotent, values never in argv):
+`htpasswd` (bcrypt, node-a/node-b), `admin-htpasswd` (admin), `servers/<user>.env`
+(`PPANEL_LAB_BK_USER`, `_REST_PASSWORD`, `_REPO_PASSWORD` — what the Center would deliver in the job
+secrets `restic: {restUser, restPassword, repoPassword}`), `admin.env`, `minio.env`.
+**`.lab/backup.env`** (`backup-images.sh`): `PPANEL_LAB_BACKUP_HELPER_IMAGE`, `PPANEL_LAB_BACKUP_SCRATCH_PG`, URLs.
+
+```bash
+scripts/lab/up.sh && scripts/lab/backup-images.sh
+scripts/backup/maintenance.sh --lab init node-a && scripts/backup/maintenance.sh --lab init node-b
+scripts/lab/agent_backup_lab.sh
+scripts/backup/maintenance.sh --lab prune node-a --keep-daily 7 --keep-weekly 4 --keep-monthly 6
+scripts/backup/maintenance.sh --lab copy node-a          # → MinIO; then: --lab offsite-snapshots node-a
+scripts/backup/maintenance.sh --lab check node-a ; scripts/backup/maintenance.sh --lab unlock node-a
+PPANEL_BACKUP_REPORT_TOKEN=… scripts/backup/maintenance.sh --lab --report http://127.0.0.1:4000 \
+  --repository-id <uuid> check node-a                    # POST /api/v1/backup-maintenance/reports
+```
+
+`maintenance.sh --lab` runs restic in the helper image on the admin network (no restic needed on the Mac);
+in production it uses `restic` from PATH (or `RESTIC_BIN`) with `PPANEL_BACKUP_ADMIN_URL/_USER/_PASSWORD`,
+`PPANEL_BACKUP_REPO_PASSWORD_FILE` and `PPANEL_BACKUP_S3_*` + `AWS_*`.
+
+**Lab-only shortcuts**: rest-server and MinIO speak **http** (production: https with a real certificate);
+credentials are files under `.lab/`; the maintenance listener is "protected" by being on a separate
+network + Mac loopback (production: a separate host/port reachable only by the operator); MinIO has no
+object lock; the offsite repo is not pruned by `copy` (run `prune` against it separately if needed).
+The real-lab test leaves its fixtures: app `p6lab` (network `ppanel-p6lab`, volume `ppanel-p6lab-files`,
+staging volumes `ppanel-p6lab-restore-*` — the agent never deletes volumes), `/var/lib/ppanel-p6-labtest`
+in the nodes, and snapshots in the repos; `down.sh` removes them all with the volumes.
+
 ## Fixtures (`infra/nginx/fixtures/`)
 
 | File (node-a unless noted)                       | Exercises                                                                                                                                                                                                                             |
@@ -175,6 +229,8 @@ P3-T01/T02/T04/T05 (nginx-level, using `nginx -s reload` instead of systemd), P2
   CHOWN/SETUID/SETGID/NET_BIND_SERVICE/DAC_OVERRIDE/KILL for nginx/php-fpm masters.
 - **Exception (P4): `ppanel-lab-dind` is privileged** — lab-only, never a production pattern (see above).
   The Mac's own Docker socket is never mounted anywhere.
-- One host port: `127.0.0.1:55000` (lab registry), loopback only.
-- External network use: Docker Hub (pinned images) and the Ubuntu apt archive during image build.
+- Host ports, loopback only: `127.0.0.1:55000` (lab registry), P6 `127.0.0.1:58001` (backup maintenance
+  listener) and `127.0.0.1:59000` (MinIO). The backup services run read-only (rest-server) with `cap_drop: ALL`.
+- External network use: Docker Hub (pinned images), the Ubuntu apt archive and (P6) the restic release on
+  GitHub (sha256-verified) during image build.
   No production host, DNS, or cloud API is contacted.

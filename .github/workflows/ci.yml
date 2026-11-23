@@ -127,7 +127,7 @@ jobs:
         run: |
           for f in scripts/lab/*.sh; do bash -n "$f"; done
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0@sha256:2097951f02e735b613f4a34de20c40f937a6c8f18ecb170612c88c34517221fb \
-            -x scripts/lab/*.sh infra/lab/node/entrypoint.sh
+            -x scripts/lab/*.sh scripts/backup/*.sh scripts/observability/*.sh infra/lab/node/entrypoint.sh
 
   secrets:
     name: gitleaks secret scan

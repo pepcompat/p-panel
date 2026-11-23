@@ -1,0 +1,121 @@
+{
+  "ranAt": "2026-11-23T09:34:32Z",
+  "steps": [
+    {
+      "step": "node-b online with build capability, designated build node",
+      "ok": true,
+      "caps": ["backup", "build", "docker", "nginx"]
+    },
+    {
+      "step": "managed routing enabled",
+      "ok": true
+    },
+    {
+      "step": "source inspect on build node detects framework from real repo",
+      "ok": true,
+      "files": ["Dockerfile"],
+      "detection": {
+        "framework": "dockerfile",
+        "confidence": "high",
+        "evidence": ["Dockerfile present", "Dockerfile EXPOSE 8080"],
+        "suggested": {
+          "containerPort": 8080,
+          "healthcheckPath": "/",
+          "buildMethod": "dockerfile"
+        }
+      }
+    },
+    {
+      "step": "P4-T01 Git commit -> build on node -> push digest -> deploy -> serves v1",
+      "ok": true,
+      "image": "127.0.0.1:55000/ppanel-build/websrc-26344@sha256:8d3e826e7feaffe9b71f785da44aaac2d9299012c3e3b9534b50e0df3a307fa5",
+      "deployment": "succeeded",
+      "body": "<!doctype html><title>websrc</title><p>w",
+      "commit": "5fafd3e53f7b40461dede446d79e429b31ac1588"
+    },
+    {
+      "step": "same commit reuses the existing build (no rebuild)",
+      "ok": true
+    },
+    {
+      "step": "unknown commit: build fails, no deployment, v1 keeps serving",
+      "ok": true,
+      "code": "SOURCE_FETCH_FAILED"
+    },
+    {
+      "step": "webhook push (build mode): one build -> deploy v2; duplicate delivery no-op",
+      "ok": true,
+      "result": "building",
+      "build": "succeeded",
+      "deploy": "succeeded"
+    },
+    {
+      "step": "stack images built from Git (v1, v2), no deployment requested",
+      "ok": true,
+      "v1": "127.0.0.1:55000/ppanel-build/stack-26344@sha256:31f4c696a36a8f9ab1721f558b5d58633ba7af7b65a9f5a725ce16e2bbaa6fdc",
+      "v2": "127.0.0.1:55000/ppanel-build/stack-26344@sha256:4d820f9e31b45f73657397a548bbe88994a90471af32049c6ac754fb9197c5ed"
+    },
+    {
+      "step": "compose deploy blocked until the DB_PASSWORD secret is set",
+      "ok": true,
+      "http": 202
+    },
+    {
+      "step": "P4-T03 compose v1 up: app serves, worker writes heartbeats into Postgres",
+      "ok": true,
+      "deployment": "succeeded",
+      "app": {
+        "version": "v1",
+        "hits": 2,
+        "heartbeats": 11
+      },
+      "services": [
+        ["db", "created"],
+        ["worker", "created"],
+        ["app", "created"]
+      ]
+    },
+    {
+      "step": "P4-T03 redeploy with only app changed: db+worker unchanged, data persisted",
+      "ok": true,
+      "actions": {
+        "db": "unchanged",
+        "worker": "unchanged",
+        "app": "replaced"
+      },
+      "before": {
+        "version": "v1",
+        "hits": 2,
+        "heartbeats": 11
+      },
+      "after": {
+        "version": "v2",
+        "hits": 3,
+        "heartbeats": 19
+      }
+    },
+    {
+      "step": "compose rollback re-applies v1 plan; data NOT restored (counts keep growing)",
+      "ok": true,
+      "after": {
+        "version": "v1",
+        "hits": 4,
+        "heartbeats": 26
+      }
+    },
+    {
+      "step": "DB secret never appears in any API response",
+      "ok": true,
+      "leakedResponses": 0
+    },
+    {
+      "step": "viewer cannot start a build",
+      "ok": true,
+      "code": "FORBIDDEN"
+    },
+    {
+      "step": "legacy site on node-b still 200",
+      "ok": true
+    }
+  ]
+}

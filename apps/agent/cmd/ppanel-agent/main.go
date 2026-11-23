@@ -21,12 +21,14 @@ import (
 	"time"
 
 	"github.com/ppanel/ppanel/apps/agent/internal/agent"
+	"github.com/ppanel/ppanel/apps/agent/internal/backupops"
 	"github.com/ppanel/ppanel/apps/agent/internal/buildops"
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
 	"github.com/ppanel/ppanel/apps/agent/internal/containerops"
 	"github.com/ppanel/ppanel/apps/agent/internal/docker"
 	"github.com/ppanel/ppanel/apps/agent/internal/enroll"
 	"github.com/ppanel/ppanel/apps/agent/internal/execx"
+	"github.com/ppanel/ppanel/apps/agent/internal/facts"
 	"github.com/ppanel/ppanel/apps/agent/internal/handlers"
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
@@ -108,6 +110,9 @@ func secretValues(s *transport.JobSecrets) []string {
 	}
 	if s.RegistryAuth != nil {
 		out = append(out, s.RegistryAuth.Password)
+	}
+	if s.Restic != nil {
+		out = append(out, s.Restic.RepoPassword, s.Restic.RestPassword)
 	}
 	if s.GitAuth != nil {
 		out = append(out, s.GitAuth.Header)
@@ -280,6 +285,32 @@ func cmdRun(args []string, stderr io.Writer) int {
 			Log:     log.With("component", "builds"),
 			Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return fetchSecrets(ctx, a) }})
 		log.Info("build node enabled", "gitHosts", cfg.Build.GitHostsAllowlist, "workDir", cfg.BuildWorkDir(), "git", gitBin != "")
+	}
+	// backup.* / restore.run: only when the operator enabled backups in the LOCAL config
+	// and a host restic >= 0.17 is verified here (→ "backup" capability).
+	if cfg.Backup.Enabled {
+		bin, found := execx.Find("restic", cfg.Backup.ResticPath)
+		ver := ""
+		if found {
+			vctx, vcancel := context.WithTimeout(context.Background(), 15*time.Second)
+			v, verr := backupops.DetectRestic(vctx, execx.System{}, bin)
+			vcancel()
+			if verr != nil {
+				log.Error("restic check failed; backups disabled", "binary", bin, "error", verr.Error())
+			} else {
+				ver = v
+			}
+		} else {
+			log.Error("restic binary not found; backups disabled", "resticPath", cfg.Backup.ResticPath)
+		}
+		if ver != "" {
+			deps.Backups = backupops.New(backupops.Options{Engine: docker.NewEngine(cfg.DockerSocket), Exec: execx.System{},
+				ResticBin: bin, ResticVersion: ver, HelperImage: cfg.Backup.HelperImage, WorkDir: cfg.BackupWorkDir(),
+				StateDir: cfg.StateDir, Hostname: facts.Hostname(), LockApp: ctr.LockApp, Log: log.With("component", "backups"),
+				Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return fetchSecrets(ctx, a) }})
+			env.BackupReady = true
+			log.Info("backups enabled", "restic", ver, "helperImage", cfg.Backup.HelperImage != "", "workDir", cfg.BackupWorkDir())
+		}
 	}
 	handlers.RegisterAll(reg, deps)
 	opts := agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log,

@@ -162,6 +162,11 @@ export interface CreateDeploymentOptions {
   idempotencyKey?: string;
   commitSha?: string;
   webhookDeliveryId?: string;
+  /**
+   * P6: the deployment re-applies the current plan as the `start_app` step of an approved in-place
+   * restore — the restore's own approval (approver ≠ creator, step-up, planHash, single use) covers it.
+   */
+  preApprovedByRestoreId?: string;
 }
 
 /**
@@ -493,7 +498,8 @@ export class DeploymentsService implements OnModuleInit {
       opts.trigger === 'rollback' && !opts.compose ? undefined : null,
       opts.compose,
     );
-    const approvalRequired = app.server.environment === 'production';
+    const approvalRequired =
+      app.server.environment === 'production' && !opts.preApprovedByRestoreId;
     const id = opts.id ?? uuidv7();
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -592,6 +598,7 @@ export class DeploymentsService implements OnModuleInit {
                   }
                 : {}),
               ...(opts.rollbackOfDeploymentId ? { rollbackOf: opts.rollbackOfDeploymentId } : {}),
+              ...(opts.preApprovedByRestoreId ? { restoreId: opts.preApprovedByRestoreId } : {}),
               ...(failed
                 ? { preflightFailed: checks.filter((c) => !c.ok).map((c) => c.code) }
                 : {}),

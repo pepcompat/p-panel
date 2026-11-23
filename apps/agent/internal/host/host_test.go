@@ -138,3 +138,20 @@ func TestDockerCapabilityRequiresPing(t *testing.T) {
 		t.Fatal("build capability reported although docker does not answer")
 	}
 }
+
+func TestBackupCapability(t *testing.T) {
+	e := &Env{PhpFpmPoolGlob: filepath.Join(t.TempDir(), "*.conf"), SystemdRunDir: t.TempDir() + "/none"}
+	for _, c := range e.Capabilities() {
+		if c == "backup" {
+			t.Fatal("backup reported without a verified restic")
+		}
+	}
+	e.BackupReady = true
+	found := false
+	for _, c := range e.Capabilities() {
+		found = found || c == "backup"
+	}
+	if !found {
+		t.Fatal("backup capability missing")
+	}
+}

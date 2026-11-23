@@ -9,6 +9,13 @@ import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { AuthzService } from './auth/authz.service';
+import { BackupController } from './backup/backup.controller';
+import { BackupCredentialsService } from './backup/backup-credentials.service';
+import { BackupPoliciesService } from './backup/backup-policies.service';
+import { BackupReposService } from './backup/backup-repos.service';
+import { BackupRunsService } from './backup/backup-runs.service';
+import { BackupSchedulerService } from './backup/backup-scheduler.service';
+import { RestoresService } from './backup/restores.service';
 import { MfaService } from './auth/mfa.service';
 import { TokenService } from './auth/token.service';
 import { ApplicationsController } from './discovery/applications.controller';
@@ -81,6 +88,7 @@ export class AppModule {
         DeployController,
         IntegrationsController,
         ObservabilityController,
+        BackupController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config },
@@ -123,6 +131,12 @@ export class AppModule {
         ChannelsService,
         AlertEngineService,
         AlertsService,
+        BackupCredentialsService,
+        BackupReposService,
+        BackupRunsService,
+        BackupPoliciesService,
+        BackupSchedulerService,
+        RestoresService,
         AgentService,
         AgentGatewayServer,
         { provide: APP_GUARD, useClass: AuthGuard },

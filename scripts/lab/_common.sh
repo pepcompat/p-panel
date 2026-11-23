@@ -11,6 +11,9 @@ LAB_NODES=(ppanel-lab-node-a ppanel-lab-node-b)
 # P4 services (node-b's docker-in-docker engine + local registry)
 # shellcheck disable=SC2034
 LAB_P4_SERVICES=(ppanel-lab-dind ppanel-lab-registry ppanel-lab-registry-fwd ppanel-lab-git)
+# P6 backup services (rest-server append-only for agents, maintenance listener, offsite S3)
+# shellcheck disable=SC2034
+LAB_P6_SERVICES=(ppanel-lab-backup ppanel-lab-backup-admin ppanel-lab-minio)
 
 # P4b: fixture repos served read-only by lab-git (scripts/lab/git-fixtures.sh fills it).
 mkdir -p "${REPO_ROOT}/.lab/git"

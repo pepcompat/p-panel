@@ -1,7 +1,12 @@
-import { BackupsPreview } from '@/components/preview/observe';
+'use client';
 
-export const metadata = { title: 'Backups' };
+import { Suspense } from 'react';
+import { BackupsView } from '@/components/p6/backups-view';
 
 export default function Page() {
-  return <BackupsPreview />;
+  return (
+    <Suspense fallback={null}>
+      <BackupsView />
+    </Suspense>
+  );
 }

@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P5 complete; next P6 (backup/restore)
+Current phase: P6 complete; next P7 (security, resilience, performance)
 Last verified revision: (no commits yet)
 
 ## P0
@@ -83,14 +83,14 @@ Phase tests: P5-T01, P5-T02, P5-T03, P5-T04 (see `TEST_REPORT.md`) · Gate: TODO
 
 ## P6
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                   |
-| ------- | ------ | --------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------- |
-| P6.01   | TODO   |           |              |          | Restic encrypted repository integration with controlled credentials and independent delete policy.      |
-| P6.02   | TODO   |           |              |          | File/volume backups and DB-native logical dumps with transaction-consistent settings.                   |
-| P6.03   | TODO   |           |              |          | Backup policy UI/API: schedules, timezone, exclusions, retention, destination/offsite status.           |
-| P6.04   | TODO   |           |              |          | Snapshot list, validation, manifest and job logs; mark verification levels accurately.                  |
-| P6.05   | TODO   |           |              |          | Restore wizard: target, impact, dry-run, approval, staged restore, integrity and application postcheck. |
-| P6.06   | TODO   |           |              |          | Center DB + config + encryption-key recovery runbook and separate recovery storage.                     |
+| Task ID | Status | Change/PR | Test command                                      | Evidence                                                                                                                              | Notes                                                                                                   |
+| ------- | ------ | --------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| P6.01   | PASS   |           | agent_backup_lab.sh + e2e_p6.py                   | docs/evidence/2026-11-23/p6-e2e.json; ADR-0009 append-only rest-server (agent forget → 403), maintenance identity prune/copy to MinIO | Restic encrypted repository integration with controlled credentials and independent delete policy.      |
+| P6.02   | PASS   |           | e2e_p6.py                                         | docs/evidence/2026-11-23/p6-e2e.json; host paths via restic, volumes/DB via hardened helper (--stdin-from-command, no shell)          | File/volume backups and DB-native logical dumps with transaction-consistent settings.                   |
+| P6.03   | PASS   |           | backups.spec + web e2e                            | cron + IANA timezone (DST), missed slot once, one active run per policy                                                               | Backup policy UI/API: schedules, timezone, exclusions, retention, destination/offsite status.           |
+| P6.04   | PASS   |           | e2e_p6.py                                         | docs/evidence/2026-11-23/p6-e2e.json; verification levels none → restore_verified only after isolated compare                         | Snapshot list, validation, manifest and job logs; mark verification levels accurately.                  |
+| P6.05   | PASS   |           | e2e_p6.py + backups.spec                          | docs/evidence/2026-11-23/p6-e2e.json; impact + dry-run + approval; in_place needs confirmImpact (server-enforced) + safety backup     | Restore wizard: target, impact, dry-run, approval, staged restore, integrity and application postcheck. |
+| P6.06   | PASS   |           | center-recovery.spec + scripts/backup/center-*.sh | docs/RECOVERY_RUNBOOK.md; recovered Center accepts existing agent certs, TOTP + CA decrypt                                            | Center DB + config + encryption-key recovery runbook and separate recovery storage.                     |
 
 Phase tests: P6-T01, P6-T02, P6-T03, P6-T04, P6-T05 (see `TEST_REPORT.md`) · Gate: TODO
 

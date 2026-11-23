@@ -133,8 +133,20 @@ export class AlertEngineService implements OnApplicationBootstrap, OnApplication
         const appTargets = rules.some((r) => r.kind === 'app_down')
           ? await this.appDownTargets(tx, servers, now)
           : [];
+        const backupTargets = rules.some((r) => r.kind === 'backup_failed')
+          ? await this.backupFailedTargets(tx, servers)
+          : [];
         for (const rule of rules) {
-          const targets = this.targetsFor(rule, servers, appTargets, now);
+          const targets =
+            rule.kind === 'backup_failed'
+              ? backupTargets
+                  .filter((b) =>
+                    rule.scopeType === 'app'
+                      ? b.appIds.includes(rule.scopeId ?? '')
+                      : this.inScope(rule, { id: b.serverId, environment: b.environment }),
+                  )
+                  .map(({ appIds: _a, ...t }) => t)
+              : this.targetsFor(rule, servers, appTargets, now);
           await this.applyRule(tx, rule, targets, now);
         }
         return true;
@@ -206,6 +218,55 @@ export class AlertEngineService implements OnApplicationBootstrap, OnApplication
           !!tel?.lastDroppedAt && t - tel.lastDroppedAt.getTime() <= (p.windowSec ?? 300) * 1000;
         out.push({ ...base, condition: recent && total >= (p.minEntries ?? 1), value: total });
       }
+    }
+    return out;
+  }
+
+  /**
+   * P6 `backup_failed`: one target per enabled backup policy. Condition = the latest finished
+   * (non-safety) run failed / expired, or it uploaded but its verification failed.
+   */
+  private async backupFailedTargets(
+    tx: Tx,
+    servers: ServerSnap[],
+  ): Promise<Array<TargetEval & { appIds: string[] }>> {
+    const byId = new Map(servers.map((s) => [s.id, s]));
+    const policies = await tx.backupPolicy.findMany({
+      where: { enabled: true, deletedAt: null, serverId: { in: [...byId.keys()] } },
+      select: { id: true, name: true, serverId: true, targets: true },
+    });
+    const out: Array<TargetEval & { appIds: string[] }> = [];
+    for (const p of policies) {
+      const s = byId.get(p.serverId)!;
+      const last = await tx.backupRun.findFirst({
+        where: {
+          policyId: p.id,
+          trigger: { not: 'safety' },
+          status: { in: ['uploaded', 'failed', 'expired'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, verification: true },
+      });
+      const bad =
+        !!last &&
+        (last.status === 'failed' ||
+          last.status === 'expired' ||
+          last.verification === 'verify_failed');
+      const appIds = (
+        Array.isArray(p.targets) ? (p.targets as Array<{ applicationId?: string }>) : []
+      )
+        .map((t) => t.applicationId)
+        .filter((x): x is string => !!x);
+      out.push({
+        type: 'backup_policy',
+        id: p.id,
+        name: `${p.name} @ ${s.name}`,
+        serverId: s.id,
+        environment: s.environment,
+        condition: bad,
+        value: bad ? 1 : 0,
+        appIds,
+      });
     }
     return out;
   }

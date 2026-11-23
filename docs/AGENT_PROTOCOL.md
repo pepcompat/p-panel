@@ -254,3 +254,40 @@ Agent rules:
 - The Center computes log-drop totals from **deltas of the heartbeat's cumulative `logShipping.droppedEntries`**. The batch `dropped` field is informational only.
 - Delivery is at-least-once: up to ~1 s of lines can repeat after an agent crash.
 - `cpuPct` for containers appears from the second heartbeat onwards.
+
+## Backups and restores (P6) — authoritative
+
+Repository model (ADR-0009): **restic** repositories behind **rest-server with `--private-repos --append-only`** for agents. Each server has its own rest-server user and private path (`/<serverUser>/`). An agent's credential can **create** snapshots and **read** its own repo; it can never forget/prune/delete. Retention (`forget --prune`) and the offsite copy (`restic copy` → S3-compatible) run from a separate **maintenance identity** (a full-access rest-server instance on the same data), driven by an operator script (`scripts/backup/maintenance.sh`). Neither the agents nor the Center API hold that credential.
+
+### Secrets for backup jobs
+
+`POST /agent/v1/tasks/:jobId/secrets` for `backup.*` / `restore.run` returns `{ restic: { repoPassword, restUser, restPassword }, env: { <passwordSecretKey>: value, … } }`. Passed to restic **only via env** (`RESTIC_PASSWORD`, `RESTIC_REST_USERNAME`, `RESTIC_REST_PASSWORD`; DB tools `PGPASSWORD` / `MYSQL_PWD`), never argv, never logged, redacted from outputs.
+
+### Execution (no shell anywhere)
+
+- **paths** targets: host `restic` binary (version ≥ 0.17, path from config `backup.resticPath`, verified at startup) via `execx` fixed argv: `restic -r <url> backup --json --tag ppanel --tag run=<runId> --tag policy=<policyId> [--exclude …] [--limit-upload] -- <paths…>`. Paths must exist and must not be under the agent state dir; symlinks are stored as symlinks (restic default).
+- **volume / postgres / mysql** targets: a hardened **helper container** (`backup.helperImage` from local agent config — the job's `helperImage` must equal it, else `HELPER_IMAGE_NOT_ALLOWED`), with the same hardening as `run_candidate` (no published ports, CapDrop ALL, no-new-privileges, limits), labels `ppanel.managed=true, ppanel.app, ppanel.backup=<runId>`, removed after the run:
+  - volume: mount `ppanel-<app>-<volume>` **read-only** at `/backup/<volume>`, `restic backup --json … /backup/<volume>`.
+  - postgres: join `ppanel-<app>`, `restic backup --json --stdin-filename <db>.sql --stdin-from-command -- pg_dump --no-password --format=plain --clean --if-exists -h <service> -U <user> <db>`.
+  - mysql: `… --stdin-from-command -- mysqldump --single-transaction --routines --triggers -h <service> -u <user> <db>`.
+- **Manifest**: for paths/volume targets the agent records `{ path, size, sha256 }` for up to 10 000 files (beyond → `truncated: true`), computed from the source **during** backup and stored in the result (not in the repo). For DB targets: `{ database, bytes, sha256 of dump stream, tables: [{ name, rows }] }` — table row counts come from a read-only query in the helper (`psql -At -c "select relname, n_live_tup …"` after `ANALYZE` is **not** run; exact counts via `select count(*)` per table, ≤ 200 tables).
+- Result `backup.run`: `{ snapshots: [{ target, snapshotId, shortId, sizeBytes, filesNew, filesChanged, durationMs }], manifest: [...], resticVersion }`. **A run that does not finish all targets is a failure** (`BACKUP_PARTIAL`, with the completed target list), never success. An interrupted agent never reports success (the job expires on the Center; restic leaves no snapshot for an aborted run; a stale restic lock → `REPO_LOCKED` on the next run, cleared only by the maintenance identity).
+- `backup.snapshots` → `{ snapshots: [{ id, shortId, time, tags, paths, hostname, sizeBytes? }] }` (restic `snapshots --json`).
+- `backup.verify` → `restic check --read-data-subset=<pct>%` + `restic dump`/`restore` of the snapshot into a temp dir and re-hash against the manifest supplied by the Center in the job params (`manifest` field) → `{ repoCheckOk, filesCompared, mismatches: [...], level: "repository_checked" | "restore_verified" }`.
+- `restore.run`:
+  - paths `staging` → `<stateDir>/restores/<restoreId>/` (mode 0700). `in_place` → restic restore `--target /` with `--include` for the listed paths, then verify.
+  - volume `staging` → a **new** volume `ppanel-<app>-restore-<8hex>`. `in_place` → the original volume; the Center stops the app first.
+  - postgres/mysql `scratch` → a new helper DB container (scratch image, random password, no ports, app-independent network `ppanel-restore-<8hex>`), restore the dump (`restic dump … | psql` via `--stdin-from-command` is not available for restore, so the helper runs `restic dump <snap> <file>` to a temp file in the container, then `psql -f`), compare table row counts with the manifest, then **remove** the scratch container. `in_place` → restore into the app DB service (the Center has approved and taken a pre-restore safety snapshot).
+  - `dryRun: true` → restic `restore --dry-run` / `--verbose` listing (paths) or dump size + table list (DB); nothing written.
+  - Result: `{ restored: [...], verify: { ok, compared, mismatches }, stagingPath?, volume?, scratch?: { removed: true } }`.
+
+All mutating backup/restore jobs hold the per-app mutex (DB/volume targets) and a per-repo mutex on the agent.
+
+### P6 implementation notes (as built, 2026-11-23)
+
+- **Manifest** (one entry per target, returned by `backup.run` and passed back in `backup.verify` / `restore.run` params as `manifest`): `{ target, type, snapshotId, paths?, app?, volume?, files?: [{ path, size, sha256 }], fileCount, truncated, database?, bytes?, sha256?, tables?: [{ name (schema-qualified, e.g. "public.orders"), rows }], constraints?: ["<schema.table>:<constraint>"] }`. DB row counts are exact but come from a read-only session after the dump, so they are not transactionally consistent with it.
+- **DB restore without a shell**: a restic helper runs `dump --target /work/<db>.sql`. The file is streamed through the Docker archive API into a not-yet-started psql/mysql helper, which then runs `psql -f` or `mysql -e "source …"`.
+- **Scratch image**: when `target.scratchImage` is omitted, the Center defaults it to the source DB service's own image. A dump from a newer server minor can contain settings an older server rejects (lab: pg 16.16 dump into 16.10 failed).
+- **Repo host**: helper containers get the repo host as an `ExtraHosts` entry, resolved by the agent.
+- restic exit 10 ("repository does not exist") → `REPO_UNREACHABLE`. P6 jobs can also return `SECRETS_UNAVAILABLE`, `DOCKER_UNAVAILABLE`, `IMAGE_PULL_FAILED` and `CONTAINER_NOT_MANAGED`.
+- Known gaps: in-place restores of paths/volumes are covered by unit tests only, not in the lab. A failed volume staging restore leaves its new volume behind (agents never delete volumes). `backup.snapshots` / `backup.verify` need host restic even on Docker-only nodes.

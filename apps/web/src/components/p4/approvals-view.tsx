@@ -18,6 +18,8 @@ import { EnvBadge } from '@/components/ui/badge';
 import { TableSkeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/states';
 import { DeploymentStatusBadge, ImageRef, PlanApproval, TriggerBadge } from './bits';
+import { useRestores } from '@/lib/p6-queries';
+import { RestoresTable } from '@/components/p6/tables';
 
 export function ApprovalsView() {
   const { t } = useI18n();
@@ -25,6 +27,7 @@ export function ApprovalsView() {
   const qc = useQueryClient();
   const now = useNow(10_000);
   const q = useDeployments({ status: 'awaiting_approval' });
+  const restores = useRestores({ status: 'awaiting_approval' });
   const [sel, setSel] = useState<string | null>(null);
   const items = q.data?.items ?? [];
   const d = items.find((x) => x.id === sel) ?? items[0] ?? null;
@@ -120,6 +123,17 @@ export function ApprovalsView() {
                 </Card>
               )}
             </div>
+          )}
+          <h2 className="m-0 text-[15px] font-semibold">
+            {t('appr.restores', { n: restores.data?.length ?? 0 })}
+          </h2>
+          {restores.isError && (
+            <ErrorState error={restores.error} onRetry={() => void restores.refetch()} />
+          )}
+          {(restores.data ?? []).length === 0 ? (
+            <p className="m-0 text-[13px] text-fg-muted">{t('appr.restoresEmpty')}</p>
+          ) : (
+            <RestoresTable restores={restores.data ?? []} />
           )}
           <h2 className="m-0 text-[15px] font-semibold">{t('appr.revisions')}</h2>
           <Notice tone="info" glyph="◆" role="note">

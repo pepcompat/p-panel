@@ -68,3 +68,28 @@ func TestRunCmdEnvAndDir(t *testing.T) {
 		t.Error("relative dir accepted")
 	}
 }
+
+func TestResticEnvLongAndInterrupt(t *testing.T) {
+	bin, ok := Find("env", "")
+	if !ok {
+		t.Skip("env binary not found")
+	}
+	res, err := System{}.RunCmd(context.Background(), Cmd{Binary: bin, Env: []string{"RESTIC_PASSWORD=pw", "RESTIC_REST_USERNAME=u",
+		"RESTIC_REST_PASSWORD=rp", "RESTIC_CACHE_DIR=/tmp/c", "TMPDIR=/tmp"}, Timeout: 5 * time.Second})
+	if err != nil || !strings.Contains(string(res.Stdout), "RESTIC_REST_PASSWORD=rp") {
+		t.Fatalf("%v %s", err, res.Stdout)
+	}
+	for _, bad := range []string{"RESTIC_REPOSITORY=/x", "RESTIC_PASSWORD_COMMAND=/bin/sh", "AWS_SECRET_ACCESS_KEY=x"} {
+		if _, err := (System{}).RunCmd(context.Background(), Cmd{Binary: bin, Env: []string{bad}}); err == nil {
+			t.Errorf("env %q accepted", bad)
+		}
+	}
+	// a Long command keeps its (>10 min) timeout; a normal one is clamped
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	start := time.Now()
+	_, err = System{}.RunCmd(ctx, Cmd{Binary: "/bin/sleep", Args: []string{"30"}, Timeout: 2 * time.Hour, Long: true, Interrupt: true})
+	if err == nil || !strings.Contains(err.Error(), "cancelled") || time.Since(start) > 10*time.Second {
+		t.Fatalf("interrupt: %v after %s", err, time.Since(start))
+	}
+}

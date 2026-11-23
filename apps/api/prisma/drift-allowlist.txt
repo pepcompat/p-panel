@@ -1,0 +1,4 @@
+# Statements `prisma migrate diff` emits for objects that are intentionally hand-written in SQL
+# migrations because Prisma's schema language cannot express them. One exact statement per line.
+# Unique (user, role, scope) with NULLS NOT DISTINCT — migration 20261117102042_init.
+DROP INDEX "role_bindings_user_role_scope_key";

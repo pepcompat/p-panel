@@ -48,7 +48,7 @@ for repo_dir in "${SRC}"/*/; do
     if [[ "${v}" == "v1" ]]; then
       echo "PPANEL_LAB_GIT_SHA_${key}=${sha}" >>"${env_tmp}"
     else
-      echo "PPANEL_LAB_GIT_SHA_${key}_$(echo "${v}" | tr 'a-z' 'A-Z')=${sha}" >>"${env_tmp}"
+      echo "PPANEL_LAB_GIT_SHA_${key}_$(echo "${v}" | tr '[:lower:]' '[:upper:]')=${sha}" >>"${env_tmp}"
     fi
     log "${name} ${v} -> ${sha}"
   done

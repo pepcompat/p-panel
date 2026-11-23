@@ -23,7 +23,7 @@ log "building handlers test binary (linux/arm64)"
 docker cp "${bin}" "${NODE}:/tmp/handlers.test" >/dev/null
 
 envs=(-e PPANEL_LAB_BUILD=1 -e "PPANEL_LAB_BUILD_TEMPLATE=${PPANEL_LAB_BUILD_TEMPLATE:-1}")
-for k in $(grep -oE '^PPANEL_LAB_GIT_[A-Z0-9_]+' "${ENV_FILE}"); do envs+=(-e "${k}"); done
+while IFS= read -r k; do envs+=(-e "${k}"); done < <(grep -oE '^PPANEL_LAB_GIT_[A-Z0-9_]+' "${ENV_FILE}")
 
 rc=0
 docker exec "${envs[@]}" "${NODE}" /tmp/handlers.test -test.run 'TestLabBuildAndCompose' -test.v -test.count=1 -test.timeout 40m || rc=$?

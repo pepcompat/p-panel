@@ -134,12 +134,14 @@ model Server {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  group        ServerGroup?         @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  group        ServerGroup?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
   addresses    ServerAddress[]
   certificates AgentCertificate[]
   heartbeats   AgentHeartbeat[]
   capabilities ServerCapability[]
   jobs         Job[]
+  scans        DiscoveryScan[]
+  applications Application[]
 
   @@index([environment])
   @@index([lastHeartbeatAt])
@@ -292,4 +294,161 @@ model AuditEvent {
   @@index([actorId])
   @@index([targetId])
   @@map("audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// P3 — discovery, applications (ownership tiers), Nginx config revisions
+// ---------------------------------------------------------------------------
+
+/// One discovery.scan job → one scan snapshot (ingested idempotently per job_id).
+model DiscoveryScan {
+  id          String    @id @db.Uuid
+  serverId    String    @map("server_id") @db.Uuid
+  jobId       String    @unique @map("job_id") @db.Uuid
+  status      String    @default("running") // running | completed | failed | expired
+  sources     String[]  @default([])
+  requestedBy String?   @map("requested_by") @db.Uuid
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  summary     Json?
+  configFiles Json      @default("[]") @map("config_files")
+  drift       Json      @default("[]")
+  error       Json?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server   Server             @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  findings DiscoveryFinding[]
+
+  @@index([serverId, completedAt(sort: Desc)])
+  @@index([status])
+  @@map("discovery_scans")
+}
+
+model DiscoveryFinding {
+  id                    String   @id @db.Uuid
+  scanId                String   @map("scan_id") @db.Uuid
+  serverId              String   @map("server_id") @db.Uuid
+  kind                  String // nginx_server | php_fpm_pool | listener | container | systemd_unit | upstream
+  fingerprint           String
+  externalId            String?  @map("external_id")
+  title                 String
+  domains               String[] @default([])
+  listen                String[] @default([])
+  provenance            Json?
+  confidence            String // high | medium | low
+  manualReviewRequired  Boolean  @default(false) @map("manual_review_required")
+  reasons               String[] @default([])
+  unsupportedDirectives String[] @default([]) @map("unsupported_directives")
+  conflicts             Json     @default("[]")
+  links                 Json     @default("{}")
+  applicationId         String?  @map("application_id") @db.Uuid
+  data                  Json     @default("{}")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  scan        DiscoveryScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  application Application?  @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@unique([scanId, fingerprint])
+  @@index([scanId, kind])
+  @@index([serverId, fingerprint])
+  @@map("discovery_findings")
+}
+
+model Application {
+  id                       String   @id @db.Uuid
+  serverId                 String   @map("server_id") @db.Uuid
+  name                     String
+  kind                     String // nginx_static | nginx_php | nginx_proxy | unknown
+  domains                  String[] @default([])
+  ownershipMode            String   @default("observed") @map("ownership_mode")
+  flagUnsupported          Boolean  @default(false) @map("flag_unsupported")
+  flagConflict             Boolean  @default(false) @map("flag_conflict")
+  flagManualReview         Boolean  @default(false) @map("flag_manual_review")
+  flagDriftDetected        Boolean  @default(false) @map("flag_drift_detected")
+  reasons                  String[] @default([])
+  unsupportedDirectives    String[] @default([]) @map("unsupported_directives")
+  sourceFindingFingerprint String   @map("source_finding_fingerprint")
+  /// [{ path, lastKnownSha256 }]
+  nginxFiles               Json     @default("[]") @map("nginx_files")
+  /// [{ path, lastKnownSha256, currentSha256 }] — non-empty iff flag_drift_detected
+  driftFiles               Json     @default("[]") @map("drift_files")
+  lastScanId               String?  @map("last_scan_id") @db.Uuid
+  version                  Int      @default(1)
+  createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server    Server                @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  findings  DiscoveryFinding[]
+  reviews   AdoptionReview[]
+  revisions NginxConfigRevision[]
+
+  @@unique([serverId, sourceFindingFingerprint])
+  @@unique([serverId, name])
+  @@index([ownershipMode])
+  @@map("applications")
+}
+
+/// Ownership tier change history (append-only).
+model AdoptionReview {
+  id                  String   @id @db.Uuid
+  applicationId       String   @map("application_id") @db.Uuid
+  fromMode            String   @map("from_mode")
+  toMode              String   @map("to_mode")
+  actorId             String   @map("actor_id") @db.Uuid
+  reason              String
+  acknowledgedReasons String[] @default([]) @map("acknowledged_reasons")
+  stepUp              Boolean  @default(false) @map("step_up")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@map("adoption_reviews")
+}
+
+model NginxConfigRevision {
+  id               String   @id @db.Uuid
+  serverId         String   @map("server_id") @db.Uuid
+  applicationId    String   @map("application_id") @db.Uuid
+  status           String   @default("draft")
+  /// [{ path, beforeSha256, afterSha256, diff, content }]
+  files            Json
+  planHash         String   @map("plan_hash")
+  postchecks       Json     @default("[]")
+  approvalRequired Boolean  @map("approval_required")
+  validateJobId    String?  @map("validate_job_id") @db.Uuid
+  validation       Json?
+  applyJobId       String?  @map("apply_job_id") @db.Uuid
+  revertJobId      String?  @map("revert_job_id") @db.Uuid
+  result           Json?
+  createdBy        String   @map("created_by") @db.Uuid
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  approvals   NginxRevisionApproval[]
+
+  @@index([applicationId, createdAt])
+  @@index([serverId, status])
+  @@map("nginx_config_revisions")
+}
+
+/// Single-use, planHash-bound approval with expiry.
+model NginxRevisionApproval {
+  id            String    @id @db.Uuid
+  revisionId    String    @map("revision_id") @db.Uuid
+  approverId    String    @map("approver_id") @db.Uuid
+  planHash      String    @map("plan_hash")
+  approvedAt    DateTime  @default(now()) @map("approved_at") @db.Timestamptz(3)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(3)
+  usedByJobId   String?   @map("used_by_job_id") @db.Uuid
+  invalidatedAt DateTime? @map("invalidated_at") @db.Timestamptz(3)
+
+  revision NginxConfigRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([revisionId, approvedAt])
+  @@map("nginx_revision_approvals")
 }

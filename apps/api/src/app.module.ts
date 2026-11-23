@@ -11,6 +11,13 @@ import { AuthService } from './auth/auth.service';
 import { AuthzService } from './auth/authz.service';
 import { MfaService } from './auth/mfa.service';
 import { TokenService } from './auth/token.service';
+import { ApplicationsController } from './discovery/applications.controller';
+import { ApplicationsService } from './discovery/applications.service';
+import { DiscoveryController } from './discovery/discovery.controller';
+import { DiscoveryService } from './discovery/discovery.service';
+import { NginxRevisionsController } from './nginx/nginx-revisions.controller';
+import { NginxRevisionsService } from './nginx/nginx-revisions.service';
+import { JobHooks } from './jobs/job-hooks';
 import { EnvelopeInterceptor } from './common/envelope';
 import { AllExceptionsFilter } from './common/exception.filter';
 import { PrismaService } from './common/prisma.service';
@@ -47,6 +54,9 @@ export class AppModule {
         EnrollmentsController,
         JobsController,
         AgentEnrollController,
+        DiscoveryController,
+        ApplicationsController,
+        NginxRevisionsController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config },
@@ -63,7 +73,11 @@ export class AppModule {
         ServersService,
         EnrollmentsService,
         JobNotifier,
+        JobHooks,
         JobsService,
+        ApplicationsService,
+        DiscoveryService,
+        NginxRevisionsService,
         SweeperService,
         AgentService,
         AgentGatewayServer,

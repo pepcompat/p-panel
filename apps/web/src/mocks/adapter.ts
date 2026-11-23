@@ -19,6 +19,7 @@ import {
 } from '@ppanel/shared-contracts';
 import { seedAudit, seedServers, seedUsers, type MockUser } from './seed';
 import type { AuditEvent } from '@/lib/api/types';
+import { registerP3Routes, resetP3State } from './p3-routes';
 
 const SESSION_KEY = 'ppanel.mock.session';
 const NOT_BOOTSTRAPPED_KEY = 'ppanel.mock.notBootstrapped';
@@ -56,6 +57,7 @@ function db(): State {
 /** Test hook: reset all mock state. */
 export function resetMockState() {
   state = null;
+  resetP3State();
   safeSession()?.removeItem(SESSION_KEY);
 }
 
@@ -560,6 +562,26 @@ on('GET', '/audit-events', ({ req, url, requestId }) => {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const { slice, paginate: p } = paginate(items, url);
   return ok(requestId, slice, 200, p);
+});
+
+// ---------- P3: discovery / applications / nginx revisions ----------
+registerP3Routes({
+  on,
+  ok,
+  HttpError,
+  currentUser,
+  hasPermFor: hasPermFor as never,
+  requirePerm: requirePerm as never,
+  servers: () => db().servers,
+  users: () => db().users,
+  checkStepUp: (req, u) => {
+    const t = db().stepUpTokens.get(req.headers.get('X-Step-Up') ?? '');
+    return !!t && t.userId === u.id && t.exp >= Date.now();
+  },
+  audit: (u, action, s, result, requestId) =>
+    audit(db().users.find((x) => x.id === u.id) ?? null, action, s, result, requestId),
+  rid,
+  paginate,
 });
 
 /** fetch-compatible entry point. */

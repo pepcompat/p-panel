@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
+	"github.com/ppanel/ppanel/apps/agent/internal/nginx"
 )
 
 type fakeExec struct {
@@ -67,7 +70,7 @@ func grant(typ string, params any) *jobs.Grant {
 func TestRegistryIsAllowlist(t *testing.T) {
 	reg, _, _ := setup(t)
 	got := strings.Join(reg.Types(), ",")
-	if got != "discovery.scan,inventory.collect,service.restart" {
+	if got != "discovery.scan,inventory.collect,nginx.apply,nginx.read_files,nginx.revert,nginx.validate,service.restart" {
 		t.Fatalf("registered handlers: %s", got)
 	}
 }
@@ -200,5 +203,24 @@ func TestInventoryCollect(t *testing.T) {
 	}
 	if _, _, rej := reg.Validate(grant("inventory.collect", map[string]any{"x": 1}), "s", time.Now()); rej == nil {
 		t.Fatal("inventory.collect must reject unknown params")
+	}
+}
+
+// Regression (lab E2E 2026-11-23): scan checksums must equal file-byte sha256 used by
+// nginx.read_files/apply, otherwise every pPanel apply is reported as external drift.
+func TestUseDiskChecksums(t *testing.T) {
+	files := []nginx.FileInfo{{Path: "/etc/nginx/a.conf", Sha256: "dump"}, {Path: "/etc/nginx/gone.conf", Sha256: "dump2"}}
+	useDiskChecksums(files, func(p string) ([]byte, error) {
+		if p == "/etc/nginx/a.conf" {
+			return []byte("server {}\n"), nil
+		}
+		return nil, os.ErrNotExist
+	})
+	want := sha256.Sum256([]byte("server {}\n"))
+	if files[0].Sha256 != hex.EncodeToString(want[:]) || files[0].ShaSource != "disk" {
+		t.Fatalf("disk checksum not used: %+v", files[0])
+	}
+	if files[1].Sha256 != "dump2" || files[1].ShaSource != "nginx-T" {
+		t.Fatalf("fallback wrong: %+v", files[1])
 	}
 }

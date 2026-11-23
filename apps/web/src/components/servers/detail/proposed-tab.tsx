@@ -97,7 +97,7 @@ export function ProposedTab({
   now,
 }: {
   server: Server;
-  tab: Exclude<ServerTab, 'overview' | 'network' | 'settings'>;
+  tab: Exclude<ServerTab, 'overview' | 'network' | 'settings' | 'applications'>;
   now: number;
 }) {
   const { t } = useI18n();
@@ -109,29 +109,6 @@ export function ProposedTab({
 
   let sample: React.ReactNode = null;
   switch (tab) {
-    case 'applications': {
-      const apps = d.APPS.filter((a) => a.server === name);
-      sample = apps.length ? (
-        <Rows
-          rows={apps.map((a) => ({
-            cells: [
-              a.id,
-              `${a.type} · ${a.domain}`,
-              <OutlineTag key="o">{a.own}</OutlineTag>,
-              <ToneBadge key="h" tone={a.t as DesignTone}>
-                {a.health}
-              </ToneBadge>,
-            ],
-          }))}
-        />
-      ) : (
-        <p className="m-0 px-4 py-5 text-[13px] text-fg-muted">
-          No applications discovered on this server. Run a read-only discovery scan to populate
-          inventory.
-        </p>
-      );
-      break;
-    }
     case 'terminal': {
       const priv = address(server, 'private');
       sample = (

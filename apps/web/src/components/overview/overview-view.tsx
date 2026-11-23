@@ -5,6 +5,7 @@ import type { Server } from '@ppanel/shared-contracts';
 import { useI18n } from '@/i18n/provider';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { useServers } from '@/lib/queries';
+import { useApplications } from '@/lib/p3-queries';
 import { isApiError } from '@/lib/api/errors';
 import { envLabelKey, fleetCounts, osLabel } from '@/lib/servers';
 import { formatClock } from '@/lib/time';
@@ -14,7 +15,7 @@ import { Card, CardHeader, Page, PageHeader } from '@/components/ui/card';
 import { ToneBadge, toneText, TONE_GLYPH } from '@/components/ui/badge';
 import { ResourceMeter } from '@/components/ui/meter';
 import { Skeleton, TableSkeleton } from '@/components/ui/skeleton';
-import { EmptyState, ErrorState, ForbiddenState } from '@/components/ui/states';
+import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/states';
 import { StatusBadge } from '@/components/servers/server-bits';
 import { cn } from '@/lib/utils';
 
@@ -65,6 +66,11 @@ export function OverviewView() {
   const c = q.data ? fleetCounts(servers) : null;
   const forbidden = !can('fleet.read') || (isApiError(q.error) && q.error.status === 403);
   const v = (n: number | undefined) => (c ? (n ?? 0) : '—');
+  const apps = useApplications();
+  const appItems = apps.data?.items ?? [];
+  const appCount = (id: string) =>
+    apps.data ? appItems.filter((a) => a.serverId === id).length : null;
+  const driftApps = appItems.filter((a) => a.flags.driftDetected).length;
   const top = [...servers].sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status]).slice(0, 8);
 
   return (
@@ -90,6 +96,20 @@ export function OverviewView() {
       ) : (
         <>
           {q.isError && <ErrorState error={q.error} onRetry={() => void q.refetch()} />}
+          {driftApps > 0 && (
+            <Notice
+              tone="crit"
+              glyph="≠"
+              role="status"
+              action={
+                <Link href="/applications" className="text-[13px] whitespace-nowrap">
+                  {t('overview.reviewApps')}
+                </Link>
+              }
+            >
+              {t('overview.driftWarning', { n: driftApps })}
+            </Notice>
+          )}
           <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
             {q.isPending ? (
               Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-[98px]" />)
@@ -156,7 +176,7 @@ export function OverviewView() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] border-collapse text-[13px]">
+              <table className="w-full min-w-[620px] border-collapse text-[13px]">
                 <thead>
                   <tr className="text-left text-[12px] text-fg-muted">
                     <th scope="col" className="px-4 py-2 font-medium">
@@ -164,6 +184,9 @@ export function OverviewView() {
                     </th>
                     <th scope="col" className="px-2 py-2 font-medium">
                       {t('servers.col.status')}
+                    </th>
+                    <th scope="col" className="px-2 py-2 font-medium">
+                      {t('overview.col.apps')}
                     </th>
                     <th scope="col" className="px-2 py-2 font-medium">
                       {t('metric.cpu')}
@@ -197,6 +220,20 @@ export function OverviewView() {
                         </td>
                         <td className="px-2">
                           <StatusBadge status={s.status} />
+                        </td>
+                        <td className="px-2 font-mono text-[12px]">
+                          {appCount(s.id) === null ? (
+                            <span className="text-fg-subtle">—</span>
+                          ) : (
+                            <Link href={`/servers/${s.id}/applications`} className="text-fg">
+                              {appCount(s.id)}
+                            </Link>
+                          )}
+                          {appItems.some((a) => a.serverId === s.id && a.flags.driftDetected) && (
+                            <span className="ml-1 text-crit" title={t('flag.drift')}>
+                              ≠<span className="sr-only"> {t('flag.drift')}</span>
+                            </span>
+                          )}
                         </td>
                         <td
                           className={cn(

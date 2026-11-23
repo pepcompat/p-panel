@@ -1,0 +1,20 @@
+{
+  "error": null,
+  "output": {
+    "valid": true,
+    "nginxTestOutput": "2026/11/23 03:15:57 [warn] 1134#1134: conflicting server name \"dup.example.lab\" on 0.0.0.0:80, ignored\nnginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful",
+    "filesChecked": [
+      {
+        "path": "/etc/nginx/sites-available/01-static-multi.conf",
+        "sha256Before": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba",
+        "sha256After": "6610c6bbec8dd5821be0d70029eb86977ffc3c85b93ff39e7fa6319a0e5137e8"
+      },
+      {
+        "path": "/etc/nginx/ppanel-managed/p3-lab.conf",
+        "sha256Before": null,
+        "sha256After": "cc4b7188c866d8162567b8c1acb9841799503486ee5900005a0206961e085274"
+      }
+    ]
+  },
+  "type": "nginx.validate"
+}

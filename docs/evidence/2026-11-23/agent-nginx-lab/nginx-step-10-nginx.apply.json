@@ -1,0 +1,29 @@
+{
+  "error": {
+    "code": "POSTCHECK_FAILED_REVERTED",
+    "message": "postcheck failed after reload; originals restored and reloaded",
+    "details": {
+      "backupId": "bbbbbbbb-0000-4000-8000-000000000002",
+      "masterPid": 7,
+      "masterPidAlive": true,
+      "nginxTestOutput": "2026/11/23 03:15:59 [warn] 1150#1150: conflicting server name \"dup.example.lab\" on 0.0.0.0:80, ignored\nnginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful",
+      "pidFile": "/run/nginx.pid",
+      "postchecks": [
+        {
+          "hostHeader": "static.example.lab",
+          "path": "/p3-does-not-exist",
+          "status": 404,
+          "ok": false,
+          "error": "status 404 not in expectStatus [200]"
+        }
+      ],
+      "reloadMethod": "nginx -s reload",
+      "restored": true,
+      "revertNginxTestOk": true,
+      "revertReloadMethod": "nginx -s reload",
+      "revertReloadOk": true
+    }
+  },
+  "output": null,
+  "type": "nginx.apply"
+}

@@ -20,7 +20,6 @@ export const NAV: NavItem[] = [
     href: '/applications',
     label: 'nav.applications',
     section: 'nav.section.operate',
-    preview: true,
   },
   {
     id: 'deploy',
@@ -41,7 +40,6 @@ export const NAV: NavItem[] = [
     href: '/imports',
     label: 'nav.imports',
     section: 'nav.section.operate',
-    preview: true,
   },
   {
     id: 'network',

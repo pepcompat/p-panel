@@ -13,3 +13,10 @@ ownedUnits: []
 ownedUnitsFile: /etc/ppanel-agent/owned-units
 # nginxBinary: /usr/sbin/nginx                # optional absolute override
 # systemctlBinary: /usr/bin/systemctl
+# P3 nginx typed jobs. Job paths are always /etc/nginx/...; new files only under
+# /etc/nginx/ppanel-managed/. `root`, `prefix` and `confFile` other than the defaults
+# are refused unless the env PPANEL_AGENT_TEST_NGINX_ROOT=1 is set (tests only).
+# nginx:
+#   allowedRoots:            # optional: NARROW (never widen) editable paths
+#     - /etc/nginx/sites-available
+#     - /etc/nginx/ppanel-managed

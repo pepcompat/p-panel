@@ -1,0 +1,18 @@
+{
+  "error": null,
+  "output": {
+    "reverted": true,
+    "files": [
+      {
+        "path": "/etc/nginx/sites-available/01-static-multi.conf",
+        "sha256Before": "6610c6bbec8dd5821be0d70029eb86977ffc3c85b93ff39e7fa6319a0e5137e8",
+        "sha256After": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba"
+      }
+    ],
+    "nginxTestOutput": "2026/11/23 03:16:03 [warn] 1166#1166: conflicting server name \"dup.example.lab\" on 0.0.0.0:80, ignored\nnginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful",
+    "reloadMethod": "nginx -s reload",
+    "postchecks": [],
+    "backupId": "bbbbbbbb-0000-4000-8000-000000000001"
+  },
+  "type": "nginx.revert"
+}

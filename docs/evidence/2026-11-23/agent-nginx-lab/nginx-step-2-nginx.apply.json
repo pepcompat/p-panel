@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "PATH_NOT_ALLOWED",
+    "message": "/etc/nginx/sites-enabled/01-static-multi.conf is a symlink; edit the real file instead"
+  },
+  "output": null,
+  "type": "nginx.apply"
+}

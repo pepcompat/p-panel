@@ -61,3 +61,38 @@ func TestOwnedUnitsFile(t *testing.T) {
 		t.Fatal("invalid entry must fail closed")
 	}
 }
+
+func TestNginxSectionGate(t *testing.T) {
+	t.Setenv(TestNginxRootEnv, "")
+	c := Default()
+	if err := c.Validate(); err != nil || c.Nginx.Root != NginxRoot {
+		t.Fatalf("default nginx root: %v %q", err, c.Nginx.Root)
+	}
+	for name, n := range map[string]NginxConfig{
+		"root":        {Root: "/tmp/nginx"},
+		"prefix":      {Prefix: "/tmp"},
+		"conf":        {ConfFile: "/tmp/nginx.conf"},
+		"allowed-out": {AllowedRoots: []string{"/etc"}},
+		"allowed-dot": {AllowedRoots: []string{"/etc/nginx/../x"}},
+	} {
+		c := Default()
+		c.Nginx = n
+		if err := c.Validate(); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	c = Default()
+	c.Nginx = NginxConfig{AllowedRoots: []string{"/etc/nginx/ppanel-managed"}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(TestNginxRootEnv, "1")
+	c = Default()
+	c.Nginx = NginxConfig{Root: "/tmp/nginx", Prefix: "/tmp", ConfFile: "/tmp/nginx.conf"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("test overrides rejected with env: %v", err)
+	}
+	if err := Parse([]byte("nginx:\n  root: /etc/nginx\n  bogus: 1\n"), Default()); err == nil {
+		t.Fatal("unknown nginx key accepted")
+	}
+}

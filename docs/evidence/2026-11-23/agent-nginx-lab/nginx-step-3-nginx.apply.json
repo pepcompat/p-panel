@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "PATH_NOT_ALLOWED",
+    "message": "path \"/etc/nginx/../etc/passwd\" contains .."
+  },
+  "output": null,
+  "type": "nginx.apply"
+}

@@ -7,6 +7,58 @@ export const systemdUnitSchema = z
   .regex(SYSTEMD_UNIT_RE)
   .refine((u) => !u.includes('..'), { message: "unit must not contain '..'" });
 
+// ---- P3: Nginx typed jobs (see docs/AGENT_PROTOCOL.md §Nginx) ----
+
+/** Absolute nginx config path under /etc/nginx; no traversal, no NUL/newline, no glob. */
+export const NGINX_PATH_RE = /^\/etc\/nginx\/[A-Za-z0-9._\/-]{1,200}$/;
+export const nginxPathSchema = z
+  .string()
+  .regex(NGINX_PATH_RE)
+  .refine((p) => !p.split('/').includes('..') && !p.includes('//'), {
+    message: 'path must be canonical (no .. or //)',
+  });
+/** Files pPanel may create (never pre-existing operator files). */
+export const NGINX_MANAGED_DIR = '/etc/nginx/ppanel-managed/';
+export const NGINX_MAX_FILE_BYTES = 262144;
+export const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const nginxFileChangeSchema = z
+  .object({
+    path: nginxPathSchema,
+    /** sha256 of current content; null = file must NOT exist yet (create, only under NGINX_MANAGED_DIR). */
+    expectedSha256Before: sha256HexSchema.nullable(),
+    /** Full new content (UTF-8). */
+    content: z.string().max(NGINX_MAX_FILE_BYTES),
+  })
+  .strict();
+
+/** Loopback-only HTTP probe run by the agent after reload (SSRF-safe: host is fixed to 127.0.0.1). */
+export const nginxPostcheckSchema = z
+  .object({
+    hostHeader: z.string().regex(/^[A-Za-z0-9.-]{1,253}$/),
+    path: z
+      .string()
+      .regex(/^\/[A-Za-z0-9._~\/?=&%-]{0,200}$/)
+      .default('/'),
+    scheme: z.enum(['http', 'https']).default('http'),
+    port: z.number().int().min(1).max(65535).optional(),
+    expectStatus: z.array(z.number().int().min(100).max(599)).min(1).max(10).default([200]),
+  })
+  .strict();
+
+const nginxRevisionParams = z
+  .object({
+    revisionId: z.string().uuid(),
+    files: z
+      .array(nginxFileChangeSchema)
+      .min(1)
+      .max(20)
+      .refine((a) => new Set(a.map((f) => f.path)).size === a.length, {
+        message: 'paths must be unique',
+      }),
+  })
+  .strict();
+
 export const DISCOVERY_SOURCES = ['nginx', 'docker', 'systemd', 'php-fpm', 'ports'] as const;
 
 export const JOB_STATUSES = [
@@ -38,7 +90,48 @@ export const JOB_TYPES = {
     mutating: true,
     params: z.object({ unit: systemdUnitSchema }).strict(),
   },
+  /** Read-only: return content + sha256 of files under /etc/nginx (for diff/preview). */
+  'nginx.read_files': {
+    mutating: false,
+    params: z.object({ paths: z.array(nginxPathSchema).min(1).max(20) }).strict(),
+  },
+  /** Dry-run: preflight + backup + write + `nginx -t`, then ALWAYS restore originals. Never reloads. */
+  'nginx.validate': { mutating: true, params: nginxRevisionParams },
+  /** Preflight → backup → atomic write → nginx -t → reload → postcheck → auto-revert on failure. */
+  'nginx.apply': {
+    mutating: true,
+    params: nginxRevisionParams
+
+      .extend({ postchecks: z.array(nginxPostcheckSchema).max(10).default([]) })
+      .strict(),
+  },
+  /** Restore the backup taken by a previous apply of `revisionId`, then nginx -t + reload. */
+  'nginx.revert': {
+    mutating: true,
+    params: z
+      .object({
+        revisionId: z.string().uuid(),
+        /** sha256 the agent must currently see for each file (the revision's after-state) — drift guard. */
+        expectedCurrent: z
+          .array(z.object({ path: nginxPathSchema, sha256: sha256HexSchema.nullable() }).strict())
+          .min(1)
+          .max(20),
+      })
+      .strict(),
+  },
 } as const;
+
+/** Agent result error codes added in P3. */
+export const NGINX_ERROR_CODES = [
+  'PATH_NOT_ALLOWED',
+  'DRIFT_DETECTED',
+  'NGINX_TEST_FAILED',
+  'RELOAD_FAILED_REVERTED',
+  'POSTCHECK_FAILED_REVERTED',
+  'REVERT_FAILED_MANUAL_RECOVERY',
+  'BACKUP_NOT_FOUND',
+  'NGINX_NOT_PRESENT',
+] as const;
 export type JobType = keyof typeof JOB_TYPES;
 
 export interface Job {

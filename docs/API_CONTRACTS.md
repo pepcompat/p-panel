@@ -134,3 +134,161 @@ Allowed `type` values (allowlist, typed params validated with Zod on Center **an
 - `service.restart` `{ unit: string }` — unit must be in server's owned-resource allowlist
 - `nginx.validate` `{ revisionId }`, `nginx.apply` `{ revisionId, expectedChecksum }` (P3)
   POST returns 202 `{ jobId, status: "queued" }`. Same `idempotencyKey` (header `Idempotency-Key`) → returns the existing job, 200.
+
+## 6. Discovery, import, applications, Nginx revisions (P3) — Center side `IMPLEMENTED` (discovery-nginx.spec, p3-discovery unit spec)
+
+All routes `/api/v1`. Scope rules as §2 (server scope ⊇ application on that server). Every mutation audited.
+
+### 6.1 Scans and findings
+
+- `POST /servers/:id/discovery-scans` (perm `nginx.read`) body `{ sources?: DiscoverySource[] }` (default all) → 202 `{ scanId, jobId }`. Creates a `discovery.scan` job. **Read-only**: never changes ownership. · `IMPLEMENTED` (discovery-nginx.spec P3.03)
+- When the job reaches `succeeded`, the Center ingests the report (in the job result handler, idempotent per jobId) into `discovery_scans` + `discovery_findings`. Failed/expired job → scan `failed`/`expired`. · `IMPLEMENTED` (P3.03 idempotent re-ingest; truncated replay → `failed` RESULT_TRUNCATED)
+- `GET /discovery-scans?server_id=&status=` (list) · `GET /discovery-scans/:id` → `DiscoveryScan` · `IMPLEMENTED` (P3.03; ext: `sources`, `error`, `summary.systemdUnits`):
+
+```json
+{
+  "id": "uuid",
+  "serverId": "uuid",
+  "jobId": "uuid",
+  "status": "running|completed|failed|expired",
+  "requestedBy": "uuid",
+  "startedAt": "iso",
+  "completedAt": "iso|null",
+  "summary": {
+    "nginxServers": 9,
+    "upstreams": 1,
+    "duplicates": 1,
+    "manualReview": 5,
+    "phpFpmPools": 1,
+    "listeners": 7,
+    "containers": 0,
+    "sourceStatus": { "nginx": "ok", "docker": "unavailable" }
+  },
+  "configFiles": [{ "path": "/etc/nginx/nginx.conf", "sha256": "hex" }],
+  "drift": [
+    {
+      "path": "...",
+      "previousSha256": "hex",
+      "currentSha256": "hex",
+      "changedBy": "external|ppanel_revision",
+      "revisionId": "uuid|null"
+    }
+  ]
+}
+```
+
+- `GET /discovery-scans/:id/findings?kind=&manual_review=` → `DiscoveryFinding[]` · `IMPLEMENTED` (P3.03; ext: `externalId`, `provenance.includeChain`, `links.phpFpmPool`, `conflicts[].name/port`):
+
+```json
+{
+  "id": "uuid",
+  "scanId": "uuid",
+  "serverId": "uuid",
+  "kind": "nginx_server|php_fpm_pool|listener|container|systemd_unit|upstream",
+  "fingerprint": "sha256 of stable identity (kind + file + serverNames + listen)",
+  "title": "app.example.lab",
+  "domains": ["app.example.lab"],
+  "listen": ["80", "443 ssl"],
+  "provenance": {
+    "file": "/etc/nginx/sites-enabled/app.conf",
+    "line": 3,
+    "includedFrom": "/etc/nginx/nginx.conf"
+  },
+  "confidence": "high|medium|low",
+  "manualReviewRequired": true,
+  "reasons": ["unsupported directive: if"],
+  "unsupportedDirectives": ["if"],
+  "conflicts": [{ "type": "duplicate_server_name", "with": ["findingId"] }],
+  "links": {
+    "upstream": "legacy_api",
+    "fastcgiPass": "unix:/run/php/php8.3-fpm.sock",
+    "root": "/var/www/app",
+    "processes": []
+  },
+  "applicationId": "uuid|null",
+  "data": {}
+}
+```
+
+The scanner **never invents** runtime/repo/ownership mappings; unknown links stay null.
+
+### 6.2 Applications and ownership
+
+`Application`:
+
+```json
+{
+  "id": "uuid",
+  "serverId": "uuid",
+  "name": "app-example-lab",
+  "environment": "production|uat|development",
+  "kind": "nginx_static|nginx_php|nginx_proxy|unknown",
+  "domains": ["app.example.lab"],
+  "ownershipMode": "discovered|observed|adopted|managed",
+  "flags": { "unsupported": false, "conflict": true, "manualReview": true, "driftDetected": false },
+  "sourceFindingFingerprint": "hex",
+  "nginxFiles": [{ "path": "...", "lastKnownSha256": "hex" }],
+  "lastScanId": "uuid",
+  "allowedActions": ["observe", "adopt", "manage", "create_revision"],
+  "version": 1,
+  "createdAt": "iso",
+  "updatedAt": "iso"
+}
+```
+
+- `POST /discovery-scans/:id/import` (perm `servers.operate`) body `{ findingIds: uuid[], mode: "discovered"|"observed" }` (default `observed`; **adopted/managed are not allowed here**) → 201 `{ applications: Application[] }`. Idempotent by finding fingerprint per server (re-import updates `lastScanId`, never ownership). · `IMPLEMENTED` (P3.04: 422 IMPORT_MODE_NOT_ALLOWED)
+- `GET /applications?server_id=&ownership_mode=&environment=&q=` · `GET /applications/:id`. · `IMPLEMENTED` (P3.04; perm `apps.read`; ext fields `reasons`, `unsupportedDirectives`, `driftFiles`, `nginxFiles[].resolvedPath`)
+- `POST /applications/:id/ownership` body `{ toMode, reason, acknowledgeReasons?: boolean }`, header `If-Match` · `IMPLEMENTED` (P3.04, P3-T04 ownership part):
+  - One step at a time, up or down (`discovered↔observed↔adopted↔managed`); skipping → 422 `OWNERSHIP_STEP_INVALID`.
+  - `→observed`: `servers.operate`. `→adopted` / `→managed`: `nginx.write`; production additionally requires `X-Step-Up`.
+  - `→adopted` when `flags.manualReview || flags.conflict` requires `acknowledgeReasons: true` → else 422 `MANUAL_REVIEW_REQUIRED` (details.reasons). `flags.unsupported` blocks `→managed` (422 `UNSUPPORTED_CONFIG`).
+  - Downgrade always allowed with `servers.operate` (and cancels open draft revisions).
+  - Writes an `adoption_reviews` row (from, to, actor, reason, acknowledged reasons) — returned by `GET /applications/:id/ownership-history`. · `IMPLEMENTED`
+  - **Ownership changes never touch the host.**
+
+### 6.3 Nginx config revisions (P3.05)
+
+`NginxRevision`:
+
+```json
+{
+  "id": "uuid",
+  "serverId": "uuid",
+  "applicationId": "uuid",
+  "status": "draft|validating|valid|invalid|awaiting_approval|approved|applying|applied|apply_failed|reverting|reverted|drift_blocked|superseded|cancelled",
+  "files": [
+    { "path": "...", "beforeSha256": "hex|null", "afterSha256": "hex", "diff": "unified diff text" }
+  ],
+  "planHash": "sha256(serverId + sorted(path,beforeSha256,afterSha256) + postchecks)",
+  "postchecks": [
+    { "hostHeader": "app.example.lab", "path": "/", "scheme": "http", "expectStatus": [200] }
+  ],
+  "validation": { "jobId": "uuid", "valid": true, "nginxTestOutput": "..." },
+  "approval": {
+    "required": true,
+    "approvedBy": "uuid|null",
+    "approvedAt": "iso|null",
+    "expiresAt": "iso|null"
+  },
+  "applyJobId": "uuid|null",
+  "revertJobId": "uuid|null",
+  "result": {},
+  "createdBy": "uuid",
+  "createdAt": "iso",
+  "updatedAt": "iso",
+  "version": 1
+}
+```
+
+- `GET /applications/:id/nginx/files` (perm `nginx.read`) → creates/awaits a `nginx.read_files` job for the application's `nginxFiles` (≤ 20 s wait, else 202 with jobId) → `{ files: [{path, sha256, content, exists}] }`. · `IMPLEMENTED` (200 `{ jobId, status:"succeeded", files }` / 202 `{ jobId, status:"pending", files:[] }`, poll with `?jobId=`)
+- `POST /applications/:id/nginx/revisions` (perm `nginx.write`; app must be `adopted` or `managed`, else 409 `OWNERSHIP_REQUIRED`) body `{ files: [{ path, content }], postchecks? }`. Center fetches current content via `nginx.read_files` to fill `beforeSha256` (paths must be in the application's `nginxFiles`, or new files under `/etc/nginx/ppanel-managed/<applicationName>/`) → 201 `draft` with computed unified diffs and `planHash`. · `IMPLEMENTED` (P3-T04 path part; symlink → 422 PATH_NOT_ALLOWED with `details.files[].resolvedPath`; read timeout 504 / agent failure 502 `NGINX_READ_FAILED`)
+- `POST /nginx-revisions/:id/validate` → 202; job `nginx.validate` → status `valid`/`invalid` (or `drift_blocked`). · `IMPLEMENTED` (valid + approval required → `awaiting_approval`)
+- `POST /nginx-revisions/:id/approve` (perm `approvals.decide`, **approver ≠ creator**, `X-Step-Up` required) body `{ planHash }` → must equal current planHash; approval single-use, expires in 60 min. Required when environment = production or app is `adopted` (not yet `managed`); otherwise `approval.required=false`. · `IMPLEMENTED`
+- `POST /nginx-revisions/:id/apply` (perm `nginx.write`; status must be `valid` (+ `approved` if required, unexpired, planHash unchanged); production requires `X-Step-Up`) → 202; job `nginx.apply` with `expectedSha256Before` = `beforeSha256` → `applied` | `apply_failed` (error code from agent) | `drift_blocked`. On `applied`, the application's `nginxFiles[].lastKnownSha256` are updated (so the next scan does not flag pPanel's own change as drift). · `IMPLEMENTED` (P3-T03 Center side)
+- `POST /nginx-revisions/:id/revert` (perm `nginx.write`, production `X-Step-Up`; status `applied`) → 202; job `nginx.revert` with `expectedCurrent` = after-sha256 → `reverted` | `drift_blocked` | `apply_failed`. · `IMPLEMENTED` (agent REVERT_FAILED_MANUAL_RECOVERY on apply/revert/validate → `requires_manual_recovery`)
+- `GET /applications/:id/nginx/revisions`, `GET /nginx-revisions/:id`, `POST /nginx-revisions/:id/cancel` (draft/valid/awaiting only). · `IMPLEMENTED` (cancel also allowed from `approved`)
+- Only one non-terminal revision per application (409 `REVISION_IN_PROGRESS`). · `IMPLEMENTED` (DB partial unique index)
+
+### 6.4 Drift (P3-T05)
+
+On each scan ingest, compare each file's sha256 with the previous scan and with `nginxFiles[].lastKnownSha256`. Differences not explained by an `applied`/`reverted` pPanel revision ⇒ `drift[]` entry `changedBy:"external"`, application `flags.driftDetected=true`, and any `draft|valid|approved` revision touching that file → `drift_blocked`. Creating or applying revisions on a drift-flagged app → 409 `DRIFT_REVIEW_REQUIRED` until `POST /applications/:id/drift/acknowledge` (perm `nginx.write`, records the new checksums as accepted baseline, audited). · `IMPLEMENTED` (P3-T05 Center side)

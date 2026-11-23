@@ -1,0 +1,15 @@
+{
+  "error": null,
+  "output": {
+    "valid": false,
+    "nginxTestOutput": "2026/11/23 03:15:57 [emerg] 1136#1136: unknown directive \"BROKEN_DIRECTIVE_P3\" in /etc/nginx/sites-enabled/01-static-multi.conf:14\nnginx: configuration file /etc/nginx/nginx.conf test failed",
+    "filesChecked": [
+      {
+        "path": "/etc/nginx/sites-available/01-static-multi.conf",
+        "sha256Before": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba",
+        "sha256After": "6afd4e074268be1e7df7674a7f5982c85b79b6c3152b7aaa00ceded14f832f99"
+      }
+    ]
+  },
+  "type": "nginx.validate"
+}

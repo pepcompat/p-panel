@@ -1,0 +1,17 @@
+{
+  "error": {
+    "code": "DRIFT_DETECTED",
+    "message": "1 file(s) differ from the revision's expected state; nothing changed",
+    "details": {
+      "files": [
+        {
+          "path": "/etc/nginx/sites-available/01-static-multi.conf",
+          "expected": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba",
+          "actual": "6610c6bbec8dd5821be0d70029eb86977ffc3c85b93ff39e7fa6319a0e5137e8"
+        }
+      ]
+    }
+  },
+  "output": null,
+  "type": "nginx.revert"
+}

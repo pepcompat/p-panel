@@ -64,6 +64,12 @@ export async function bootApp(overrides: Record<string, string> = {}): Promise<T
 }
 
 const TABLES = [
+  'nginx_revision_approvals',
+  'nginx_config_revisions',
+  'adoption_reviews',
+  'discovery_findings',
+  'applications',
+  'discovery_scans',
   'audit_events',
   'jobs',
   'agent_heartbeats',
@@ -103,6 +109,25 @@ export const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 export function totpNow(otpauthUrl: string): string {
   const secret = new URL(otpauthUrl).searchParams.get('secret')!;
   return authenticator.generate(secret);
+}
+
+/** Enrolls TOTP for the token's user and returns a fresh X-Step-Up token. */
+export async function stepUpToken(t: TestApp, accessToken: string): Promise<string> {
+  const setup = await t.http.post('/api/v1/auth/mfa/totp/setup').set(bearer(accessToken));
+  if (setup.status !== 200) throw new Error(`totp setup failed ${setup.status}`);
+  const url = setup.body.data.otpauthUrl as string;
+  const conf = await t.http
+    .post('/api/v1/auth/mfa/totp/confirm')
+    .set(bearer(accessToken))
+    .send({ code: totpNow(url) });
+  if (conf.status !== 200) throw new Error(`totp confirm failed ${conf.status}`);
+  await t.prisma.mfaFactor.updateMany({ data: { lastUsedStep: 0 } }); // next TOTP window
+  const su = await t.http
+    .post('/api/v1/auth/step-up')
+    .set(bearer(accessToken))
+    .send({ code: totpNow(url) });
+  if (su.status !== 200) throw new Error(`step-up failed ${su.status} ${JSON.stringify(su.body)}`);
+  return su.body.data.stepUpToken as string;
 }
 
 // ---------------------------------------------------------------- agent PKI helpers

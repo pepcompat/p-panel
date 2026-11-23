@@ -1,6 +1,24 @@
-import type { CreateEnrollmentInput, EnrollmentCreated, Server } from '@ppanel/shared-contracts';
+import type {
+  CreateEnrollmentInput,
+  EnrollmentCreated,
+  Job,
+  Server,
+} from '@ppanel/shared-contracts';
 import { api } from './index';
 import type { Query } from './client';
+import type {
+  Application,
+  DiscoveryFinding,
+  DiscoveryScan,
+  DiscoverySource,
+  ImportMode,
+  NginxFileContent,
+  NginxFilesResponse,
+  NginxRevision,
+  OwnershipChange,
+  OwnershipMode,
+  Postcheck,
+} from './p3-types';
 import type {
   AuditEvent,
   CreateRoleBindingInput,
@@ -74,4 +92,89 @@ export const usersApi = {
 
 export const auditApi = {
   list: (query?: Query) => api.list<AuditEvent>('/audit-events', { query }),
+};
+
+// ---------- P3: discovery, applications, Nginx revisions (API_CONTRACTS §6) ----------
+
+const enc = encodeURIComponent;
+const stepUpHeader = (token?: string) => (token ? { 'X-Step-Up': token } : undefined);
+
+export const discoveryApi = {
+  list: (query?: Query) =>
+    api.list<DiscoveryScan>('/discovery-scans', { query: { limit: MAX_LIMIT, ...query } }),
+  get: (id: string) => api.get<DiscoveryScan>(`/discovery-scans/${enc(id)}`),
+  findings: (id: string, query?: Query) =>
+    api.list<DiscoveryFinding>(`/discovery-scans/${enc(id)}/findings`, {
+      query: { limit: MAX_LIMIT, ...query },
+    }),
+  run: (serverId: string, sources?: DiscoverySource[]) =>
+    api.post<{ scanId: string; jobId: string }>(`/servers/${enc(serverId)}/discovery-scans`, {
+      sources,
+    }),
+  import: (scanId: string, findingIds: string[], mode: ImportMode) =>
+    api.post<{ applications: Application[] }>(`/discovery-scans/${enc(scanId)}/import`, {
+      findingIds,
+      mode,
+    }),
+};
+
+export const applicationsApi = {
+  list: (query?: Query) =>
+    api.list<Application>('/applications', { query: { limit: MAX_LIMIT, ...query } }),
+  get: (id: string) => api.get<Application>(`/applications/${enc(id)}`),
+  changeOwnership: (
+    app: Pick<Application, 'id' | 'version'>,
+    body: { toMode: OwnershipMode; reason: string; acknowledgeReasons?: boolean },
+    stepUpToken?: string,
+  ) =>
+    api.post<Application>(`/applications/${enc(app.id)}/ownership`, body, {
+      headers: { 'If-Match': String(app.version), ...stepUpHeader(stepUpToken) },
+    }),
+  ownershipHistory: (id: string) =>
+    api.list<OwnershipChange>(`/applications/${enc(id)}/ownership-history`),
+  acknowledgeDrift: (id: string) =>
+    api.post<Application>(`/applications/${enc(id)}/drift/acknowledge`),
+  /** 200 → files; 202 → job still running (caller polls again). */
+  async nginxFiles(id: string): Promise<NginxFilesResponse> {
+    const r = await api.request<{ files?: NginxFileContent[]; jobId?: string; status?: string }>(
+      'GET',
+      `/applications/${enc(id)}/nginx/files`,
+    );
+    if (r.status === 202 || r.data?.status === 'pending' || !r.data?.files)
+      return { state: 'pending', jobId: r.data?.jobId ?? '' };
+    return { state: 'ready', files: r.data.files };
+  },
+  revisions: (id: string) =>
+    api.list<NginxRevision>(`/applications/${enc(id)}/nginx/revisions`, {
+      query: { limit: MAX_LIMIT },
+    }),
+  createRevision: (
+    id: string,
+    body: { files: Array<{ path: string; content: string }>; postchecks?: Postcheck[] },
+  ) => api.post<NginxRevision>(`/applications/${enc(id)}/nginx/revisions`, body),
+};
+
+export const revisionsApi = {
+  get: (id: string) => api.get<NginxRevision>(`/nginx-revisions/${enc(id)}`),
+  validate: (id: string) => api.post<{ jobId: string }>(`/nginx-revisions/${enc(id)}/validate`),
+  approve: (id: string, planHash: string, stepUpToken?: string) =>
+    api.post<NginxRevision>(
+      `/nginx-revisions/${enc(id)}/approve`,
+      { planHash },
+      { headers: stepUpHeader(stepUpToken) },
+    ),
+  apply: (id: string, stepUpToken?: string) =>
+    api.post<{ jobId: string }>(`/nginx-revisions/${enc(id)}/apply`, undefined, {
+      headers: stepUpHeader(stepUpToken),
+    }),
+  revert: (id: string, stepUpToken?: string) =>
+    api.post<{ jobId: string }>(`/nginx-revisions/${enc(id)}/revert`, undefined, {
+      headers: stepUpHeader(stepUpToken),
+    }),
+  cancel: (id: string) => api.post<NginxRevision>(`/nginx-revisions/${enc(id)}/cancel`),
+};
+
+export const jobsApi = {
+  get: (serverId: string, jobId: string) =>
+    api.get<Job>(`/servers/${enc(serverId)}/jobs/${enc(jobId)}`),
 };

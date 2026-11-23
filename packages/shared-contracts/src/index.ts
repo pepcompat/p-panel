@@ -9,3 +9,4 @@ export * from './users';
 export * from './agent';
 export * from './audit';
 export * from './query';
+export * from './discovery';

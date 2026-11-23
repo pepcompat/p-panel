@@ -7,6 +7,7 @@ import {
 import { logger } from '../common/logger';
 import { PrismaService } from '../common/prisma.service';
 import { APP_CONFIG, type AppConfig } from '../config/config';
+import { JobHooks } from './job-hooks';
 import { JobsService } from './jobs.service';
 
 /** Periodic job-expiry sweep + bounded heartbeat retention. */
@@ -19,6 +20,7 @@ export class SweeperService implements OnApplicationBootstrap, OnApplicationShut
   constructor(
     private readonly jobs: JobsService,
     private readonly prisma: PrismaService,
+    private readonly hooks: JobHooks,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -37,6 +39,7 @@ export class SweeperService implements OnApplicationBootstrap, OnApplicationShut
     this.running = true;
     try {
       await this.jobs.sweep();
+      await this.hooks.reconcileAll();
       if (this.ticks++ % 12 === 0) await this.pruneHeartbeats();
     } catch (err) {
       logger.emit('error', 'sweeper tick failed', { err });

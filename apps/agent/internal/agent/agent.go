@@ -526,7 +526,7 @@ func (a *Agent) dispatch(ctx context.Context, g *jobs.Grant) {
 func (a *Agent) execute(h jobs.Handler, params any, g *jobs.Grant, log *slog.Logger) (res *jobs.Result) {
 	// Handlers are NOT tied to the agent lifecycle context: a reconnect or
 	// shutdown must not abort a half-done restart. Only the handler timeout applies.
-	ctx, cancel := context.WithTimeout(context.Background(), h.Timeout())
+	ctx, cancel := context.WithTimeout(jobs.WithJobID(context.Background(), g.JobID), h.Timeout())
 	defer cancel()
 	start := time.Now()
 	a.executed.Add(1)

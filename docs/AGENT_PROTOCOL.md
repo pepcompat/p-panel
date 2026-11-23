@@ -83,3 +83,46 @@ Exponential backoff 1 s → 60 s with jitter. Agent failure or Center outage **n
 ## Versioning
 
 Header `X-Agent-Protocol: 1`. Center rejects unknown major with 426 `AGENT_PROTOCOL_UNSUPPORTED`.
+
+## Nginx typed jobs (P3) — authoritative
+
+Schemas: `packages/shared-contracts/src/jobs.ts` (`nginx.read_files`, `nginx.validate`, `nginx.apply`, `nginx.revert`). The agent re-validates every field in Go (strict decode) — the Center's validation is not trusted.
+
+### Path policy (agent-enforced)
+
+- Path must match `^/etc/nginx/[A-Za-z0-9._/-]{1,200}$`, contain no `..` or `//`, and after `filepath.EvalSymlinks` of the **parent directory** still resolve under `/etc/nginx/`. The target itself must not be a symlink (sites-enabled symlinks are edited via their real path in sites-available; the agent rejects writing through a symlink with `PATH_NOT_ALLOWED`).
+- Creating a new file (`expectedSha256Before: null`) is allowed **only** under `/etc/nginx/ppanel-managed/` (directory created 0755 if absent). Editing an existing file anywhere under `/etc/nginx/` is allowed only if its current sha256 equals `expectedSha256Before`.
+- Max 256 KiB per file, max 20 files per job; content must be valid UTF-8 and must not contain NUL.
+- Optional agent config `nginx.allowedRoots` can narrow (never widen) the roots.
+
+### `nginx.read_files` (read-only, re-leasable)
+
+Output: `{ files: [{ path, exists, sha256|null, sizeBytes, content|null, isSymlink, resolvedPath }] }` (content omitted if > 256 KiB → `truncated: true`).
+
+### `nginx.validate` (mutating, dry-run, never reloads)
+
+1. Preflight every file (path policy + `expectedSha256Before`) → `DRIFT_DETECTED` with `details.files[{path, expected, actual}]` on mismatch; nothing written.
+2. Backup originals to `<stateDir>/nginx-backups/<jobId>/` (manifest.json with path, sha256, mode, uid, gid, existed).
+3. Atomic write (temp file in same dir + fsync + rename, preserve mode/owner; new files 0644).
+4. `nginx -t` (fixed argv, 30 s timeout, output capped 16 KiB).
+5. **Always** restore originals (delete created files) and verify restored sha256 == original. If restore fails → `REVERT_FAILED_MANUAL_RECOVERY` (critical).
+6. Output: `{ valid: bool, nginxTestOutput, filesChecked: [{path, sha256Before, sha256After}] }`. `valid:false` is a **succeeded** job with `valid:false` (the validation ran), not an error.
+
+The running nginx process is never signalled by validate. Window during which candidate files are on disk is bounded by the `nginx -t` duration; documented as a risk (another actor reloading nginx in that window would load the candidate).
+
+### `nginx.apply` (mutating)
+
+Steps 1–4 as validate (backup kept at `<stateDir>/nginx-backups/<revisionId>/`, retained for the last 20 revisions). Then:
+
+- `nginx -t` fails → restore, return error `NGINX_TEST_FAILED` (details.nginxTestOutput). No reload.
+- Reload: `systemctl reload nginx` when systemd is PID 1 and the unit is active; otherwise `nginx -s reload`. Fixed argv. Failure → restore + `nginx -t` + reload → `RELOAD_FAILED_REVERTED`.
+- Postchecks (after a 2 s settle): each probe is an HTTP(S) GET to **127.0.0.1** (port default 80/443) with `Host: <hostHeader>`, TLS verification off for loopback, SNI = hostHeader, 5 s timeout, no redirects followed. Also verify the nginx master PID is alive. Any failure → restore + `nginx -t` + reload → `POSTCHECK_FAILED_REVERTED` with per-probe results.
+- Success output: `{ applied: true, files: [{path, sha256Before, sha256After}], nginxTestOutput, reloadMethod, postchecks: [{hostHeader, path, status, ok}], backupId }`.
+
+### `nginx.revert` (mutating)
+
+Preflight: each `expectedCurrent[i].sha256` must equal what is on disk (null = must not exist) → else `DRIFT_DETECTED`. Backup for `revisionId` must exist → else `BACKUP_NOT_FOUND`. Restore → `nginx -t` (fail → put the pre-revert content back, `NGINX_TEST_FAILED`) → reload. Output like apply.
+
+### Concurrency
+
+The agent holds a process-wide mutex for all `nginx.*` mutating jobs. The Center also locks resource `nginx:<serverId>` (one in-flight mutating nginx job per server).

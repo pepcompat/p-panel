@@ -1,0 +1,26 @@
+{
+  "error": null,
+  "output": {
+    "files": [
+      {
+        "path": "/etc/nginx/sites-available/01-static-multi.conf",
+        "exists": true,
+        "sha256": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba",
+        "sizeBytes": 337,
+        "content": "# FIXTURE 01: static site, MULTIPLE server_name values on one block, shared include.\nserver {\n    listen 80;\n    server_name example.lab www.example.lab static.example.lab;\n    root /var/www/static;\n    index index.html;\n    include /etc/nginx/snippets/security-headers.conf;\n\n    location / {\n        try_files $uri $uri/ =404;\n    }\n}\n",
+        "isSymlink": false,
+        "resolvedPath": "/etc/nginx/sites-available/01-static-multi.conf"
+      },
+      {
+        "path": "/etc/nginx/sites-enabled/01-static-multi.conf",
+        "exists": true,
+        "sha256": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba",
+        "sizeBytes": 337,
+        "content": "# FIXTURE 01: static site, MULTIPLE server_name values on one block, shared include.\nserver {\n    listen 80;\n    server_name example.lab www.example.lab static.example.lab;\n    root /var/www/static;\n    index index.html;\n    include /etc/nginx/snippets/security-headers.conf;\n\n    location / {\n        try_files $uri $uri/ =404;\n    }\n}\n",
+        "isSymlink": true,
+        "resolvedPath": "/etc/nginx/sites-available/01-static-multi.conf"
+      }
+    ]
+  },
+  "type": "nginx.read_files"
+}

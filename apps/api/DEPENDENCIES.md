@@ -12,6 +12,7 @@ All versions are pinned exactly in `package.json` (validated 2026-11-17, Node 24
 | otplib                                                     | 12.0.1                     | TOTP (RFC 6238)                                                                                                     |
 | @peculiar/x509                                             | 1.14.3                     | internal ECDSA P-256 CA, CSR parsing/verification, cert issuance (Node WebCrypto)                                   |
 | zod                                                        | 3.25.76                    | DTO validation via shared-contracts schemas (same major as `@ppanel/shared-contracts`)                              |
+| diff                                                       | 8.0.4                      | unified diffs for Nginx revision drafts (P3.05; ships own types)                                                    |
 | cookie-parser                                              | 1.4.7                      | refresh-token cookie                                                                                                |
 | reflect-metadata                                           | 0.2.2 / rxjs 7.8.2         | Nest runtime peers                                                                                                  |
 | typescript                                                 | 5.9.3                      | typecheck only                                                                                                      |

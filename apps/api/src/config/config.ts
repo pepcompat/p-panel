@@ -36,6 +36,8 @@ const envSchema = z.object({
   COOKIE_SECURE: bool,
   PPANEL_AGENT_CERT_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   PPANEL_HEARTBEAT_KEEP: z.coerce.number().int().min(10).max(100_000).default(500),
+  /** Max time a request waits for an `nginx.read_files` job (GET files / create revision). */
+  PPANEL_NGINX_READ_WAIT_MS: z.coerce.number().int().min(0).max(60_000).default(20_000),
   PPANEL_TASK_LEASE_SEC: z.coerce.number().int().min(5).max(3600).default(60),
   PPANEL_TASK_RUNNING_LEASE_SEC: z.coerce.number().int().min(10).max(3600).default(120),
   PPANEL_SWEEP_INTERVAL_MS: z.coerce.number().int().min(100).max(600_000).default(5000),

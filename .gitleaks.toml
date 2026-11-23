@@ -1,0 +1,9 @@
+# gitleaks config: default rules plus a narrow allowlist for non-secret identifiers.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "pPanel non-secret identifiers"
+# Nginx server-block IDs produced by the agent's discovery scanner (srv_ + 12 hex), e.g. in mock data.
+regexes = ['''^srv_[0-9a-f]{12}$''']
+regexTarget = "secret"

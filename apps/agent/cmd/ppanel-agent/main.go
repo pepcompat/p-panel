@@ -29,6 +29,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
+	"github.com/ppanel/ppanel/apps/agent/internal/nginxops"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
 )
@@ -201,7 +202,14 @@ func cmdRun(args []string, stderr io.Writer) int {
 		SystemctlBinary: cfg.SystemctlBinary, PhpFpmPoolGlob: cfg.PhpFpmPoolGlob}
 	sampler := &metrics.Sampler{}
 	reg := jobs.NewRegistry()
-	handlers.RegisterAll(reg, &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet})
+	ngx, err := nginxops.New(nginxops.Options{Root: cfg.Nginx.Root, AllowedRoots: cfg.Nginx.AllowedRoots,
+		StateDir: cfg.StateDir, NginxBinary: cfg.NginxBinary, SystemctlBinary: cfg.SystemctlBinary,
+		Prefix: cfg.Nginx.Prefix, ConfFile: cfg.Nginx.ConfFile, Exec: execx.System{}})
+	if err != nil {
+		log.Error("nginx operations config invalid", "error", err.Error())
+		return 1
+	}
+	handlers.RegisterAll(reg, &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx})
 	a, err := agent.New(agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log})
 	if err != nil {
 		log.Error("agent init failed", "error", err.Error())

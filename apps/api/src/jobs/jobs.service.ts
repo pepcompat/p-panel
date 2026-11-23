@@ -25,17 +25,41 @@ import { currentRequestId } from '../common/request-context';
 import { Paginated } from '../common/envelope';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { ServersService } from '../servers/servers.service';
+import { type FinishedJob, JobHooks } from './job-hooks';
 import { JobNotifier } from './job-notifier';
 
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{8,128}$/;
 const TERMINAL: JobStatus[] = ['succeeded', 'failed', 'expired', 'cancelled'];
 export const MAX_TASKS_PER_POLL = 5;
 
+/** Job types that can only be created by the Center itself (revision workflow, §6.3) — never via POST /jobs. */
+export const RESTRICTED_JOB_TYPES: readonly JobType[] = [
+  'nginx.validate',
+  'nginx.apply',
+  'nginx.revert',
+];
+
 /** Mutating jobs lock a per-server resource so two never run concurrently on the same target. */
-export function resourceKeyFor(type: JobType, params: Record<string, unknown>): string | null {
+export function resourceKeyFor(
+  type: JobType,
+  params: Record<string, unknown>,
+  serverId?: string,
+): string | null {
   if (!JOB_TYPES[type].mutating) return null;
   if (type === 'service.restart') return `unit:${String(params.unit)}`;
+  // all mutating nginx jobs (validate writes candidate files too) share one lock per server
+  if (type.startsWith('nginx.')) return `nginx:${serverId ?? ''}`;
   return `type:${type}`;
+}
+
+export interface InternalJobInput {
+  serverId: string;
+  type: JobType;
+  params: Record<string, unknown>;
+  actorId: string;
+  ttlSec: number;
+  /** audit metadata (e.g. revisionId / scanId) */
+  metadata?: Record<string, unknown>;
 }
 
 export function toJob(r: JobRow): Job {
@@ -66,8 +90,60 @@ export class JobsService {
     private readonly audit: AuditService,
     private readonly auth: AuthService,
     private readonly notifier: JobNotifier,
+    private readonly hooks: JobHooks,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  /**
+   * Creates a typed job on behalf of a Center workflow (discovery, nginx revisions). The caller has
+   * already enforced permission/step-up/ownership. Runs inside the caller's transaction; the caller
+   * must call `notify(serverId)` after commit.
+   */
+  async createInternal(tx: Prisma.TransactionClient, input: InternalJobInput): Promise<JobRow> {
+    const def = JOB_TYPES[input.type];
+    const parsed = def.params.safeParse(input.params);
+    if (!parsed.success) throw AppError.validation(zodDetails(parsed.error), 'Invalid job params');
+    const params = parsed.data as Record<string, unknown>;
+    const id = uuidv7();
+    const row = await tx.job.create({
+      data: {
+        id,
+        serverId: input.serverId,
+        type: input.type,
+        params: params as Prisma.InputJsonValue,
+        status: 'queued',
+        mutating: def.mutating,
+        resourceKey: resourceKeyFor(input.type, params, input.serverId),
+        idempotencyKey: `internal:${id}`,
+        expiresAt: new Date(Date.now() + input.ttlSec * 1000),
+        actorId: input.actorId,
+        correlationId: currentRequestId() ?? id,
+      },
+    });
+    await this.audit.record(
+      {
+        actorId: input.actorId,
+        action: 'jobs.create',
+        targetType: 'job',
+        targetId: id,
+        result: 'success',
+        diff: { serverId: input.serverId, type: input.type, params },
+        metadata: { serverId: input.serverId, type: input.type, ...input.metadata },
+      },
+      tx,
+    );
+    return row;
+  }
+
+  notify(serverId: string): void {
+    this.notifier.notify(serverId);
+  }
+
+  /** Runs the completion hook for a terminal job (idempotent; used by result handling and reconcile). */
+  async dispatchFinished(job: FinishedJob): Promise<void> {
+    if (!this.isTerminal(job.status)) return;
+    await this.hooks.dispatch(job);
+  }
 
   // ------------------------------------------------------------------ user side
 
@@ -85,6 +161,13 @@ export class JobsService {
       });
     }
     const type = input.type;
+    if (RESTRICTED_JOB_TYPES.includes(type)) {
+      throw new AppError(
+        422,
+        ERROR_CODES.JOB_TYPE_RESTRICTED,
+        `${type} jobs are created only through the Nginx revision workflow`,
+      );
+    }
     const def = JOB_TYPES[type];
     const parsed = def.params.safeParse(input.params);
     if (!parsed.success) throw AppError.validation(zodDetails(parsed.error), 'Invalid job params');
@@ -127,7 +210,7 @@ export class JobsService {
             params: params as Prisma.InputJsonValue,
             status: 'queued',
             mutating: def.mutating,
-            resourceKey: resourceKeyFor(type, params),
+            resourceKey: resourceKeyFor(type, params, serverId),
             idempotencyKey,
             expiresAt: new Date(Date.now() + input.ttlSec * 1000),
             desiredVersion: input.desiredVersion ?? null,
@@ -226,6 +309,7 @@ export class JobsService {
       targetId: jobId,
       result: 'success',
     });
+    await this.dispatchFinished(row);
     return toJob(row);
   }
 
@@ -389,7 +473,11 @@ export class JobsService {
       );
       return 'ok' as const;
     });
-    if (outcome === 'ok') return { accepted: true };
+    if (outcome === 'ok') {
+      const row = await this.prisma.job.findUnique({ where: { id: jobId } });
+      if (row) await this.dispatchFinished(row);
+      return { accepted: true };
+    }
     if (outcome === 'expired') {
       logger.emit('warn', 'late result for expired job ignored', { jobId, serverId });
       throw AppError.conflict('Task lease or TTL expired', ERROR_CODES.TASK_EXPIRED);

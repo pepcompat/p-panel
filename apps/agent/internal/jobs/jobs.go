@@ -179,3 +179,17 @@ func DecodeStrict(raw json.RawMessage, dst any) error {
 	}
 	return nil
 }
+
+type jobIDKey struct{}
+
+// WithJobID attaches the executing grant's jobId to ctx (used by handlers that
+// key on-disk artifacts by job, e.g. nginx.validate backups).
+func WithJobID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, jobIDKey{}, id)
+}
+
+// JobID returns the jobId attached by WithJobID, or "".
+func JobID(ctx context.Context) string {
+	s, _ := ctx.Value(jobIDKey{}).(string)
+	return s
+}

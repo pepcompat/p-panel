@@ -90,6 +90,8 @@ type Duplicate struct {
 type FileInfo struct {
 	Path   string `json:"path"`
 	Sha256 string `json:"sha256"`
+	// ShaSource is "disk" (file bytes, same as nginx.read_files/apply) or "nginx-T" (dump text fallback).
+	ShaSource string `json:"shaSource,omitempty"`
 }
 
 // Report is the structured nginx discovery result.

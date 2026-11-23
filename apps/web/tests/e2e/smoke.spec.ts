@@ -64,10 +64,8 @@ test('enroll shows one-time token once', async ({ page }) => {
 });
 
 const PREVIEW_ROUTES = [
-  '/applications',
   '/deployments',
   '/approvals',
-  '/imports',
   '/network',
   '/firewall',
   '/ssh',
@@ -82,6 +80,7 @@ const PREVIEW_ROUTES = [
 ];
 
 test('every preview route renders with the preview banner and no page errors', async ({ page }) => {
+  test.setTimeout(180_000); // dev server compiles each route on first visit
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await signIn(page);
@@ -93,6 +92,8 @@ test('every preview route renders with the preview banner and no page errors', a
   }
   for (const r of [
     '/overview',
+    '/applications',
+    '/imports',
     '/settings/users',
     '/settings/audit',
     '/settings/security',

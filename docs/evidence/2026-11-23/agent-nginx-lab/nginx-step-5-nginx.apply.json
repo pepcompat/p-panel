@@ -1,0 +1,17 @@
+{
+  "error": {
+    "code": "DRIFT_DETECTED",
+    "message": "1 file(s) changed since the revision was prepared; nothing written",
+    "details": {
+      "files": [
+        {
+          "path": "/etc/nginx/sites-available/01-static-multi.conf",
+          "expected": "a03f2386ae06b21109577020844df367857b72c2fcce384c1896fed98a89c82b",
+          "actual": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba"
+        }
+      ]
+    }
+  },
+  "output": null,
+  "type": "nginx.apply"
+}

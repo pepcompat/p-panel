@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "BACKUP_NOT_FOUND",
+    "message": "no backup for revision cccccccc-0000-4000-8000-000000000001 on this agent"
+  },
+  "output": null,
+  "type": "nginx.revert"
+}

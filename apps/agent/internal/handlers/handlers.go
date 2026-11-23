@@ -1,12 +1,16 @@
 // Package handlers contains the allowlisted, typed job handlers:
-// inventory.collect, discovery.scan (read-only) and service.restart (mutating,
-// owned units only). There is no generic command handler by design.
+// inventory.collect, discovery.scan (read-only), service.restart (mutating,
+// owned units only) and the P3 nginx.* jobs (see nginx_jobs.go). There is no generic command handler by design.
 package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -19,6 +23,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/netaddr"
 	"github.com/ppanel/ppanel/apps/agent/internal/nginx"
+	"github.com/ppanel/ppanel/apps/agent/internal/nginxops"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
 )
 
@@ -28,6 +33,8 @@ type Deps struct {
 	Sampler *metrics.Sampler
 	// OwnedUnits returns the current owned-unit allowlist (re-read per job).
 	OwnedUnits func() (map[string]bool, error)
+	// Nginx runs the P3 nginx typed jobs (nil = jobs fail with NGINX_NOT_PRESENT).
+	Nginx *nginxops.Manager
 }
 
 // RegisterAll registers every allowlisted handler.
@@ -35,6 +42,10 @@ func RegisterAll(r *jobs.Registry, d *Deps) {
 	r.Register(&Inventory{d})
 	r.Register(&Discovery{d})
 	r.Register(&ServiceRestart{d})
+	r.Register(&NginxReadFiles{d})
+	r.Register(&NginxValidate{d})
+	r.Register(&NginxApply{d})
+	r.Register(&NginxRevert{d})
 }
 
 // ---------------- inventory.collect ----------------
@@ -192,7 +203,42 @@ func nginxDiscovery(ctx context.Context, d *Deps) section {
 		s.Data = map[string]any{"nginx": info}
 		return s
 	}
+	useDiskChecksums(rep.Files, readConfigFile)
 	return ok(map[string]any{"nginx": info, "report": rep})
+}
+
+// readConfigFile reads a config file for checksumming (follows symlinks, like nginx.read_files).
+var readConfigFile = func(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxChecksumBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxChecksumBytes {
+		return nil, fmt.Errorf("file larger than %d bytes", maxChecksumBytes)
+	}
+	return b, nil
+}
+
+const maxChecksumBytes = 4 << 20
+
+// useDiskChecksums replaces the `nginx -T` section checksum with the sha256 of the file on disk, so
+// scan checksums are directly comparable with nginx.read_files / nginx.apply (which hash file bytes).
+// The dump text can differ from the file (e.g. trailing newline), which would otherwise produce
+// false drift after every pPanel apply. Unreadable files keep the dump checksum, marked "nginx-T".
+func useDiskChecksums(files []nginx.FileInfo, read func(string) ([]byte, error)) {
+	for i := range files {
+		files[i].ShaSource = "nginx-T"
+		if b, err := read(files[i].Path); err == nil {
+			sum := sha256.Sum256(b)
+			files[i].Sha256 = hex.EncodeToString(sum[:])
+			files[i].ShaSource = "disk"
+		}
+	}
 }
 
 func truncate(s string, n int) string {

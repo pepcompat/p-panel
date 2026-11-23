@@ -27,6 +27,7 @@ import { OverviewTab } from './overview-tab';
 import { NetworkTab } from './network-tab';
 import { SettingsTab } from './settings-tab';
 import { ProposedTab } from './proposed-tab';
+import { ServerAppsTab } from '@/components/p3/server-apps-tab';
 import type { MessageKey } from '@/i18n/en';
 
 function Header({ server, now }: { server: Server; now: number }) {
@@ -179,9 +180,11 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
           {tab === 'overview' && <OverviewTab server={server} now={now} />}
           {tab === 'network' && <NetworkTab server={server} now={now} />}
           {tab === 'settings' && <SettingsTab server={server} />}
-          {tab !== 'overview' && tab !== 'network' && tab !== 'settings' && (
-            <ProposedTab server={server} tab={tab} now={now} />
-          )}
+          {tab === 'applications' && <ServerAppsTab server={server} />}
+          {tab !== 'overview' &&
+            tab !== 'network' &&
+            tab !== 'settings' &&
+            tab !== 'applications' && <ProposedTab server={server} tab={tab} now={now} />}
         </div>
       )}
     </div>

@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "PATH_NOT_ALLOWED",
+    "message": "creating /etc/nginx/conf.d/new.conf is not allowed: new files only under /etc/nginx/ppanel-managed/"
+  },
+  "output": null,
+  "type": "nginx.apply"
+}

@@ -1,0 +1,12 @@
+{
+  "error": {
+    "code": "NGINX_TEST_FAILED",
+    "message": "nginx -t rejected the candidate config; originals restored, no reload",
+    "details": {
+      "backupId": "aaaaaaaa-0000-4000-8000-000000000002",
+      "nginxTestOutput": "2026/11/23 03:15:57 [emerg] 1137#1137: unknown directive \"BROKEN_DIRECTIVE_P3\" in /etc/nginx/sites-enabled/01-static-multi.conf:14\nnginx: configuration file /etc/nginx/nginx.conf test failed"
+    }
+  },
+  "output": null,
+  "type": "nginx.apply"
+}

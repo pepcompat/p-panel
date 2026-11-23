@@ -52,6 +52,64 @@ type Config struct {
 	SystemctlBinary string `yaml:"systemctlBinary" json:"systemctlBinary"`
 	// PhpFpmPoolGlob is where PHP-FPM pool configs are read from.
 	PhpFpmPoolGlob string `yaml:"phpFpmPoolGlob" json:"phpFpmPoolGlob"`
+	// Nginx configures the P3 typed nginx jobs (read_files/validate/apply/revert).
+	Nginx NginxConfig `yaml:"nginx" json:"nginx"`
+}
+
+// NginxRoot is the only nginx config root a production agent manages.
+const NginxRoot = "/etc/nginx"
+
+// TestNginxRootEnv must be "1" for the agent to accept nginx.root other than
+// /etc/nginx (or nginx.prefix / nginx.confFile). It exists for unit/lab tests
+// only; production installs never set it.
+const TestNginxRootEnv = "PPANEL_AGENT_TEST_NGINX_ROOT"
+
+// NginxConfig is the `nginx:` config section.
+type NginxConfig struct {
+	// Root is the physical directory holding the nginx config (default /etc/nginx).
+	// Job paths are always expressed as /etc/nginx/...; a non-default root is only
+	// accepted when PPANEL_AGENT_TEST_NGINX_ROOT=1 (tests).
+	Root string `yaml:"root" json:"root"`
+	// AllowedRoots optionally NARROWS the editable/readable paths to these
+	// /etc/nginx/... prefixes (directories). Empty = all of /etc/nginx.
+	AllowedRoots []string `yaml:"allowedRoots" json:"allowedRoots"`
+	// Prefix / ConfFile are passed to nginx as -p / -c (test builds only, see TestNginxRootEnv).
+	Prefix   string `yaml:"prefix" json:"prefix"`
+	ConfFile string `yaml:"confFile" json:"confFile"`
+}
+
+// NginxTestOverridesAllowed reports whether test-only nginx overrides are enabled.
+func NginxTestOverridesAllowed() bool { return os.Getenv(TestNginxRootEnv) == "1" }
+
+var nginxPathRe = regexp.MustCompile(`^/etc/nginx/[A-Za-z0-9._/-]{1,200}$`)
+
+// ValidateNginx checks the nginx section (shared by Config.Validate and nginxops.New).
+func (n *NginxConfig) ValidateNginx() []string {
+	var errs []string
+	if n.Root == "" {
+		n.Root = NginxRoot
+	}
+	if !filepath.IsAbs(n.Root) || filepath.Clean(n.Root) != n.Root {
+		errs = append(errs, "nginx.root must be a clean absolute path")
+	} else if n.Root != NginxRoot && !NginxTestOverridesAllowed() {
+		errs = append(errs, "nginx.root must be "+NginxRoot+" (other roots require "+TestNginxRootEnv+"=1, tests only)")
+	}
+	for name, p := range map[string]string{"nginx.prefix": n.Prefix, "nginx.confFile": n.ConfFile} {
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) || filepath.Clean(p) != p {
+			errs = append(errs, name+" must be a clean absolute path")
+		} else if !NginxTestOverridesAllowed() {
+			errs = append(errs, name+" is only accepted with "+TestNginxRootEnv+"=1 (tests only)")
+		}
+	}
+	for _, r := range n.AllowedRoots {
+		if !nginxPathRe.MatchString(r) || filepath.Clean(r) != r || strings.Contains(r, "//") {
+			errs = append(errs, fmt.Sprintf("nginx.allowedRoots: %q must be a clean directory under /etc/nginx/", r))
+		}
+	}
+	return errs
 }
 
 // Default returns a config populated with defaults.
@@ -132,6 +190,7 @@ func (c *Config) Validate() error {
 			errs = append(errs, name+" must be a clean absolute path")
 		}
 	}
+	errs = append(errs, c.Nginx.ValidateNginx()...)
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))
 	}

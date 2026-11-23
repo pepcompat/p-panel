@@ -81,6 +81,8 @@ jobs:
           SHADOW_DATABASE_URL="postgresql://ppanel:ppanel_ci_only@127.0.0.1:5432/ppanel_shadow" \
             scripts/check-migration-drift.sh
       - name: Integration tests (API against service Postgres/Redis)
+        env:
+          TEST_DATABASE_BASE: postgresql://ppanel:ppanel_ci_only@127.0.0.1:5432
         run: pnpm test:integration
 
   go:

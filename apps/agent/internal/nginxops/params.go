@@ -20,11 +20,14 @@ import (
 
 // Contract constants (packages/shared-contracts/src/jobs.ts).
 const (
-	LogicalRoot   = "/etc/nginx"
-	ManagedDir    = "/etc/nginx/ppanel-managed"
-	MaxFileBytes  = 262144
-	MaxFiles      = 20
-	MaxPostchecks = 10
+	LogicalRoot = "/etc/nginx"
+	ManagedDir  = "/etc/nginx/ppanel-managed"
+	// ManagedIncludeFile is the ONE file outside ManagedDir that may be created
+	// ("enable managed routing": `include /etc/nginx/ppanel-managed/*/*.conf;`).
+	ManagedIncludeFile = "/etc/nginx/conf.d/ppanel-managed.conf"
+	MaxFileBytes       = 262144
+	MaxFiles           = 20
+	MaxPostchecks      = 10
 )
 
 // Error codes (NGINX_ERROR_CODES).
@@ -69,6 +72,12 @@ func ValidPath(p string) error {
 		return pathErr("path %q is not canonical", p)
 	}
 	return nil
+}
+
+// CreatableLogical is the lexical creation rule: new files only under
+// ManagedDir, plus exactly ManagedIncludeFile.
+func CreatableLogical(p string) bool {
+	return strings.HasPrefix(p, ManagedDir+"/") || p == ManagedIncludeFile
 }
 
 // ValidContent enforces size / UTF-8 / NUL rules for new file content.
@@ -181,8 +190,8 @@ func decodeFiles(ws []fileChangeWire) ([]FileChange, error) {
 		if err := ValidContent(*w.Path, *w.Content); err != nil {
 			return nil, err
 		}
-		if sha == nil && !strings.HasPrefix(*w.Path, ManagedDir+"/") {
-			return nil, pathErr("creating %s is not allowed: new files only under %s/", *w.Path, ManagedDir)
+		if sha == nil && !CreatableLogical(*w.Path) {
+			return nil, pathErr("creating %s is not allowed: new files only under %s/ (or %s)", *w.Path, ManagedDir, ManagedIncludeFile)
 		}
 		out = append(out, FileChange{Path: *w.Path, ExpectedSha256Before: sha, Content: *w.Content})
 	}

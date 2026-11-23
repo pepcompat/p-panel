@@ -26,14 +26,12 @@ export const NAV: NavItem[] = [
     href: '/deployments',
     label: 'nav.deployments',
     section: 'nav.section.operate',
-    preview: true,
   },
   {
     id: 'approvals',
     href: '/approvals',
     label: 'nav.approvals',
     section: 'nav.section.operate',
-    preview: true,
   },
   {
     id: 'imports',

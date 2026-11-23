@@ -51,9 +51,9 @@ func (e *Env) proc() string {
 // Capabilities returns the subset of docker|nginx|systemd|php-fpm present.
 func (e *Env) Capabilities() []string {
 	caps := []string{}
-	if e.Docker != nil && e.Docker.Accessible() {
-		caps = append(caps, "docker")
-	} else if _, ok := execx.Find("docker", ""); ok {
+	// docker only when the Engine API actually answers GET /_ping (a socket file
+	// or a docker CLI binary alone is not a usable capability).
+	if e.Docker != nil && e.Docker.Accessible() && e.Docker.Ping(context.Background()) {
 		caps = append(caps, "docker")
 	}
 	if _, ok := e.nginx(); ok {

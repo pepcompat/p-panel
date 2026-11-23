@@ -21,6 +21,7 @@ export type {
   ApplicationKind as AppKind,
   NginxRevisionStatus as RevisionStatus,
 } from '@ppanel/shared-contracts';
+import type { ContainerSpec } from './p4-types';
 import type {
   NginxRevisionStatus,
   OwnershipMode as OM,
@@ -44,7 +45,9 @@ export const FINDING_KINDS: FK[] = [
 export const OWNERSHIP_ORDER: OM[] = ['discovered', 'observed', 'adopted', 'managed'];
 export type ImportMode = Extract<OM, 'discovered' | 'observed'>;
 
-export type Application = SharedApplication & {
+/** Application read model (`container` present iff kind === 'container', §7.1). */
+export type Application = Omit<SharedApplication, 'container'> & {
+  container?: ContainerSpec | null;
   /** web-requested: display name of the server. */
   serverName?: string;
 };

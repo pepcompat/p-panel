@@ -134,14 +134,16 @@ model Server {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  group        ServerGroup?       @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  addresses    ServerAddress[]
-  certificates AgentCertificate[]
-  heartbeats   AgentHeartbeat[]
-  capabilities ServerCapability[]
-  jobs         Job[]
-  scans        DiscoveryScan[]
-  applications Application[]
+  group           ServerGroup?         @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  addresses       ServerAddress[]
+  certificates    AgentCertificate[]
+  heartbeats      AgentHeartbeat[]
+  capabilities    ServerCapability[]
+  jobs            Job[]
+  scans           DiscoveryScan[]
+  applications    Application[]
+  managedRouting  ManagedRouting?
+  portAllocations HostPortAllocation[]
 
   @@index([environment])
   @@index([lastHeartbeatAt])
@@ -243,29 +245,31 @@ model CaKey {
 }
 
 model Job {
-  id             String    @id @db.Uuid
-  serverId       String    @map("server_id") @db.Uuid
-  type           String
-  params         Json      @default("{}")
-  status         String    @default("queued")
-  mutating       Boolean
+  id               String    @id @db.Uuid
+  serverId         String    @map("server_id") @db.Uuid
+  type             String
+  params           Json      @default("{}")
+  status           String    @default("queued")
+  mutating         Boolean
   /// per-server resource lock key for mutating jobs (e.g. "unit:nginx.service")
-  resourceKey    String?   @map("resource_key")
-  idempotencyKey String    @map("idempotency_key")
-  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(3)
-  leaseUntil     DateTime? @map("lease_until") @db.Timestamptz(3)
-  leaseTokenHash String?   @map("lease_token_hash")
-  leasedAt       DateTime? @map("leased_at") @db.Timestamptz(3)
-  startedAt      DateTime? @map("started_at") @db.Timestamptz(3)
-  finishedAt     DateTime? @map("finished_at") @db.Timestamptz(3)
-  attempt        Int       @default(0)
-  desiredVersion Int?      @map("desired_version")
-  actorId        String?   @map("actor_id") @db.Uuid
-  correlationId  String    @map("correlation_id")
-  result         Json?
-  error          Json?
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  resourceKey      String?   @map("resource_key")
+  idempotencyKey   String    @map("idempotency_key")
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(3)
+  leaseUntil       DateTime? @map("lease_until") @db.Timestamptz(3)
+  leaseTokenHash   String?   @map("lease_token_hash")
+  leasedAt         DateTime? @map("leased_at") @db.Timestamptz(3)
+  startedAt        DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime? @map("finished_at") @db.Timestamptz(3)
+  attempt          Int       @default(0)
+  desiredVersion   Int?      @map("desired_version")
+  actorId          String?   @map("actor_id") @db.Uuid
+  correlationId    String    @map("correlation_id")
+  result           Json?
+  error            Json?
+  /// P4: set when the agent fetched this job's secrets (fetch-once, container.run_candidate only)
+  secretsFetchedAt DateTime? @map("secrets_fetched_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
 
@@ -359,7 +363,7 @@ model Application {
   id                       String   @id @db.Uuid
   serverId                 String   @map("server_id") @db.Uuid
   name                     String
-  kind                     String // nginx_static | nginx_php | nginx_proxy | unknown
+  kind                     String // nginx_static | nginx_php | nginx_proxy | unknown | container
   domains                  String[] @default([])
   ownershipMode            String   @default("observed") @map("ownership_mode")
   flagUnsupported          Boolean  @default(false) @map("flag_unsupported")
@@ -378,10 +382,14 @@ model Application {
   createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  server    Server                @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  findings  DiscoveryFinding[]
-  reviews   AdoptionReview[]
-  revisions NginxConfigRevision[]
+  server             Server                @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  findings           DiscoveryFinding[]
+  reviews            AdoptionReview[]
+  revisions          NginxConfigRevision[]
+  container          ContainerApp?
+  secrets            Secret[]
+  deployments        Deployment[]
+  autoDeployPolicies AutoDeployPolicy[]
 
   @@unique([serverId, sourceFindingFingerprint])
   @@unique([serverId, name])
@@ -451,4 +459,229 @@ model NginxRevisionApproval {
 
   @@index([revisionId, approvedAt])
   @@map("nginx_revision_approvals")
+}
+
+// ---------------------------------------------------------------------------
+// P4a — container applications, secrets, deployments, managed routing, webhooks
+// ---------------------------------------------------------------------------
+
+/// 1:1 extension of `applications` for kind = container (ownership managed, source of truth = pPanel).
+model ContainerApp {
+  applicationId        String   @id @map("application_id") @db.Uuid
+  containerPort        Int      @map("container_port")
+  healthcheck          Json
+  resources            Json
+  /// plain, non-secret env { KEY: value }
+  env                  Json     @default("{}")
+  /// declared secret keys (values live in `secrets`)
+  secretKeys           String[] @default([]) @map("secret_keys")
+  volumes              Json     @default("[]")
+  tls                  Json?
+  currentDeploymentId  String?  @map("current_deployment_id") @db.Uuid
+  previousDeploymentId String?  @map("previous_deployment_id") @db.Uuid
+  /// sha256 of the route.conf content pPanel last applied (drift guard for the next switch)
+  routeSha256          String?  @map("route_sha256")
+  createdBy            String   @map("created_by") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("container_apps")
+}
+
+/// AES-256-GCM (PPANEL_MASTER_KEY, AAD = applicationId + ":" + key). Values are never returned.
+model Secret {
+  id             String   @id @db.Uuid
+  applicationId  String   @map("application_id") @db.Uuid
+  key            String
+  valueEncrypted String   @map("value_encrypted")
+  version        Int      @default(1)
+  createdBy      String   @map("created_by") @db.Uuid
+  updatedBy      String   @map("updated_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, key])
+  @@map("secrets")
+}
+
+model Deployment {
+  id                     String    @id @db.Uuid
+  applicationId          String    @map("application_id") @db.Uuid
+  serverId               String    @map("server_id") @db.Uuid
+  number                 Int
+  trigger                String // manual | webhook | rollback | redeploy
+  image                  String
+  sourceRef              Json?     @map("source_ref")
+  reason                 String?
+  status                 String
+  preflight              Json      @default("[]")
+  containerName          String?   @map("container_name")
+  hostPort               Int?      @map("host_port")
+  /// set when the agent confirmed container.remove (or the candidate was removed by the agent)
+  containerRemovedAt     DateTime? @map("container_removed_at") @db.Timestamptz(3)
+  previousDeploymentId   String?   @map("previous_deployment_id") @db.Uuid
+  rollbackOfDeploymentId String?   @map("rollback_of_deployment_id") @db.Uuid
+  planHash               String    @map("plan_hash")
+  approvalRequired       Boolean   @map("approval_required")
+  idempotencyKey         String?   @map("idempotency_key")
+  /// commit SHA for webhook dedupe (one deployment per commit per app)
+  commitSha              String?   @map("commit_sha")
+  webhookDeliveryId      String?   @map("webhook_delivery_id") @db.Uuid
+  createdBy              String?   @map("created_by") @db.Uuid
+  error                  Json?
+  version                Int       @default(1)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  application Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  steps       DeploymentStep[]
+
+  @@unique([applicationId, number])
+  @@unique([applicationId, idempotencyKey])
+  @@index([serverId, status])
+  @@index([status, updatedAt])
+  @@index([applicationId, commitSha])
+  @@map("deployments")
+}
+
+model DeploymentStep {
+  id           String    @id @db.Uuid
+  deploymentId String    @map("deployment_id") @db.Uuid
+  seq          Int
+  name         String
+  status       String    @default("pending")
+  jobId        String?   @map("job_id") @db.Uuid
+  startedAt    DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(3)
+  message      String?
+  errorCode    String?   @map("error_code")
+  logTail      String[]  @default([]) @map("log_tail")
+  /// step-specific data (e.g. target container for prune/cleanup)
+  data         Json      @default("{}")
+
+  deployment Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@unique([deploymentId, seq])
+  @@index([jobId])
+  @@index([status])
+  @@map("deployment_steps")
+}
+
+/// Single-use, planHash-bound, expiring approval for deployments and managed-routing bootstrap.
+model OperationApproval {
+  id            String    @id @db.Uuid
+  subjectType   String    @map("subject_type") // deployment | managed_routing
+  subjectId     String    @map("subject_id") @db.Uuid
+  approverId    String    @map("approver_id") @db.Uuid
+  planHash      String    @map("plan_hash")
+  approvedAt    DateTime  @default(now()) @map("approved_at") @db.Timestamptz(3)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(3)
+  usedByJobId   String?   @map("used_by_job_id") @db.Uuid
+  invalidatedAt DateTime? @map("invalidated_at") @db.Timestamptz(3)
+
+  @@index([subjectType, subjectId, approvedAt])
+  @@map("operation_approvals")
+}
+
+/// Per-server managed routing bootstrap (/etc/nginx/conf.d/ppanel-managed.conf).
+model ManagedRouting {
+  serverId         String   @id @map("server_id") @db.Uuid
+  status           String // awaiting_approval | applying | enabled | failed | requires_manual_recovery
+  /// id used as nginx revisionId (agent backup key)
+  revisionId       String   @map("revision_id") @db.Uuid
+  planHash         String   @map("plan_hash")
+  approvalRequired Boolean  @map("approval_required")
+  applyJobId       String?  @map("apply_job_id") @db.Uuid
+  error            Json?
+  createdBy        String   @map("created_by") @db.Uuid
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@map("managed_routing")
+}
+
+/// Host ports (127.0.0.1, 20000–29999) reserved for managed containers; row exists while allocated.
+model HostPortAllocation {
+  serverId      String   @map("server_id") @db.Uuid
+  port          Int
+  applicationId String?  @map("application_id") @db.Uuid
+  deploymentId  String?  @map("deployment_id") @db.Uuid
+  containerName String?  @map("container_name")
+  /// container | external_in_use (agent reported PORT_IN_USE)
+  reason        String   @default("container")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@id([serverId, port])
+  @@index([deploymentId])
+  @@map("host_port_allocations")
+}
+
+model Integration {
+  id               String   @id @db.Uuid
+  kind             String   @default("github")
+  name             String
+  /// AES-256-GCM (AAD = "integration:" + id)
+  webhookSecretEnc String   @map("webhook_secret_enc")
+  enabled          Boolean  @default(true)
+  createdBy        String   @map("created_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  deliveries WebhookDelivery[]
+  policies   AutoDeployPolicy[]
+
+  @@map("integrations")
+}
+
+/// Only fields needed for audit/dedupe are stored — never the raw payload.
+model WebhookDelivery {
+  id            String   @id @db.Uuid
+  integrationId String   @map("integration_id") @db.Uuid
+  deliveryId    String   @map("delivery_id")
+  event         String
+  repo          String?
+  ref           String?
+  after         String?
+  signatureOk   Boolean  @map("signature_ok")
+  result        String // deployed | awaiting_approval | ignored | failed
+  reasons       String[] @default([])
+  deploymentIds String[] @default([]) @map("deployment_ids")
+  receivedAt    DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, deliveryId])
+  @@index([integrationId, receivedAt])
+  @@map("webhook_deliveries")
+}
+
+model AutoDeployPolicy {
+  id            String   @id @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  integrationId String   @map("integration_id") @db.Uuid
+  repo          String
+  branches      String[]
+  imageTemplate String   @map("image_template")
+  enabled       Boolean  @default(true)
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, integrationId, repo])
+  @@index([integrationId, repo])
+  @@map("auto_deploy_policies")
 }

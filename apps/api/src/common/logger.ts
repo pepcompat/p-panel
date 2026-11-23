@@ -47,6 +47,43 @@ export function redact(value: unknown, depth = 0): unknown {
   return out;
 }
 
+/** Shortest secret value that is replaced verbatim (shorter values would shred unrelated text). */
+export const MIN_KNOWN_SECRET_LEN = 4;
+
+/**
+ * Redacts *known* secret values (e.g. an application's decrypted env secrets) wherever they appear in
+ * strings, object keys excluded, recursively. Used for `container.logs` output and job results.
+ */
+export function redactKnownValues<T>(value: T, secrets: readonly string[], depth = 0): T {
+  const list = [...new Set(secrets.filter((s) => s.length >= MIN_KNOWN_SECRET_LEN))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (list.length === 0) return value;
+  const scrub = (v: unknown, d: number): unknown => {
+    if (d > 12) return v;
+    if (typeof v === 'string') {
+      let out = v;
+      for (const s of list) if (out.includes(s)) out = out.split(s).join('[REDACTED]');
+      return out;
+    }
+    if (Array.isArray(v)) return v.map((x) => scrub(x, d + 1));
+    if (v !== null && typeof v === 'object') {
+      const o: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) o[k] = scrub(x, d + 1);
+      return o;
+    }
+    return v;
+  };
+  return scrub(value, depth) as T;
+}
+
+/** True when any known secret value occurs anywhere in `value` (serialized). */
+export function containsKnownValue(value: unknown, secrets: readonly string[]): boolean {
+  return (
+    JSON.stringify(redactKnownValues(value ?? null, secrets)) !== JSON.stringify(value ?? null)
+  );
+}
+
 export interface LogSink {
   write(line: string): void;
 }

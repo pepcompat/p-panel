@@ -20,6 +20,7 @@ import {
 import { seedAudit, seedServers, seedUsers, type MockUser } from './seed';
 import type { AuditEvent } from '@/lib/api/types';
 import { registerP3Routes, resetP3State } from './p3-routes';
+import { registerP4Routes, resetP4State } from './p4-routes';
 
 const SESSION_KEY = 'ppanel.mock.session';
 const NOT_BOOTSTRAPPED_KEY = 'ppanel.mock.notBootstrapped';
@@ -58,6 +59,7 @@ function db(): State {
 export function resetMockState() {
   state = null;
   resetP3State();
+  resetP4State();
   safeSession()?.removeItem(SESSION_KEY);
 }
 
@@ -565,7 +567,7 @@ on('GET', '/audit-events', ({ req, url, requestId }) => {
 });
 
 // ---------- P3: discovery / applications / nginx revisions ----------
-registerP3Routes({
+const p3ctx: Parameters<typeof registerP3Routes>[0] = {
   on,
   ok,
   HttpError,
@@ -582,7 +584,10 @@ registerP3Routes({
     audit(db().users.find((x) => x.id === u.id) ?? null, action, s, result, requestId),
   rid,
   paginate,
-});
+};
+registerP3Routes(p3ctx);
+// ---------- P4a: container apps / deployments / secrets / webhooks ----------
+registerP4Routes(p3ctx);
 
 /** fetch-compatible entry point. */
 export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

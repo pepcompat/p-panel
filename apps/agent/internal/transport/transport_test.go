@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -43,5 +44,36 @@ func TestEnvelopeDecodeAndErrors(t *testing.T) {
 	}
 	if err := c.Do(context.Background(), "GET", "/noenv", nil, nil); Code(err) != "HTTP_502" {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestFetchJobSecretsOnce(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var b map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		if r.Method != http.MethodPost || r.URL.Path != "/agent/v1/tasks/job-1/secrets" || b["leaseToken"] != "lt" {
+			w.WriteHeader(400)
+			return
+		}
+		if calls > 1 {
+			w.WriteHeader(409)
+			w.Write([]byte(`{"error":{"code":"SECRETS_ALREADY_FETCHED","message":"already"}}`))
+			return
+		}
+		w.Write([]byte(`{"success":true,"statusCode":0,"data":{"env":{"APP_SECRET":"v"},"registryAuth":{"username":"u","password":"p","serveraddress":"r:5000"}},"meta":{"requestId":"x"}}`))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	s, err := c.FetchJobSecrets(context.Background(), "job-1", "lt")
+	if err != nil || s.Env["APP_SECRET"] != "v" || s.RegistryAuth == nil || s.RegistryAuth.ServerAddress != "r:5000" {
+		t.Fatalf("%+v %v", s, err)
+	}
+	if _, err := c.FetchJobSecrets(context.Background(), "job-1", "lt"); Code(err) != "SECRETS_ALREADY_FETCHED" || !IsStatus(err, 409) {
+		t.Fatalf("second fetch: %v", err)
+	}
+	if _, err := c.FetchJobSecrets(context.Background(), "", "lt"); err == nil {
+		t.Fatal("missing jobId accepted")
 	}
 }

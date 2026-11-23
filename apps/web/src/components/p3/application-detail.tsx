@@ -22,6 +22,16 @@ import { useSetPageEnv } from '@/components/shell/page-env';
 import { FlagBadges, OwnershipBadge, Sha } from './bits';
 import { NginxTab } from './nginx-tab';
 import { OwnershipHistory, OwnershipPanel } from './ownership';
+import {
+  AppDeploymentsTab,
+  AutoDeploySettings,
+  CurrentVersionLine,
+  EnvSecretsTab,
+  LifecyclePanel,
+  LogsTab,
+} from '@/components/p4/app-tabs';
+import { GatedButton } from '@/components/ui/gated-button';
+import { useRouter } from 'next/navigation';
 import type { MessageKey } from '@/i18n/en';
 
 export const APP_TABS = [
@@ -38,6 +48,18 @@ export const APP_TABS = [
 ] as const;
 export type AppTab = (typeof APP_TABS)[number];
 export const REAL_APP_TABS: readonly AppTab[] = ['overview', 'nginx', 'ownership'];
+/** Container apps (P4a) additionally have real deployments / env / logs / settings tabs. */
+export const REAL_CONTAINER_TABS: readonly AppTab[] = [
+  'overview',
+  'nginx',
+  'ownership',
+  'deployments',
+  'env',
+  'logs',
+  'settings',
+];
+export const realTabsFor = (app: Pick<Application, 'kind'>) =>
+  app.kind === 'container' ? REAL_CONTAINER_TABS : REAL_APP_TABS;
 export const isAppTab = (v: string): v is AppTab => (APP_TABS as readonly string[]).includes(v);
 
 function OverviewTab({ app }: { app: Application }) {
@@ -110,7 +132,7 @@ function OverviewTab({ app }: { app: Application }) {
           <p className="m-0 text-[12px] text-fg-muted">{t('app.flagsNote')}</p>
         </Card>
       </div>
-      <OwnershipPanel app={app} />
+      {app.kind === 'container' ? <LifecyclePanel app={app} /> : <OwnershipPanel app={app} />}
     </div>
   );
 }
@@ -119,7 +141,9 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
   const { t } = useI18n();
   const q = useApplication(id);
   const app = q.data;
+  const router = useRouter();
   useSetPageEnv(app?.environment);
+  const realTabs = app ? realTabsFor(app) : REAL_APP_TABS;
 
   let body: React.ReactNode = null;
   if (q.isPending) {
@@ -161,7 +185,23 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
               <EnvBadge env={app.environment} label={t(envBadgeKey(app.environment))} />
               <OwnershipBadge mode={app.ownershipMode} />
               <FlagBadges flags={app.flags} />
+              {app.kind === 'container' && (
+                <>
+                  <span className="flex-1" />
+                  <GatedButton
+                    variant="primary"
+                    perm="apps.deploy"
+                    action="deploy"
+                    allowedActions={app.allowedActions}
+                    onClick={() => router.push(`/deployments/new?app=${app.id}`)}
+                    data-testid="app-deploy"
+                  >
+                    {t('life.deployNew')}
+                  </GatedButton>
+                </>
+              )}
             </div>
+            {app.kind === 'container' && <CurrentVersionLine app={app} />}
             <div className="text-[13px] text-fg-muted">
               {t(`apps.kind.${app.kind}` as MessageKey)} ·{' '}
               {app.serverName ?? app.serverId.slice(0, 8)} ·{' '}
@@ -195,7 +235,7 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
                     )}
                   >
                     {t(`app.tab.${k}` as MessageKey)}
-                    {!REAL_APP_TABS.includes(k) && (
+                    {!realTabs.includes(k) && (
                       <OutlineTag className="text-[9.5px]">{t('nav.preview')}</OutlineTag>
                     )}
                   </Link>
@@ -216,7 +256,11 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
               <OwnershipHistory app={app} />
             </div>
           )}
-          {!REAL_APP_TABS.includes(tab) && <ProposedBanner body={t('app.proposedTab')} />}
+          {app.kind === 'container' && tab === 'deployments' && <AppDeploymentsTab app={app} />}
+          {app.kind === 'container' && tab === 'env' && <EnvSecretsTab app={app} />}
+          {app.kind === 'container' && tab === 'logs' && <LogsTab app={app} />}
+          {app.kind === 'container' && tab === 'settings' && <AutoDeploySettings app={app} />}
+          {!realTabs.includes(tab) && <ProposedBanner body={t('app.proposedTab')} />}
         </div>
       )}
     </div>

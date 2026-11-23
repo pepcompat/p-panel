@@ -22,6 +22,7 @@ import (
 
 	"github.com/ppanel/ppanel/apps/agent/internal/agent"
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
+	"github.com/ppanel/ppanel/apps/agent/internal/containerops"
 	"github.com/ppanel/ppanel/apps/agent/internal/docker"
 	"github.com/ppanel/ppanel/apps/agent/internal/enroll"
 	"github.com/ppanel/ppanel/apps/agent/internal/execx"
@@ -31,6 +32,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/nginxops"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
+	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
 )
 
@@ -209,8 +211,13 @@ func cmdRun(args []string, stderr io.Writer) int {
 		log.Error("nginx operations config invalid", "error", err.Error())
 		return 1
 	}
-	handlers.RegisterAll(reg, &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx})
-	a, err := agent.New(agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log})
+	// container.* jobs: the ONLY user of the write-capable Engine client; the secrets
+	// channel is wired once the agent (mTLS gateway client) exists.
+	var a *agent.Agent
+	ctr := containerops.New(containerops.Options{Engine: docker.NewEngine(cfg.DockerSocket), Log: log.With("component", "containers"),
+		Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return a.FetchJobSecrets(ctx) }})
+	handlers.RegisterAll(reg, &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx, Containers: ctr})
+	a, err = agent.New(agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log})
 	if err != nil {
 		log.Error("agent init failed", "error", err.Error())
 		return 1

@@ -18,6 +18,14 @@ import { DiscoveryService } from './discovery/discovery.service';
 import { NginxRevisionsController } from './nginx/nginx-revisions.controller';
 import { NginxRevisionsService } from './nginx/nginx-revisions.service';
 import { JobHooks } from './jobs/job-hooks';
+import { ContainerAppsService } from './deploy/container-apps.service';
+import { DeployController, IntegrationsController } from './deploy/deploy.controller';
+import { DeploymentsService } from './deploy/deployments.service';
+import { ManagedRoutingService } from './deploy/managed-routing.service';
+import { PreflightService } from './deploy/preflight.service';
+import { RegistryClient } from './deploy/registry.client';
+import { SecretsService } from './deploy/secrets.service';
+import { WebhooksService } from './deploy/webhooks.service';
 import { EnvelopeInterceptor } from './common/envelope';
 import { AllExceptionsFilter } from './common/exception.filter';
 import { PrismaService } from './common/prisma.service';
@@ -57,6 +65,8 @@ export class AppModule {
         DiscoveryController,
         ApplicationsController,
         NginxRevisionsController,
+        DeployController,
+        IntegrationsController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config },
@@ -78,6 +88,13 @@ export class AppModule {
         ApplicationsService,
         DiscoveryService,
         NginxRevisionsService,
+        SecretsService,
+        PreflightService,
+        DeploymentsService,
+        ContainerAppsService,
+        ManagedRoutingService,
+        RegistryClient,
+        WebhooksService,
         SweeperService,
         AgentService,
         AgentGatewayServer,

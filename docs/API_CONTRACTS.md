@@ -292,3 +292,103 @@ The scanner **never invents** runtime/repo/ownership mappings; unknown links sta
 ### 6.4 Drift (P3-T05)
 
 On each scan ingest, compare each file's sha256 with the previous scan and with `nginxFiles[].lastKnownSha256`. Differences not explained by an `applied`/`reverted` pPanel revision ⇒ `drift[]` entry `changedBy:"external"`, application `flags.driftDetected=true`, and any `draft|valid|approved` revision touching that file → `drift_blocked`. Creating or applying revisions on a drift-flagged app → 409 `DRIFT_REVIEW_REQUIRED` until `POST /applications/:id/drift/acknowledge` (perm `nginx.write`, records the new checksums as accepted baseline, audited). · `IMPLEMENTED` (P3-T05 Center side)
+
+## 7. Deployments, secrets, routing, webhooks (P4a) — Center side `IMPLEMENTED` (deployments.spec, p4-deploy unit spec)
+
+Scope: **container apps from a registry image pinned by digest** (deploy, health, route switch, rollback, restart/redeploy), app secrets, GitHub webhook auto-deploy, Compose static validation and framework detection. Dockerfile builds and Compose execution are **P4b** (not in this pass; UI shows them as unsupported).
+
+### 7.1 Container applications
+
+`POST /applications` (perm `apps.deploy`) creates a **managed container application** (kind `container`, ownershipMode `managed`, source of truth = pPanel): `{ serverId, name (slug), environment, domains: string[] (≥1), containerPort, healthcheck?, resources?, env?: {KEY: value}, volumes?: [{name, mountPath}] }`. Domain collision preflight (§7.4) at creation. Response `Application` (+ `kind: "container"`, `container: { containerPort, healthcheck, resources, env, volumes, currentDeploymentId, previousDeploymentId, hostPort }`). · `IMPLEMENTED` (deployments.spec; ext body `secretKeys[]`, `tls`; ext `container.{secretKeys,tls,containerName,routePath,rollbackAvailable}`; 409 DOMAIN_CONFLICT / APP_NAME_TAKEN, 422 ENVIRONMENT_MISMATCH; ext `PATCH /applications/:id/container` with If-Match — invalidates pending approvals via planHash)
+
+### 7.2 Secrets (P4-T02)
+
+- Table `secrets`: `{ id, applicationId, key (ENV_KEY), valueEncrypted (AES-256-GCM, PPANEL_MASTER_KEY, AAD = applicationId+key), version, createdBy, updatedAt }`.
+- `GET /applications/:id/secrets` (perm `apps.read`) → `[{ key, set: true, version, updatedAt }]` — **never values**. · `IMPLEMENTED` (P4-T02)
+- `PUT /applications/:id/secrets/:key` (perm `apps.deploy`; production `X-Step-Up`) body `{ value }` → `{ key, set: true, version }`. `DELETE` likewise. · `IMPLEMENTED` (P4-T02; 422 SECRET_KEY_RESERVED for `__REGISTRY_AUTH__`; DELETE → 204)
+- Registry credential per application: `PUT /applications/:id/registry-auth` `{ serveraddress, username, password }` (stored as secret `__REGISTRY_AUTH__`), `GET` returns `{ serveraddress, username, set: true }`. · `IMPLEMENTED` (P4-T02; ext `DELETE`)
+- Agent fetch: `POST /agent/v1/tasks/:jobId/secrets` (mTLS gateway) `{ leaseToken }` → only for a leased/running `container.run_candidate` job of this server; returns `{ env, registryAuth? }` once (`secretsFetchedAt` set; second call 409 `SECRETS_ALREADY_FETCHED`); audited as `secrets.delivered` with keys only. · `IMPLEMENTED` (P4-T02: real mTLS gateway; wrong job type 403, bad lease 409 TASK_NOT_LEASED, expired 409 TASK_EXPIRED; denials audited)
+- Secret values must never appear in: job `params`/`result`, deployment records, API responses, audit rows, structured logs, `container.logs` output (Center redacts known values of that app before returning logs). · `IMPLEMENTED` (P4-T02 checks responses, job rows, deployments, audit, captured logs, container.logs; Center also scrubs values echoed into job results)
+
+### 7.3 Deployments
+
+`Deployment`:
+
+```json
+{
+  "id": "uuid",
+  "applicationId": "uuid",
+  "serverId": "uuid",
+  "number": 7,
+  "trigger": "manual|webhook|rollback|redeploy",
+  "image": "registry/repo@sha256:…",
+  "sourceRef": { "repo": "org/app", "commitSha": "40hex", "branch": "main", "tag": "…" },
+  "status": "queued|preflight|pulling|starting|health_check|routing|succeeded|failed|rollback_pending|rolled_back|requires_manual_recovery|cancelled|expired|awaiting_approval",
+  "steps": [
+    {
+      "name": "preflight|pull_start|health_check|route_switch|stop_previous",
+      "status": "pending|running|succeeded|failed|skipped",
+      "jobId": "uuid|null",
+      "startedAt": "iso",
+      "finishedAt": "iso",
+      "message": "…",
+      "logTail": ["…"]
+    }
+  ],
+  "container": { "name": "ppanel-app-1a2b3c4d", "hostPort": 20017 },
+  "previousDeploymentId": "uuid|null",
+  "planHash": "sha256",
+  "approval": { "required": true, "approvedBy": null, "expiresAt": null },
+  "createdBy": "uuid|null",
+  "createdAt": "iso",
+  "finishedAt": "iso|null",
+  "error": { "code": "…", "message": "…" }
+}
+```
+
+- `POST /applications/:id/deployments` (perm `apps.deploy`) `{ image (digest ref), sourceRef?, reason? }` + `Idempotency-Key` → 202 `{ deployment }`. Tag-only images → 422 `IMAGE_NOT_PINNED`. Production: status `awaiting_approval` until `POST /deployments/:id/approve` (`approvals.decide`, approver ≠ creator, `X-Step-Up`, `{ planHash }`, single-use, 60 min) — same rules as nginx approvals. planHash = sha256(applicationId, serverId, image digest, container config hash, route config hash). · `IMPLEMENTED` (deployments.spec approvals; approval starts execution immediately and is consumed by that job; container config hash includes secret key **versions**; preflight failure → 202 with `status: failed`, no job)
+- Orchestration (durable, driven by job results like P3 hooks; one active deployment per app → 409 `DEPLOYMENT_IN_PROGRESS`):
+  1. **preflight** (Center-side, §7.4) → fail = `failed` with codes.
+  2. **pull_start**: `container.run_candidate` (new name, newly allocated host port) → `CANDIDATE_UNHEALTHY` etc. ⇒ `failed`; **live deployment untouched** (P4-T04).
+  3. **route_switch**: `nginx.apply` of `/etc/nginx/ppanel-managed/<app>/route.conf` (template below) with postchecks `Host: <each domain>` on the route → failure is auto-reverted by the agent ⇒ deployment `failed`, candidate removed, previous still serving.
+  4. **stop_previous**: `container.stop` of the previous container (kept for rollback; older than the last 2 are removed).
+  5. `succeeded`; application `currentDeploymentId` / `previousDeploymentId` updated. · `IMPLEMENTED` (deployments.spec happy path / P4-T04 / route-switch failure / retention; current/previous are switched at route success)
+- Route template (Center-generated only; no user free text):
+  ```nginx
+  # managed by pPanel — deployment <id>
+  upstream ppanel_<app_underscored> { server 127.0.0.1:<hostPort>; keepalive 16; }
+  server {
+      listen 80;
+      server_name <domains space-separated>;
+      location / {
+          proxy_pass http://ppanel_<app_underscored>;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+      }
+  }
+  ```
+  TLS: this pass supports HTTP and **operator-provided existing certificate paths** on the host (`tls: { certPath, keyPath }` under `/etc/ssl` or `/etc/letsencrypt/live`, validated by nginx -t) — ACME issuance is BLOCKED (needs public DNS).
+- **Rollback** `POST /applications/:id/rollback` (perm `apps.deploy`; prod approval as above) → new deployment `trigger: rollback` that `container.start`s the previous container (health) → route_switch to its port → stop the failed/current one. If the previous container no longer exists → 409 `ROLLBACK_UNAVAILABLE` (redeploy its image instead). Rollback never touches volumes/databases (UI states this). · `IMPLEMENTED` (deployments.spec rollback; replaced deployment → `rolled_back`)
+- **Redeploy** `POST /applications/:id/redeploy` = new deployment of the current image digest (fresh container). **Restart** `POST /applications/:id/restart` = `container.restart` of the current container (no new deployment record; audited). Start/stop: `POST /applications/:id/start|stop`. · `IMPLEMENTED` (202 `{ jobId, operation, container }`; production needs X-Step-Up)
+- `GET /applications/:id/deployments`, `GET /deployments/:id`, `POST /deployments/:id/cancel` (only before route_switch), `GET /deployments?status=&server_id=`, `GET /applications/:id/logs?tail=` (container.logs, redacted). · `IMPLEMENTED` (logs: 200 `{jobId,status,lines,truncated,container}` or 202 pending, poll `?jobId=`)
+- **Enable managed routing** per server: `POST /servers/:id/managed-routing` (perm `nginx.write`, approval rules as nginx revisions) → creates `/etc/nginx/conf.d/ppanel-managed.conf` via `nginx.apply`. `GET /servers/:id/managed-routing` → `{ enabled, revisionId }`. Deploying to a server without it → preflight `MANAGED_ROUTING_DISABLED`. · `IMPLEMENTED` (approve: `POST /servers/:id/managed-routing/approve {planHash}`; GET ext fields `status, planHash, approval, applyJobId, error, allowedActions`)
+
+### 7.4 Preflight (P4-T07) — returned as `preflight: [{check, ok, code?, message}]` on the deployment
+
+`agent_online` (server status online, else `AGENT_OFFLINE`), `managed_routing` (`MANAGED_ROUTING_DISABLED`), `image_pinned` (`IMAGE_NOT_PINNED`), `secrets_present` (all declared secret keys set → `SECRETS_MISSING`), `domain_conflict` (domain used by another application or discovered nginx server on this server, or by another managed app anywhere → `DOMAIN_CONFLICT`), `port_alloc` (free port in 20000–29999 not used by other managed containers on the server → `NO_PORT_AVAILABLE`; the agent re-checks the socket → `PORT_IN_USE`), `disk` (last heartbeat diskPct ≥ 90 or stale metrics → `DISK_LOW` / `DISK_UNKNOWN` (blocks in production only)), `lock` (`DEPLOYMENT_IN_PROGRESS`). Any failing check → deployment `failed` at preflight, no job sent. `POST /applications/:id/deployments/preflight` runs the checks without creating a deployment (wizard review step). · `IMPLEMENTED` (P4-T07 → `{ ok, checks }`; `agent_online` accepts `degraded`; DISK_UNKNOWN outside production is `ok:true, warning:true`)
+
+### 7.5 GitHub webhooks and auto-deploy (P4.01 / P4.08, P4-T06)
+
+- `integrations` table; `POST /integrations/github` (perm `policies.manage`) `{ name, webhookSecret }` → `{ id, webhookUrl: "/api/v1/webhooks/github/<id>" }` (secret stored encrypted, never returned). GitHub **App** installation flow = BLOCKED (no App credentials in lab); repo webhooks work with any GitHub repo. · `IMPLEMENTED` (ext `GET /integrations`, `GET /integrations/github/app` → `{ available:false, reason }`)
+- `POST /api/v1/webhooks/github/:integrationId` (public, raw body, 1 MiB limit, rate-limited): verify `X-Hub-Signature-256` (HMAC-SHA256, constant-time) → 401 `WEBHOOK_SIGNATURE_INVALID`; dedupe by `X-GitHub-Delivery` (unique in `webhook_deliveries`) → 200 `{ duplicate: true }` with no effect; only `push` (others recorded + ignored). · `IMPLEMENTED` (P4-T06; bad signatures are audited, not stored) Stored: delivery id, event, repo, ref, after (commit SHA), signature ok, result, linked deployment ids — **not** the raw payload beyond needed fields.
+- `auto_deploy_policies`: `{ id, applicationId, integrationId, repo: "org/name", branches: ["main"] (exact or `release/*`glob), imageTemplate: "registry/repo:sha-{sha}" (or`{sha7}`), enabled }` CRUD under `/applications/:id/auto-deploy` (perm `apps.deploy` + `policies.manage` for create/enable). · `IMPLEMENTED` (template host must be allowlisted → 422 REGISTRY_NOT_ALLOWED)
+- On matching push: resolve `imageTemplate` → digest via registry API (`HEAD /v2/<repo>/manifests/<tag>` with `Accept` manifest types; registry auth from the app's registry-auth) → create deployment `trigger: webhook` pinned to the digest with `sourceRef.commitSha` = `after`. Wrong branch/repo → delivery `ignored` (reason). Same commit already deployed or in progress for that app → `ignored: already_deployed` (single deployment per commit, P4-T06/E2E-08). Production → `awaiting_approval` (never auto-applied). · `IMPLEMENTED` (P4-T06 with fake registry: HEAD + OCI/Docker Accept, Basic + Bearer challenge, `PPANEL_REGISTRY_ALLOWLIST`)
+- `GET /integrations/github/:id/deliveries` (history with result). · `IMPLEMENTED` (P4-T06)
+
+### 7.6 Compose validation and framework detection (P4.02 / P4.03, P4-T05)
+
+- `POST /deploy/compose/validate` (perm `apps.deploy`) `{ yaml }` (≤ 256 KiB) → `{ valid, violations: [{ service, rule, path, message }] , services: [...] }`. Rules (deny): `privileged`, `network_mode: host`, `pid: host`, `ipc: host`, `cap_add` beyond the allowlist, `devices`, bind mounts / host paths (any `volumes` entry with a host path, `type: bind`), docker socket anywhere, `security_opt` disabling apparmor/seccomp, `userns_mode: host`, ports bound to non-loopback host IPs, images not pinned by digest (warning in dev/uat, violation in production), `extends`/`include` of external files, YAML anchors/merge keys bombs (alias count limit), unknown top-level keys. Execution of Compose = P4b. · `IMPLEMENTED` (P4-T05 unit + endpoint; ext response `warnings[]`; ext body `environment`)
+- `POST /deploy/detect` (perm `apps.deploy`) `{ files: { "package.json": "<content>", "composer.json": "…", "Dockerfile": "…", "docker-compose.yml": "…", "artisan": "" } }` (only names + small contents) → `{ framework: "nextjs|nestjs|laravel|dockerfile|compose|unknown", confidence, evidence: [...], suggested: { containerPort, healthcheckPath, buildMethod } }`. Pure function in `packages/shared-contracts` so the UI can preview it. · `IMPLEMENTED` (`detectFramework`; buildMethod `compose|dockerfile|framework_default|none`)

@@ -206,8 +206,8 @@ func (m *Manager) preflight(files []FileChange) ([]*target, error) {
 		return nil, err
 	}
 	for i, f := range files {
-		if f.ExpectedSha256Before == nil && (!strings.HasPrefix(f.Path, ManagedDir+"/") || !ts[i].ResolvedInManaged) {
-			return nil, pathErr("creating %s is not allowed: new files only under %s/", f.Path, ManagedDir)
+		if f.ExpectedSha256Before == nil && !ts[i].creatable() {
+			return nil, pathErr("creating %s is not allowed: new files only under %s/ (or %s)", f.Path, ManagedDir, ManagedIncludeFile)
 		}
 	}
 	var drift []DriftFile

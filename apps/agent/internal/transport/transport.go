@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync/atomic"
 	"time"
 
@@ -173,4 +174,35 @@ func NewHTTPClient(tlsCfg *tls.Config, timeout time.Duration) *http.Client {
 		Proxy:                 http.ProxyFromEnvironment,
 	}
 	return &http.Client{Transport: tr, Timeout: timeout + 5*time.Second}
+}
+
+// RegistryAuth is a registry credential delivered with job secrets.
+type RegistryAuth struct {
+	Username      string `json:"username"`
+	Password      string `json:"password"`
+	ServerAddress string `json:"serveraddress"`
+}
+
+// JobSecrets is the one-time secrets payload of POST /agent/v1/tasks/:jobId/secrets.
+// Values must only ever live in memory: never log, persist or return them.
+type JobSecrets struct {
+	Env          map[string]string `json:"env"`
+	RegistryAuth *RegistryAuth     `json:"registryAuth,omitempty"`
+}
+
+// FetchJobSecrets performs the one-time secrets fetch for a leased job. The
+// Center answers 409 SECRETS_ALREADY_FETCHED on a second call.
+func (c *Client) FetchJobSecrets(ctx context.Context, jobID, leaseToken string) (*JobSecrets, error) {
+	if jobID == "" || leaseToken == "" {
+		return nil, errors.New("secrets fetch needs jobId and leaseToken")
+	}
+	var out JobSecrets
+	path := "/agent/v1/tasks/" + url.PathEscape(jobID) + "/secrets"
+	if err := c.Do(ctx, http.MethodPost, path, map[string]string{"leaseToken": leaseToken}, &out); err != nil {
+		return nil, err
+	}
+	if out.Env == nil {
+		out.Env = map[string]string{}
+	}
+	return &out, nil
 }

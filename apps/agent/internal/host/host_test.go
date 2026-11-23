@@ -2,12 +2,15 @@ package host
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ppanel/ppanel/apps/agent/internal/docker"
 	"github.com/ppanel/ppanel/apps/agent/internal/execx"
 )
 
@@ -78,4 +81,37 @@ type fakeExec struct {
 func (f *fakeExec) Run(_ context.Context, bin string, args []string, _ time.Duration, _ int) (execx.Result, error) {
 	f.calls = append(f.calls, append([]string{bin}, args...))
 	return execx.Result{Stdout: []byte(f.stdout), Stderr: []byte(f.stderr)}, nil
+}
+
+func TestDockerCapabilityRequiresPing(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "hcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := 500
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) })}
+	go srv.Serve(ln)
+	defer srv.Close()
+	e := &Env{Docker: docker.New(sock), SystemdRunDir: filepath.Join(dir, "none"), PhpFpmPoolGlob: filepath.Join(dir, "none")}
+	has := func() bool {
+		for _, c := range e.Capabilities() {
+			if c == "docker" {
+				return true
+			}
+		}
+		return false
+	}
+	if has() {
+		t.Fatal("docker capability reported although /_ping answered 500")
+	}
+	status = 200
+	if !has() {
+		t.Fatal("docker capability missing although /_ping answered 200")
+	}
 }

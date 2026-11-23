@@ -33,6 +33,8 @@ export async function createApp(config: AppConfig): Promise<NestExpressApplicati
     next();
   });
   app.use(cookieParser());
+  // GitHub webhooks: keep the exact raw bytes for HMAC verification (parsed later by the handler).
+  app.use(`/${API_PREFIX}/webhooks`, express.raw({ type: () => true, limit: '1mb' }));
   app.use(
     express.json({ limit: config.BODY_LIMIT, type: ['application/json', 'application/*+json'] }),
   );

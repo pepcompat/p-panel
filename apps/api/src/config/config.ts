@@ -42,6 +42,10 @@ const envSchema = z.object({
   PPANEL_TASK_RUNNING_LEASE_SEC: z.coerce.number().int().min(10).max(3600).default(120),
   PPANEL_SWEEP_INTERVAL_MS: z.coerce.number().int().min(100).max(600_000).default(5000),
   PPANEL_DEV_INSECURE_ENROLL: bool,
+  /** Comma list of registry hosts (host[:port]) the Center may contact to resolve tags → digests. */
+  PPANEL_REGISTRY_ALLOWLIST: z.string().default(''),
+  /** Comma list of allowlisted registry hosts spoken to over plain HTTP (lab only). */
+  PPANEL_REGISTRY_INSECURE: z.string().default(''),
   PPANEL_DISABLE_GATEWAY: bool,
 });
 

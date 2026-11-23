@@ -32,11 +32,21 @@ const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{8,128}$/;
 const TERMINAL: JobStatus[] = ['succeeded', 'failed', 'expired', 'cancelled'];
 export const MAX_TASKS_PER_POLL = 5;
 
-/** Job types that can only be created by the Center itself (revision workflow, §6.3) — never via POST /jobs. */
+/**
+ * Job types that can only be created by the Center itself (revision workflow §6.3, deployment
+ * orchestrator §7.3) — never via POST /jobs. `container.logs` is restricted too: its output must go
+ * through the Center's secret redaction (GET /applications/:id/logs).
+ */
 export const RESTRICTED_JOB_TYPES: readonly JobType[] = [
   'nginx.validate',
   'nginx.apply',
   'nginx.revert',
+  'container.run_candidate',
+  'container.start',
+  'container.stop',
+  'container.restart',
+  'container.remove',
+  'container.logs',
 ];
 
 /** Mutating jobs lock a per-server resource so two never run concurrently on the same target. */
@@ -49,6 +59,8 @@ export function resourceKeyFor(
   if (type === 'service.restart') return `unit:${String(params.unit)}`;
   // all mutating nginx jobs (validate writes candidate files too) share one lock per server
   if (type.startsWith('nginx.')) return `nginx:${serverId ?? ''}`;
+  // one mutating container job per app at a time (app slugs are unique per server)
+  if (type.startsWith('container.')) return `app:${String(params.app)}`;
   return `type:${type}`;
 }
 
@@ -56,7 +68,8 @@ export interface InternalJobInput {
   serverId: string;
   type: JobType;
   params: Record<string, unknown>;
-  actorId: string;
+  /** null = Center/system initiated (e.g. webhook-triggered deployment step) */
+  actorId: string | null;
   ttlSec: number;
   /** audit metadata (e.g. revisionId / scanId) */
   metadata?: Record<string, unknown>;
@@ -123,6 +136,7 @@ export class JobsService {
     await this.audit.record(
       {
         actorId: input.actorId,
+        ...(input.actorId ? {} : { actorType: 'system' as const }),
         action: 'jobs.create',
         targetType: 'job',
         targetId: id,
@@ -165,7 +179,7 @@ export class JobsService {
       throw new AppError(
         422,
         ERROR_CODES.JOB_TYPE_RESTRICTED,
-        `${type} jobs are created only through the Nginx revision workflow`,
+        `${type} jobs are created only through the Nginx revision / deployment workflows`,
       );
     }
     const def = JOB_TYPES[type];

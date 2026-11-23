@@ -61,3 +61,72 @@ func TestReadOnlyClientOverUnixSocket(t *testing.T) {
 		t.Fatal("missing socket must not be accessible")
 	}
 }
+
+func TestEngineTransportRefusesNonAllowlisted(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "dke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		if r.URL.Path == "/_ping" {
+			w.Write([]byte("OK"))
+			return
+		}
+		w.WriteHeader(204)
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+	e := NewEngine(sock)
+	if err := e.Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range [][2]string{{"POST", "/containers/abc/exec"}, {"POST", "/build"}, {"DELETE", "/volumes/x"}, {"POST", "/containers/abc/kill"}} {
+		if _, err := e.do(context.Background(), e.hc, c[0], c[1], nil, nil, nil); err == nil {
+			t.Fatalf("%v not refused", c)
+		}
+	}
+	if err := e.StopContainer(context.Background(), "abc", 10); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range seen {
+		if s != "GET /_ping" && s != "POST /containers/abc/stop" {
+			t.Fatalf("refused call reached daemon: %s", s)
+		}
+	}
+	c := New(sock)
+	if !c.Ping(context.Background()) {
+		t.Fatal("GET-only client ping")
+	}
+	srv.Close()
+	if c.Ping(context.Background()) || NewEngine(filepath.Join(dir, "none.sock")).Ping(context.Background()) == nil {
+		t.Fatal("ping must fail when the engine is down")
+	}
+	if !IsUnavailable(NewEngine(filepath.Join(dir, "none.sock")).Ping(context.Background())) {
+		t.Fatal("missing socket must be UnavailableError")
+	}
+}
+
+func TestDemuxAndDigestRef(t *testing.T) {
+	in := append([]byte{1, 0, 0, 0, 0, 0, 0, 3}, []byte("ab\n")...)
+	in = append(in, append([]byte{2, 0, 0, 0, 0, 0, 0, 2}, []byte("c\n")...)...)
+	if got := string(Demux(in)); got != "ab\nc\n" {
+		t.Fatalf("%q", got)
+	}
+	if got := string(Demux([]byte("plain text\n"))); got != "plain text\n" {
+		t.Fatalf("%q", got)
+	}
+	if r, d, ok := SplitDigestRef("reg:5000/a/b@sha256:abc"); !ok || r != "reg:5000/a/b" || d != "sha256:abc" {
+		t.Fatal(r, d)
+	}
+	if _, _, ok := SplitDigestRef("reg/a:v1"); ok {
+		t.Fatal("tag accepted")
+	}
+}

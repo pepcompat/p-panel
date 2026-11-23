@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useI18n } from '@/i18n/provider';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { applicationsApi, authApi, revisionsApi } from '@/lib/api/endpoints';
-import { toApiError, type ApiError } from '@/lib/api/errors';
+import type { ApiError } from '@/lib/api/errors';
 import type {
   Application,
   NginxFileContent,
@@ -23,12 +23,12 @@ import { useToast } from '@/components/providers/toast';
 import { Card, CardHeader } from '@/components/ui/card';
 import { ToneBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select } from '@/components/ui/form';
 import { GatedButton } from '@/components/ui/gated-button';
 import { TableSkeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState, Notice } from '@/components/ui/states';
 import { DiffViewer } from './diff-viewer';
+import { ActionDialog, wrap } from './action-dialog';
 import { RevisionStatusBadge, Sha, StepUpField } from './bits';
 import type { MessageKey } from '@/i18n/en';
 
@@ -42,16 +42,6 @@ const OPEN: RevisionStatus[] = [
   'reverting',
 ];
 const REVERTED_CODES = ['POSTCHECK_FAILED_REVERTED', 'RELOAD_FAILED_REVERTED', 'NGINX_TEST_FAILED'];
-
-function wrap<T>(fn: () => Promise<T>) {
-  return async () => {
-    try {
-      return await fn();
-    } catch (e) {
-      throw toApiError(e);
-    }
-  };
-}
 
 function useInvalidateApp(appId: string) {
   const qc = useQueryClient();
@@ -403,68 +393,6 @@ function JobLine({ serverId, jobId }: { serverId: string; jobId: string | null }
     <span className="font-mono text-[12px] text-fg-muted" data-testid="job-line">
       {t('nginx.job', { job: jobId.slice(0, 8), status: q.data?.status ?? '…' })}
     </span>
-  );
-}
-
-function ActionDialog({
-  open,
-  onOpenChange,
-  title,
-  body,
-  confirmLabel,
-  danger,
-  needsStepUp,
-  onConfirm,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  title: string;
-  body: string;
-  confirmLabel: string;
-  danger?: boolean;
-  needsStepUp: boolean;
-  onConfirm: (stepUpToken?: string) => Promise<unknown>;
-}) {
-  const { t } = useI18n();
-  const { me } = useAuth();
-  const [otp, setOtp] = useState('');
-  const m = useMutation<unknown, ApiError>({
-    mutationFn: wrap(async () => {
-      const token = needsStepUp ? (await authApi.stepUp(otp)).stepUpToken : undefined;
-      return onConfirm(token);
-    }),
-    onSuccess: () => onOpenChange(false),
-  });
-  const ready = !needsStepUp || (!!me?.mfaEnabled && /^\d{6}$/.test(otp));
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) {
-          m.reset();
-          setOtp('');
-        }
-        onOpenChange(o);
-      }}
-      closeLabel={t('common.close')}
-      title={title}
-      description={body}
-      footer={
-        <>
-          <Button onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
-          <Button
-            variant={danger ? 'danger' : 'primary'}
-            disabled={!ready || m.isPending}
-            onClick={() => m.mutate()}
-          >
-            {m.isPending ? t('common.saving') : confirmLabel}
-          </Button>
-        </>
-      }
-    >
-      {needsStepUp && <StepUpField value={otp} onChange={setOtp} />}
-      {m.error && <ErrorState error={m.error} />}
-    </Dialog>
   );
 }
 

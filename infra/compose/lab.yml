@@ -1,6 +1,8 @@
 # pPanel LAB — disposable "node" containers that approximate Ubuntu 24.04 VMs.
 # Project name is fixed to `ppanel-lab`; use scripts/lab/{up,down,status,checksum-nginx}.sh.
-# Nothing is published on any host interface: tests reach sites via `docker exec ... curl -H Host:`.
+# Only ONE port is published, loopback-only: the P4 lab registry on 127.0.0.1:55000 (image push from the Mac).
+# Sites are reached via `docker exec ... curl -H Host:`.
+# P4: lab-node-b gets a docker-in-docker sidecar (lab-dind, PRIVILEGED — lab only, see infra/lab/README.md).
 # Containers are NOT VMs — see infra/lab/README.md for limitations and which tests stay BLOCKED.
 name: ppanel-lab
 
@@ -51,11 +53,103 @@ services:
       args: { NODE_ROLE: b, WITH_PHP: '0' }
     container_name: ppanel-lab-node-b
     hostname: lab-node-b
+    environment:
+      # entrypoint links /var/run/docker.sock -> /run/dind/docker.sock (socket of the lab-dind sidecar)
+      PPANEL_LAB_DIND_SOCKET: /run/dind/docker.sock
     volumes:
       - ${PPANEL_AGENT_BIN_DIR:-../../.lab/agent-bin}:/opt/ppanel-agent:ro
       - node-b-agent-state:/var/lib/ppanel-agent
+      - node-b-dind-sock:/run/dind
     depends_on:
       lab-upstream-b: { condition: service_healthy }
+
+  # P4 deploy target engine for lab-node-b. Docker-in-docker that SHARES node-b's network namespace,
+  # so containers it publishes on 127.0.0.1:<port> are on node-b's loopback (like a real host where
+  # dockerd and nginx share the host network). Its API socket is on a shared volume, linked into
+  # node-b at /var/run/docker.sock. The pPanel agent in node-b talks to it via the Engine API only.
+  # !!! privileged: true is REQUIRED by dind and is allowed ONLY for this lab sidecar. NEVER a
+  # !!! production pattern; pPanel itself never runs privileged containers.
+  lab-dind:
+    image: docker:29.0.4-dind@sha256:c9699f4fc7365e8daad3eb48ce3b62dc118b2a5267f7be7bcd3c4e4b2f1cfb4c
+    container_name: ppanel-lab-dind
+    restart: 'no'
+    privileged: true # LAB ONLY — see infra/lab/README.md "docker-in-docker (P4)"
+    network_mode: 'service:lab-node-b'
+    environment:
+      DOCKER_TLS_CERTDIR: '' # unix socket only, no TCP listener
+    command:
+      - dockerd
+      - --host=unix:///run/dind/docker.sock
+      - --insecure-registry=lab-registry:5000
+      - --bip=10.213.0.1/24
+      - --default-address-pool=base=10.214.0.0/16,size=24
+      - --log-level=warn
+    volumes:
+      - node-b-dind-sock:/run/dind
+      - node-b-dind-data:/var/lib/docker
+    depends_on:
+      lab-node-b: { condition: service_healthy }
+      lab-registry: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'docker',
+          '-H',
+          'unix:///run/dind/docker.sock',
+          'version',
+          '--format',
+          '{{.Server.Version}}',
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+    labels:
+      com.ppanel.lab: 'true'
+
+  # Lab-only TCP forwarder so the SAME image reference works for the Center (on the Mac,
+  # 127.0.0.1:55000 -> published registry port) and for dind inside node-b's network namespace
+  # (127.0.0.1:55000 -> lab-registry:5000). Needed for webhook auto-deploy, where the Center resolves
+  # a tag to a digest and dind then pulls that exact reference. Docker treats 127.0.0.0/8 registries
+  # as insecure by default, so no dind flag change is needed.
+  lab-registry-fwd:
+    image: alpine/socat:1.8.0.1@sha256:87d88ff79bf42ca723fb360e9585c40e2923a2f4df9b9d148b127568ef6b99e7
+    container_name: ppanel-lab-registry-fwd
+    restart: 'no'
+    network_mode: 'service:lab-node-b'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    command: ['tcp-listen:55000,bind=127.0.0.1,fork,reuseaddr', 'tcp:lab-registry:5000']
+    depends_on:
+      lab-node-b: { condition: service_healthy }
+      lab-registry: { condition: service_healthy }
+    labels:
+      com.ppanel.lab: 'true'
+
+  # P4 local OCI registry: dind pulls lab-registry:5000/ppanel-test/* (insecure, lab network only);
+  # the Mac pushes via 127.0.0.1:55000 (published on loopback ONLY).
+  lab-registry:
+    image: registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+    container_name: ppanel-lab-registry
+    hostname: lab-registry
+    restart: 'no'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    networks: [labnet]
+    ports:
+      - '127.0.0.1:55000:5000'
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: 'false'
+    volumes:
+      - registry-data:/var/lib/registry
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:5000/v2/']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    labels:
+      com.ppanel.lab: 'true'
 
   # Tiny upstream behind node-a's reverse-proxy fixture (03-proxy-api.conf).
   lab-upstream-a:
@@ -104,3 +198,6 @@ networks:
 volumes:
   node-a-agent-state: {}
   node-b-agent-state: {}
+  node-b-dind-sock: {}
+  node-b-dind-data: {}
+  registry-data: {}

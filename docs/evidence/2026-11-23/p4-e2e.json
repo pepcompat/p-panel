@@ -1,0 +1,99 @@
+{
+  "ranAt": "2026-11-23T04:19:14Z",
+  "steps": [
+    {
+      "step": "enroll node-b online with docker capability",
+      "ok": true,
+      "serverId": "01a2069f-c5f5-7803-b9c5-1539058a7f0d",
+      "caps": ["docker", "nginx"]
+    },
+    {
+      "step": "P4-T07 preflight blocks: managed routing disabled",
+      "ok": true,
+      "failing": ["MANAGED_ROUTING_DISABLED"]
+    },
+    {
+      "step": "P4-T07 domain conflict with legacy nginx server_name",
+      "ok": true,
+      "code": "DOMAIN_CONFLICT"
+    },
+    {
+      "step": "P4-T07 tag-only image refused",
+      "ok": true,
+      "code": "IMAGE_NOT_PINNED"
+    },
+    {
+      "step": "managed routing enabled on node-b",
+      "ok": true,
+      "include": "include /etc/nginx/ppanel-managed/*/*.conf;"
+    },
+    {
+      "step": "J04 deploy v1: candidate healthy, route switched, site serves v1",
+      "ok": true,
+      "status": "succeeded",
+      "body": "ppanel-test web v1",
+      "container": {
+        "name": "ppanel-web-7461-474484ab",
+        "hostPort": 20000
+      }
+    },
+    {
+      "step": "deploy v2: route switched to v2",
+      "ok": true,
+      "body": "ppanel-test web v2"
+    },
+    {
+      "step": "P4-T04 broken candidate fails; v2 keeps serving",
+      "ok": true,
+      "status": "failed",
+      "code": "CANDIDATE_UNHEALTHY",
+      "body": "ppanel-test web v2"
+    },
+    {
+      "step": "rollback to previous version (v1)",
+      "ok": true,
+      "status": "succeeded",
+      "body": "ppanel-test web v1"
+    },
+    {
+      "step": "restart keeps container (no deployment); redeploy creates a fresh container",
+      "ok": true,
+      "restartContainer": "ppanel-web-7461-474484ab",
+      "redeployContainer": "ppanel-web-7461-95ec7d28",
+      "deploymentsBeforeRedeploy": 4
+    },
+    {
+      "step": "P4-T07 preflight blocks: secret declared but not set",
+      "ok": true
+    },
+    {
+      "step": "P4-T02 secret delivered to the container but never in API/logs/audit/agent log",
+      "ok": true,
+      "status": "succeeded",
+      "redactedInLogs": true,
+      "leakedResponses": 0
+    },
+    {
+      "step": "P4-T06 webhook: bad sig 401, one deploy per commit, duplicate delivery no-op, wrong branch ignored",
+      "ok": true,
+      "badSig": 401,
+      "first": "deployed",
+      "duplicate": true,
+      "wrongBranch": "ignored",
+      "sameCommitAgain": ["already_deployed"],
+      "deployedImage": "127.0.0.1:55000/ppanel-test/web@sha256:6d0e8b04cbd1fd3eb22dce2da0721c4bd27bc2cf32f5e469600b7fa675d0e26d",
+      "commit": "c40a31fffcdb7d5a74ff9b33c333b4a21793c2ad"
+    },
+    {
+      "step": "viewer cannot deploy",
+      "ok": true,
+      "code": "FORBIDDEN"
+    },
+    {
+      "step": "legacy site still 200; managed ports bound to 127.0.0.1 only",
+      "ok": true,
+      "legacy": "200",
+      "nonLoopbackManagedPorts": ""
+    }
+  ]
+}

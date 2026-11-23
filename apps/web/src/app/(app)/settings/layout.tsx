@@ -9,6 +9,7 @@ const TABS = [
   ['/settings/users', 'settingsNav.users'],
   ['/settings/security', 'settingsNav.security'],
   ['/settings/audit', 'settingsNav.audit'],
+  ['/settings/integrations', 'settingsNav.integrations'],
 ] as const;
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

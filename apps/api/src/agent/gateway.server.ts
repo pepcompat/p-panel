@@ -26,6 +26,7 @@ import { parseWith } from '../common/zod.pipe';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { JobNotifier } from '../jobs/job-notifier';
 import { JobsService } from '../jobs/jobs.service';
+import { SecretsService } from '../deploy/secrets.service';
 import { CaService } from '../pki/ca.service';
 import { type AgentIdentity, AgentService } from './agent.service';
 
@@ -46,6 +47,7 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     private readonly jobs: JobsService,
     private readonly notifier: JobNotifier,
     private readonly ca: CaService,
+    private readonly secrets: SecretsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -184,6 +186,16 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     app.post('/agent/v1/tasks/:jobId/result', async (req: AgentRequest, res: Response) => {
       const body = parseWith(taskResultSchema, req.body);
       ok(res, await this.jobs.result(req.agent!.serverId, jobIdParam(req), body));
+    });
+
+    /** P4 fetch-once secrets for a leased container.run_candidate task (values never logged). */
+    app.post('/agent/v1/tasks/:jobId/secrets', async (req: AgentRequest, res: Response) => {
+      const body = parseWith(taskAckSchema, req.body);
+      res.setHeader('Cache-Control', 'no-store');
+      ok(
+        res,
+        await this.secrets.fetchForJob(req.agent!.serverId, jobIdParam(req), body.leaseToken),
+      );
     });
 
     app.post('/agent/v1/certificate/rotate', async (req: AgentRequest, res: Response) => {

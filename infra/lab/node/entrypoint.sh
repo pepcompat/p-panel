@@ -12,6 +12,15 @@ if command -v php-fpm8.3 >/dev/null 2>&1 && [ "${PPANEL_LAB_PHP_FPM:-1}" = "1" ]
   echo "[ppanel-lab] php-fpm8.3 started"
 fi
 
+# P4 (node-b only): the lab-dind sidecar's Engine socket lives on a shared volume; expose it at the
+# standard path so the agent's default `docker.socket` (/var/run/docker.sock) works. No docker CLI
+# is installed in the node: the agent must use the Engine API.
+if [ -n "${PPANEL_LAB_DIND_SOCKET:-}" ]; then
+  mkdir -p "$(dirname "${PPANEL_LAB_DIND_SOCKET}")"
+  ln -sfn "${PPANEL_LAB_DIND_SOCKET}" /var/run/docker.sock
+  echo "[ppanel-lab] /var/run/docker.sock -> ${PPANEL_LAB_DIND_SOCKET} (lab-dind sidecar)"
+fi
+
 # Validate before start, exactly like an operator would.
 nginx -t
 

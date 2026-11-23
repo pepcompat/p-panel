@@ -64,8 +64,6 @@ test('enroll shows one-time token once', async ({ page }) => {
 });
 
 const PREVIEW_ROUTES = [
-  '/deployments',
-  '/approvals',
   '/network',
   '/firewall',
   '/ssh',

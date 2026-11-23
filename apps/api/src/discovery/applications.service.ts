@@ -3,6 +3,7 @@ import {
   type AdoptionReview,
   type Application,
   type ChangeOwnershipInput,
+  DEPLOYMENT_ACTIVE_STATUSES,
   ERROR_CODES,
   NGINX_REVISION_OPEN_STATUSES,
   type OwnershipMode,
@@ -15,6 +16,11 @@ import { AppError } from '../common/app-error';
 import { Paginated } from '../common/envelope';
 import { uuidv7 } from '../common/ids';
 import { PrismaService } from '../common/prisma.service';
+import {
+  containerActions,
+  type ContainerRuntimeState,
+  toContainerConfig,
+} from '../deploy/container-common';
 import type { AuthUser } from '../common/principal';
 import { buildWhere, paginate, type ParsedQuery } from '../common/query-builder';
 import {
@@ -50,9 +56,68 @@ export class ApplicationsService {
       select: { applicationId: true },
     });
     const withOpen = new Set(open.map((o) => o.applicationId));
-    return rows.map((r) =>
-      toApplication(r, allowedActionsFor(this.authz, user, r, withOpen.has(r.id))),
+    const containers = await this.containerContext(rows.filter((r) => r.kind === 'container'));
+    return rows.map((r) => {
+      const c = containers.get(r.id);
+      if (!c) return toApplication(r, allowedActionsFor(this.authz, user, r, withOpen.has(r.id)));
+      return {
+        ...toApplication(r, containerActions(this.authz, user, r, c.state)),
+        container: toContainerConfig(r.name, c.row, c.state),
+      };
+    });
+  }
+
+  /** P4a: container config + runtime state (current container, rollback availability, deploy lock). */
+  private async containerContext(rows: AppWithServer[]) {
+    const out = new Map<
+      string,
+      {
+        row: NonNullable<Awaited<ReturnType<PrismaService['containerApp']['findUnique']>>>;
+        state: ContainerRuntimeState;
+      }
+    >();
+    if (rows.length === 0) return out;
+    const ids = rows.map((r) => r.id);
+    const cs = await this.prisma.containerApp.findMany({ where: { applicationId: { in: ids } } });
+    const depIds = cs.flatMap((c) =>
+      [c.currentDeploymentId, c.previousDeploymentId].filter((x): x is string => !!x),
     );
+    const deps = new Map(
+      (
+        await this.prisma.deployment.findMany({
+          where: { id: { in: depIds } },
+          select: { id: true, containerName: true, hostPort: true, containerRemovedAt: true },
+        })
+      ).map((d) => [d.id, d]),
+    );
+    const active = new Set(
+      (
+        await this.prisma.deployment.findMany({
+          where: { applicationId: { in: ids }, status: { in: [...DEPLOYMENT_ACTIVE_STATUSES] } },
+          select: { applicationId: true },
+        })
+      ).map((d) => d.applicationId),
+    );
+    for (const c of cs) {
+      const cur = c.currentDeploymentId ? deps.get(c.currentDeploymentId) : undefined;
+      const prev = c.previousDeploymentId ? deps.get(c.previousDeploymentId) : undefined;
+      const current =
+        cur && !cur.containerRemovedAt
+          ? { containerName: cur.containerName, hostPort: cur.hostPort }
+          : null;
+      out.set(c.applicationId, {
+        row: c,
+        state: {
+          current,
+          rollbackAvailable:
+            !!prev?.containerName &&
+            !prev.containerRemovedAt &&
+            prev.containerName !== current?.containerName,
+          hasActiveDeployment: active.has(c.applicationId),
+        },
+      });
+    }
+    return out;
   }
 
   async view(user: AuthUser, row: AppWithServer): Promise<Application> {
@@ -130,6 +195,11 @@ export class ApplicationsService {
     stepUpHeader: string | undefined,
   ): Promise<Application> {
     const app = await this.load(user, id);
+    if (app.kind === 'container')
+      throw AppError.conflict(
+        'Container applications are always managed by pPanel',
+        ERROR_CODES.OWNERSHIP_STEP_INVALID,
+      );
     const from = app.ownershipMode as OwnershipMode;
     const to = input.toMode;
     const audit = { action: 'applications.ownership', targetType: 'application', targetId: id };

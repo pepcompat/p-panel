@@ -64,6 +64,16 @@ export async function bootApp(overrides: Record<string, string> = {}): Promise<T
 }
 
 const TABLES = [
+  'auto_deploy_policies',
+  'webhook_deliveries',
+  'integrations',
+  'operation_approvals',
+  'deployment_steps',
+  'deployments',
+  'secrets',
+  'container_apps',
+  'host_port_allocations',
+  'managed_routing',
   'nginx_revision_approvals',
   'nginx_config_revisions',
   'adoption_reviews',

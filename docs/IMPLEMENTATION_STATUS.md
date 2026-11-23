@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P3 (UI finishing)
+Current phase: P4a (UI finishing); P4b next
 Last verified revision: (no commits yet)
 
 ## P0
@@ -44,28 +44,28 @@ Phase tests: P2-T01, P2-T02, P2-T03, P2-T04 (see `TEST_REPORT.md`) · Gate: TODO
 
 ## P3
 
-| Task ID | Status      | Change/PR | Test command                                    | Evidence                                                                           | Notes                                                                                                                         |
-| ------- | ----------- | --------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| P3.01   | PASS        |           | go test ./internal/nginx; scripts/lab/e2e_p3.py | docs/evidence/2026-11-23/p3-e2e.json                                               | Scanner for `nginx -T` effective config, server blocks, includes, domains, roots, upstream and SSL references.                |
-| P3.02   | PASS        |           | lab scan                                        | docs/evidence/2026-11-23/p3-e2e.json (docker/systemd unavailable in container lab) | Docker/Compose/PHP-FPM/systemd/process/port discovery; provenance and confidence.                                             |
-| P3.03   | PASS        |           | pnpm --filter @ppanel/api test:integration      | discovery-nginx.spec + docs/evidence/2026-11-23/p3-e2e.json                        | Model scan snapshots, unsupported directives and collisions; no config mutation.                                              |
-| P3.04   | IN_PROGRESS |           |                                                 | backend PASS (import/ownership); UI by apps/web                                    | Import UI: Preview, mappings, Observe default, Adopt/Managed with explicit permissions.                                       |
-| P3.05   | PASS        |           | go test ./internal/nginxops; e2e_p3.py          | docs/evidence/2026-11-23/p3-e2e.json; docs/evidence/2026-11-23/agent-nginx-lab     | Safe supported Nginx operations: file snapshot, diff, syntax validation, apply/reload, postcheck and revert; drift detection. |
+| Task ID | Status | Change/PR | Test command                                    | Evidence                                                                           | Notes                                                                                                                         |
+| ------- | ------ | --------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| P3.01   | PASS   |           | go test ./internal/nginx; scripts/lab/e2e_p3.py | docs/evidence/2026-11-23/p3-e2e.json                                               | Scanner for `nginx -T` effective config, server blocks, includes, domains, roots, upstream and SSL references.                |
+| P3.02   | PASS   |           | lab scan                                        | docs/evidence/2026-11-23/p3-e2e.json (docker/systemd unavailable in container lab) | Docker/Compose/PHP-FPM/systemd/process/port discovery; provenance and confidence.                                             |
+| P3.03   | PASS   |           | pnpm --filter @ppanel/api test:integration      | discovery-nginx.spec + docs/evidence/2026-11-23/p3-e2e.json                        | Model scan snapshots, unsupported directives and collisions; no config mutation.                                              |
+| P3.04   | PASS   |           |                                                 | UI real (imports/applications/nginx tab); checked against real API                 | Import UI: Preview, mappings, Observe default, Adopt/Managed with explicit permissions.                                       |
+| P3.05   | PASS   |           | go test ./internal/nginxops; e2e_p3.py          | docs/evidence/2026-11-23/p3-e2e.json; docs/evidence/2026-11-23/agent-nginx-lab     | Safe supported Nginx operations: file snapshot, diff, syntax validation, apply/reload, postcheck and revert; drift detection. |
 
 Phase tests: P3-T01, P3-T02, P3-T03, P3-T04, P3-T05 (see `TEST_REPORT.md`) · Gate: TODO
 
 ## P4
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                           |
-| ------- | ------ | --------- | ------------ | -------- | --------------------------------------------------------------------------------------------------------------- |
-| P4.01   | TODO   |           |              |          | GitHub App integration with scoped repo permissions, webhook signature/replay protection, commit SHA pinning.   |
-| P4.02   | TODO   |           |              |          | Registry image deploy; Dockerfile build on separated/constrained builder; safe Compose parser/policy validator. |
-| P4.03   | TODO   |           |              |          | Framework detection Next.js/NestJS/Laravel/Dockerfile/Compose; explicit override.                               |
-| P4.04   | TODO   |           |              |          | Full wizard APIs and UI: source, runtime, server, env/secrets, domain, preflight, review, progress.             |
-| P4.05   | TODO   |           |              |          | Nginx route management, TLS approach, DNS/port collision checks; preserve existing Nginx.                       |
-| P4.06   | TODO   |           |              |          | Deployment history, immutable artifact digest, per-step logs, application healthchecks.                         |
-| P4.07   | TODO   |           |              |          | Rollback for supported stateless deployments; Compose/native limitations prominently documented.                |
-| P4.08   | TODO   |           |              |          | Branch rules, auto-deploy, prod approval and per-app deploy locks.                                              |
+| Task ID | Status      | Change/PR | Test command                    | Evidence                                                                                            | Notes                                                                                                           |
+| ------- | ----------- | --------- | ------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| P4.01   | BLOCKED     |           |                                 | repo webhooks PASS (docs/evidence/2026-11-23/p4-e2e.json); GitHub App install needs App credentials | GitHub App integration with scoped repo permissions, webhook signature/replay protection, commit SHA pinning.   |
+| P4.02   | IN_PROGRESS |           |                                 | registry image@digest deploy + compose validator PASS; Dockerfile build + compose execution = P4b   | Registry image deploy; Dockerfile build on separated/constrained builder; safe Compose parser/policy validator. |
+| P4.03   | PASS        |           | pnpm --filter @ppanel/api test  | detectFramework unit tests (shared-contracts)                                                       | Framework detection Next.js/NestJS/Laravel/Dockerfile/Compose; explicit override.                               |
+| P4.04   | PASS        |           | e2e_p4.py + web unit/Playwright | APIs lab-verified; wizard UI checked against real API                                               | Full wizard APIs and UI: source, runtime, server, env/secrets, domain, preflight, review, progress.             |
+| P4.05   | PASS        |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json (HTTP + operator TLS paths; ACME BLOCKED)                      | Nginx route management, TLS approach, DNS/port collision checks; preserve existing Nginx.                       |
+| P4.06   | PASS        |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json                                                                | Deployment history, immutable artifact digest, per-step logs, application healthchecks.                         |
+| P4.07   | PASS        |           | e2e_p4.py                       | docs/evidence/2026-11-23/p4-e2e.json (stateless containers; compose/native limits documented)       | Rollback for supported stateless deployments; Compose/native limitations prominently documented.                |
+| P4.08   | PASS        |           | e2e_p4.py + deployments.spec    | docs/evidence/2026-11-23/p4-e2e.json                                                                | Branch rules, auto-deploy, prod approval and per-app deploy locks.                                              |
 
 Phase tests: P4-T01, P4-T02, P4-T03, P4-T04, P4-T05, P4-T06, P4-T07 (see `TEST_REPORT.md`) · Gate: TODO
 

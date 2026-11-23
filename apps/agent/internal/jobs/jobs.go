@@ -193,3 +193,18 @@ func JobID(ctx context.Context) string {
 	s, _ := ctx.Value(jobIDKey{}).(string)
 	return s
 }
+
+type leaseKey struct{}
+
+// WithLeaseToken attaches the executing grant's lease token to ctx (needed by
+// handlers that call back into the gateway for the same job, e.g. the
+// container.run_candidate one-time secrets fetch).
+func WithLeaseToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, leaseKey{}, token)
+}
+
+// LeaseToken returns the lease token attached by WithLeaseToken, or "".
+func LeaseToken(ctx context.Context) string {
+	s, _ := ctx.Value(leaseKey{}).(string)
+	return s
+}

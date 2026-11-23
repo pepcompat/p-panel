@@ -1,6 +1,7 @@
 // P3 — discovery scans, findings, applications (ownership tiers), Nginx config revisions.
 // Source of truth: docs/API_CONTRACTS.md §6.
 import { z } from 'zod';
+import type { ContainerAppConfig } from './deploy';
 import {
   DISCOVERY_SOURCES,
   nginxPathSchema,
@@ -120,7 +121,14 @@ export interface DiscoveryFinding {
 
 export const OWNERSHIP_MODES = ['discovered', 'observed', 'adopted', 'managed'] as const;
 export type OwnershipMode = (typeof OWNERSHIP_MODES)[number];
-export const APPLICATION_KINDS = ['nginx_static', 'nginx_php', 'nginx_proxy', 'unknown'] as const;
+export const APPLICATION_KINDS = [
+  'nginx_static',
+  'nginx_php',
+  'nginx_proxy',
+  'unknown',
+  /** P4a: managed container application (source of truth = pPanel). */
+  'container',
+] as const;
 export type ApplicationKind = (typeof APPLICATION_KINDS)[number];
 
 /** Per-application action names returned in `allowedActions` (UI derives button state from these). */
@@ -132,6 +140,17 @@ export const APPLICATION_ACTIONS = [
   'read_files',
   'create_revision',
   'acknowledge_drift',
+  // P4a container applications
+  'deploy',
+  'redeploy',
+  'rollback',
+  'restart',
+  'start',
+  'stop',
+  'manage_secrets',
+  'view_logs',
+  'edit_container',
+  'manage_auto_deploy',
 ] as const;
 export type ApplicationAction = (typeof APPLICATION_ACTIONS)[number];
 
@@ -162,6 +181,8 @@ export interface Application {
     detectedAt?: string;
   }>;
   lastScanId: string | null;
+  /** Present iff kind === 'container' (§7.1). */
+  container?: ContainerAppConfig;
   allowedActions: ApplicationAction[];
   version: number;
   createdAt: string;

@@ -703,9 +703,14 @@ function s(): P3State {
       seed();
       save();
     }
+    // P4 mock seeds managed container apps into this inventory once the store is loaded.
+    for (const h of p3LoadHooks) h();
   }
   return st!;
 }
+
+/** Called after the P3 store is (re)loaded; used by the P4 mock to add container apps. */
+export const p3LoadHooks: Array<() => void> = [];
 
 function planHash(
   serverId: string,
@@ -956,6 +961,29 @@ const MODE_ACTION: Record<OwnershipMode, string> = {
 function decorate(u: MockUserLike, a: Application): Application {
   const srv = serverOf(a.serverId);
   const actions: string[] = [];
+  if (a.kind === 'container') {
+    // P4 managed container app: lifecycle actions instead of ownership tiers.
+    if (can(u, 'apps.deploy', srv))
+      actions.push(
+        'deploy',
+        'redeploy',
+        'rollback',
+        'restart',
+        'start',
+        'stop',
+        'manage_secrets',
+        'edit_container',
+      );
+    if (can(u, 'apps.read', srv)) actions.push('view_logs');
+    if (can(u, 'apps.deploy', srv) && can(u, 'policies.manage', srv))
+      actions.push('manage_auto_deploy');
+    return {
+      ...a,
+      serverName: srv.name,
+      environment: srv.environment,
+      allowedActions: actions as Application['allowedActions'],
+    };
+  }
   const i = OWNERSHIP_ORDER.indexOf(a.ownershipMode);
   const up = OWNERSHIP_ORDER[i + 1];
   const down = OWNERSHIP_ORDER[i - 1];
@@ -1614,4 +1642,16 @@ export function registerP3Routes(c: P3Ctx) {
 /** Read-only accessors for tests. */
 export const p3Debug = {
   state: () => s(),
+};
+
+/** Shared with the P4 mock routes (container apps live in the same application inventory). */
+export const p3Internals = {
+  state: () => s(),
+  save,
+  tick,
+  decorate: (u: MockUserLike, a: Application) => decorate(u, a),
+  newJob: (serverId: string, type: string, durationMs: number) =>
+    newJob(serverId, type, durationMs),
+  serverOf: (id: string) => serverOf(id),
+  appOf: (id: string) => appOf(id),
 };

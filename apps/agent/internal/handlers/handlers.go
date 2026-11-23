@@ -1,6 +1,6 @@
 // Package handlers contains the allowlisted, typed job handlers:
 // inventory.collect, discovery.scan (read-only), service.restart (mutating,
-// owned units only) and the P3 nginx.* jobs (see nginx_jobs.go). There is no generic command handler by design.
+// owned units only), the P3 nginx.* jobs (see nginx_jobs.go) and the P4 container.* jobs (container_jobs.go). There is no generic command handler by design.
 package handlers
 
 import (
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
+	"github.com/ppanel/ppanel/apps/agent/internal/containerops"
 	"github.com/ppanel/ppanel/apps/agent/internal/execx"
 	"github.com/ppanel/ppanel/apps/agent/internal/facts"
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
@@ -35,6 +36,8 @@ type Deps struct {
 	OwnedUnits func() (map[string]bool, error)
 	// Nginx runs the P3 nginx typed jobs (nil = jobs fail with NGINX_NOT_PRESENT).
 	Nginx *nginxops.Manager
+	// Containers runs the P4 container.* jobs (nil = DOCKER_UNAVAILABLE).
+	Containers *containerops.Manager
 }
 
 // RegisterAll registers every allowlisted handler.
@@ -46,6 +49,13 @@ func RegisterAll(r *jobs.Registry, d *Deps) {
 	r.Register(&NginxValidate{d})
 	r.Register(&NginxApply{d})
 	r.Register(&NginxRevert{d})
+	r.Register(&ContainerRunCandidate{d})
+	r.Register(&ContainerStart{d})
+	r.Register(&ContainerRestart{d})
+	r.Register(&ContainerStop{d})
+	r.Register(&ContainerRemove{d})
+	r.Register(&ContainerList{d})
+	r.Register(&ContainerLogs{d})
 }
 
 // ---------------- inventory.collect ----------------

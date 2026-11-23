@@ -209,3 +209,21 @@ func (c *Client) EngineVersion(ctx context.Context) (*Version, error) {
 	}
 	return &v, nil
 }
+
+// Ping reports whether the Engine API answers GET /_ping with 200 (used for
+// the `docker` capability: a socket file alone is not enough).
+func (c *Client) Ping(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/_ping", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	return resp.StatusCode == http.StatusOK
+}

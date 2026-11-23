@@ -150,6 +150,12 @@ func New(o Options) (*Agent, error) {
 	return a, nil
 }
 
+// FetchJobSecrets performs the one-time secrets fetch for the job running in
+// ctx (jobId + leaseToken attached by execute). Used by container.run_candidate.
+func (a *Agent) FetchJobSecrets(ctx context.Context) (*transport.JobSecrets, error) {
+	return a.client.FetchJobSecrets(ctx, jobs.JobID(ctx), jobs.LeaseToken(ctx))
+}
+
 // ServerID returns the enrolled server id.
 func (a *Agent) ServerID() string { return a.id.ServerID }
 
@@ -526,7 +532,7 @@ func (a *Agent) dispatch(ctx context.Context, g *jobs.Grant) {
 func (a *Agent) execute(h jobs.Handler, params any, g *jobs.Grant, log *slog.Logger) (res *jobs.Result) {
 	// Handlers are NOT tied to the agent lifecycle context: a reconnect or
 	// shutdown must not abort a half-done restart. Only the handler timeout applies.
-	ctx, cancel := context.WithTimeout(jobs.WithJobID(context.Background(), g.JobID), h.Timeout())
+	ctx, cancel := context.WithTimeout(jobs.WithLeaseToken(jobs.WithJobID(context.Background(), g.JobID), g.LeaseToken), h.Timeout())
 	defer cancel()
 	start := time.Now()
 	a.executed.Add(1)

@@ -8,6 +8,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LAB_COMPOSE_FILE="${REPO_ROOT}/infra/compose/lab.yml"
 # shellcheck disable=SC2034  # used by sourcing scripts
 LAB_NODES=(ppanel-lab-node-a ppanel-lab-node-b)
+# P4 services (node-b's docker-in-docker engine + local registry)
+# shellcheck disable=SC2034
+LAB_P4_SERVICES=(ppanel-lab-dind ppanel-lab-registry ppanel-lab-registry-fwd)
 
 # Agent binary mount: prefer apps/agent/bin if the agent team has built it, else an empty
 # gitignored placeholder so compose never creates directories inside apps/.

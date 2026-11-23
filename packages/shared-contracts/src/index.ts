@@ -10,3 +10,6 @@ export * from './agent';
 export * from './audit';
 export * from './query';
 export * from './discovery';
+export * from './deploy';
+export * from './compose';
+export * from './detect';

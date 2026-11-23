@@ -30,7 +30,9 @@ type target struct {
 	Sha             *string
 	Mode            os.FileMode
 	UID, GID        int
-	CreateParent    bool // parent is ppanel-managed and does not exist yet
+	// CreateDirs are missing logical directories (outermost first) that will be
+	// created: only ppanel-managed itself and ppanel-managed/<app>.
+	CreateDirs []string
 	// ResolvedInManaged: the resolved parent is under <root>/ppanel-managed.
 	ResolvedInManaged bool
 }
@@ -100,13 +102,31 @@ func (m *Manager) resolve(logical string, write bool) (*target, error) {
 	rparent, err := filepath.EvalSymlinks(parent)
 	switch {
 	case err == nil:
-	case errors.Is(err, fs.ErrNotExist) && write && filepath.Dir(logical) == ManagedDir:
-		// ppanel-managed itself will be created (0755) directly under root.
-		if _, lerr := os.Lstat(parent); !errors.Is(lerr, fs.ErrNotExist) {
+	case errors.Is(err, fs.ErrNotExist) && write && managedDepthOK(logical):
+		// ppanel-managed and/or ppanel-managed/<app> will be created (0755).
+		base := filepath.Dir(logical)
+		var missing []string
+		for {
+			if _, lerr := os.Lstat(m.toPhys(base)); !errors.Is(lerr, fs.ErrNotExist) {
+				break
+			}
+			missing = append([]string{base}, missing...)
+			if base == ManagedDir {
+				base = LogicalRoot
+				break
+			}
+			base = filepath.Dir(base)
+		}
+		rbase, berr := filepath.EvalSymlinks(m.toPhys(base))
+		if berr != nil || len(missing) == 0 {
 			return nil, pathErr("%s: parent directory is a dangling link", logical)
 		}
-		t.CreateParent = true
-		rparent = filepath.Join(rroot, filepath.Base(ManagedDir))
+		if st, serr := os.Stat(rbase); serr != nil || !st.IsDir() {
+			return nil, pathErr("%s: parent is not a directory", logical)
+		}
+		t.CreateDirs = missing
+		rel, _ := filepath.Rel(base, filepath.Dir(logical))
+		rparent = filepath.Join(rbase, rel)
 	default:
 		return nil, pathErr("%s: parent directory does not exist or is not accessible", logical)
 	}
@@ -156,6 +176,22 @@ func (m *Manager) resolve(logical string, write bool) (*target, error) {
 		return nil, err
 	}
 	return t, nil
+}
+
+// managedDepthOK: logical is ppanel-managed/<file> or ppanel-managed/<dir>/<file>.
+func managedDepthOK(logical string) bool {
+	rest, ok := strings.CutPrefix(logical, ManagedDir+"/")
+	return ok && strings.Count(rest, "/") <= 1
+}
+
+// creatable is the filesystem creation rule: the resolved parent is really
+// ppanel-managed (or a direct subdirectory of it), or the target is exactly
+// ManagedIncludeFile in the real conf.d directory (not reached via a symlink).
+func (t *target) creatable() bool {
+	if strings.HasPrefix(t.Logical, ManagedDir+"/") && managedDepthOK(t.Logical) {
+		return t.ResolvedInManaged
+	}
+	return t.Logical == ManagedIncludeFile && t.ResolvedLogical == ManagedIncludeFile && !t.IsSymlink
 }
 
 // load reads an existing regular file (no symlink following for writes).

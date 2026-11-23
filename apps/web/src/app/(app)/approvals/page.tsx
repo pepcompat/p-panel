@@ -1,7 +1,7 @@
-import { ApprovalsPreview } from '@/components/preview/operate';
+import { ApprovalsView } from '@/components/p4/approvals-view';
 
 export const metadata = { title: 'Approvals' };
 
 export default function Page() {
-  return <ApprovalsPreview />;
+  return <ApprovalsView />;
 }

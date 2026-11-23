@@ -158,8 +158,8 @@ func (m *Manager) writeBackup(id, kind, revisionID, jobID string, ts []*target) 
 				return nil, fmt.Errorf("backup %s: %w", t.Logical, err)
 			}
 		}
-		if t.CreateParent {
-			createdDirs[ManagedDir] = true
+		for _, d := range t.CreateDirs {
+			createdDirs[d] = true
 		}
 		man.Files = append(man.Files, e)
 	}
@@ -179,11 +179,12 @@ func (m *Manager) writeBackup(id, kind, revisionID, jobID string, ts []*target) 
 // owned by the agent; existing files keep mode/uid/gid.
 func (m *Manager) writeCandidates(ts []*target, files []FileChange) error {
 	for i, t := range ts {
-		if t.CreateParent {
-			if err := os.Mkdir(filepath.Dir(t.Phys), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-				return fmt.Errorf("mkdir %s: %w", ManagedDir, err)
+		for _, d := range t.CreateDirs {
+			pd := m.toPhys(d)
+			if err := os.Mkdir(pd, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+				return fmt.Errorf("mkdir %s: %w", d, err)
 			}
-			_ = syncDir(filepath.Dir(filepath.Dir(t.Phys)))
+			_ = syncDir(filepath.Dir(pd))
 		}
 		data := []byte(files[i].Content)
 		var err error
@@ -232,9 +233,9 @@ func (m *Manager) restore(man *manifest) []RestoreProblem {
 			probs = append(probs, RestoreProblem{e.Path, "backup blob checksum mismatch"})
 			continue
 		}
-		if filepath.Dir(e.Path) == ManagedDir {
-			// ppanel-managed may have been removed when emptied (revert undo path)
-			if err := os.Mkdir(filepath.Dir(phys), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+		if strings.HasPrefix(e.Path, ManagedDir+"/") {
+			// ppanel-managed[/<app>] may have been removed when emptied (revert undo path)
+			if err := os.MkdirAll(filepath.Dir(phys), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
 				probs = append(probs, RestoreProblem{e.Path, "recreate " + ManagedDir + ": " + err.Error()})
 				continue
 			}
@@ -248,8 +249,10 @@ func (m *Manager) restore(man *manifest) []RestoreProblem {
 			probs = append(probs, RestoreProblem{e.Path, "restored checksum does not match original"})
 		}
 	}
-	for _, d := range man.CreatedDirs {
-		// only removed when empty (os.Remove fails on a non-empty dir)
+	// innermost first; only removed when empty (os.Remove fails on a non-empty dir)
+	dirs := append([]string(nil), man.CreatedDirs...)
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	for _, d := range dirs {
 		_ = os.Remove(m.toPhys(d))
 	}
 	return probs

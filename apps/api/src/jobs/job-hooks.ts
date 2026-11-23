@@ -16,7 +16,7 @@ export type JobFinishedHandler = (job: FinishedJob) => Promise<void>;
  */
 @Injectable()
 export class JobHooks {
-  private readonly handlers = new Map<string, JobFinishedHandler>();
+  private readonly handlers = new Map<string, JobFinishedHandler[]>();
   private readonly reconcilers: Array<() => Promise<unknown>> = [];
 
   /** Periodic repair: re-dispatch terminal jobs whose workflow object is still in an in-flight state. */
@@ -34,8 +34,11 @@ export class JobHooks {
     }
   }
 
+  /** Several workflows may observe the same job type (e.g. `nginx.apply`: revisions, deployments, routing). */
   register(type: string, handler: JobFinishedHandler): void {
-    this.handlers.set(type, handler);
+    const list = this.handlers.get(type) ?? [];
+    list.push(handler);
+    this.handlers.set(type, list);
   }
 
   has(type: string): boolean {
@@ -43,12 +46,12 @@ export class JobHooks {
   }
 
   async dispatch(job: FinishedJob): Promise<void> {
-    const h = this.handlers.get(job.type);
-    if (!h) return;
-    try {
-      await h(job);
-    } catch (err) {
-      logger.emit('error', 'job finished hook failed', { jobId: job.id, type: job.type, err });
+    for (const h of this.handlers.get(job.type) ?? []) {
+      try {
+        await h(job);
+      } catch (err) {
+        logger.emit('error', 'job finished hook failed', { jobId: job.id, type: job.type, err });
+      }
     }
   }
 }

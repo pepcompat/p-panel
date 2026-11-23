@@ -409,3 +409,20 @@ func TestCacheBoundedAndPersisted(t *testing.T) {
 		t.Fatal("corrupt cache must fail closed")
 	}
 }
+
+type ctxHandler struct{ countingHandler }
+
+func (h *ctxHandler) Run(ctx context.Context, _ any) (any, error) {
+	return map[string]any{"jobId": jobs.JobID(ctx), "lease": jobs.LeaseToken(ctx)}, nil
+}
+
+// container.run_candidate needs jobId + leaseToken for the one-time secrets fetch.
+func TestExecuteAttachesJobIDAndLeaseToken(t *testing.T) {
+	a := &Agent{}
+	g := &jobs.Grant{JobID: "job-9", LeaseToken: "lease-9"}
+	r := a.execute(&ctxHandler{countingHandler{typ: "x", calls: &atomic.Int64{}}}, struct{}{}, g, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	out := r.Output.(map[string]any)
+	if r.Status != "succeeded" || out["jobId"] != "job-9" || out["lease"] != "lease-9" {
+		t.Fatalf("%+v", r)
+	}
+}

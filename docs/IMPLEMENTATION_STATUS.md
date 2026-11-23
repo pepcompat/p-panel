@@ -7,50 +7,50 @@ Last verified revision: (no commits yet)
 
 ## P0
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                                                 |
-| ------- | ------ | --------- | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| P0.01 | PASS |  |  | docs/BASELINE.md | Inspect repo, dependencies, tooling, deployment constraints, and existing assets; record baseline and no-touch rules. |
-| P0.02   | TODO   |           |              |          | Incorporate Claude Design screen contracts; where unavailable, implement minimal functional UI and track open design dependencies.    |
-| P0.03 | IN_PROGRESS |  | pnpm lint/typecheck; .github/workflows/ci.yml | CI not yet executed on GitHub | Initialize monorepo, conventions, lint/format/typecheck, CI skeleton, lockfiles, `.env.example` without secrets. |
-| P0.04 | PASS |  | scripts/lab/up.sh, smoke.sh, down.sh x3 | smoke 17/17; containers ≠ VMs (infra/lab/README.md) | Start lab Center + 2 disposable nodes or documented local VM/container approximations; label limitations of containers vs actual VMs. |
-| P0.05 | PASS |  |  | docs/SECURITY_THREAT_MODEL.md, docs/adr/0001-0007 | Record threat model, trust boundaries, operation classifications and ADRs. |
+| Task ID | Status      | Change/PR | Test command                                  | Evidence                                            | Notes                                                                                                                                 |
+| ------- | ----------- | --------- | --------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| P0.01   | PASS        |           |                                               | docs/BASELINE.md                                    | Inspect repo, dependencies, tooling, deployment constraints, and existing assets; record baseline and no-touch rules.                 |
+| P0.02   | TODO        |           |                                               |                                                     | Incorporate Claude Design screen contracts; where unavailable, implement minimal functional UI and track open design dependencies.    |
+| P0.03   | IN_PROGRESS |           | pnpm lint/typecheck; .github/workflows/ci.yml | CI not yet executed on GitHub                       | Initialize monorepo, conventions, lint/format/typecheck, CI skeleton, lockfiles, `.env.example` without secrets.                      |
+| P0.04   | PASS        |           | scripts/lab/up.sh, smoke.sh, down.sh x3       | smoke 17/17; containers ≠ VMs (infra/lab/README.md) | Start lab Center + 2 disposable nodes or documented local VM/container approximations; label limitations of containers vs actual VMs. |
+| P0.05   | PASS        |           |                                               | docs/SECURITY_THREAT_MODEL.md, docs/adr/0001-0007   | Record threat model, trust boundaries, operation classifications and ADRs.                                                            |
 
 Phase tests: P0-T01, P0-T02 (see `TEST_REPORT.md`) · Gate: TODO
 
 ## P1
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                      |
-| ------- | ------ | --------- | ------------ | -------- | ---------------------------------------------------------------------------------------------------------- |
-| P1.01 | PASS |  | pnpm --filter @ppanel/api test:integration | apps/api/prisma/migrations/20261117102042_init | PostgreSQL schema/migrations; seed least-privilege first admin via secure setup. |
-| P1.02 | PASS |  | pnpm --filter @ppanel/api test:integration | auth.spec 69/69 integration total | Login, session, password hashing, MFA/TOTP + recovery codes, API auth, scoped RBAC, CSRF where applicable. |
-| P1.03 | PASS |  | cd apps/agent && go test ./... -race -cover | 15 pkgs PASS, 67.8% cov; systemd unit not verified on real systemd | Agent Go binary, systemd packaging, config validation, lifecycle. |
-| P1.04 | PASS |  | integration P1-T01/T02 + lab E2E | docs/evidence/2026-11-17 | One-use short TTL enrollment, peer identity, mTLS, rotation/revocation. |
-| P1.05 | PASS |  | lab E2E heartbeat over mTLS :4443 | docs/evidence/2026-11-17 e2e-servers.json | Outbound stream/poll, heartbeat, capabilities, no inbound public management listener. |
-| P1.06 | IN_PROGRESS |  |  | backend PASS (servers/users/audit); UI by apps/web | Server registry UI and audit events. |
+| Task ID | Status      | Change/PR | Test command                                | Evidence                                                           | Notes                                                                                                      |
+| ------- | ----------- | --------- | ------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| P1.01   | PASS        |           | pnpm --filter @ppanel/api test:integration  | apps/api/prisma/migrations/20261117102042_init                     | PostgreSQL schema/migrations; seed least-privilege first admin via secure setup.                           |
+| P1.02   | PASS        |           | pnpm --filter @ppanel/api test:integration  | auth.spec 69/69 integration total                                  | Login, session, password hashing, MFA/TOTP + recovery codes, API auth, scoped RBAC, CSRF where applicable. |
+| P1.03   | PASS        |           | cd apps/agent && go test ./... -race -cover | 15 pkgs PASS, 67.8% cov; systemd unit not verified on real systemd | Agent Go binary, systemd packaging, config validation, lifecycle.                                          |
+| P1.04   | PASS        |           | integration P1-T01/T02 + lab E2E            | docs/evidence/2026-11-17                                           | One-use short TTL enrollment, peer identity, mTLS, rotation/revocation.                                    |
+| P1.05   | PASS        |           | lab E2E heartbeat over mTLS :4443           | docs/evidence/2026-11-17 e2e-servers.json                          | Outbound stream/poll, heartbeat, capabilities, no inbound public management listener.                      |
+| P1.06   | IN_PROGRESS |           |                                             | backend PASS (servers/users/audit); UI by apps/web                 | Server registry UI and audit events.                                                                       |
 
 Phase tests: P1-T01, P1-T02, P1-T03, P1-T04 (see `TEST_REPORT.md`) · Gate: TODO
 
 ## P2
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                         |
-| ------- | ------ | --------- | ------------ | -------- | --------------------------------------------------------------------------------------------- |
-| P2.01 | PASS |  | pnpm --filter @ppanel/api test:integration | jobs.spec | Typed job schema, idempotency keys, task lease/TTL, timeout, cancellation, audit correlation. |
-| P2.02 | PASS |  | go test ./internal/jobs ./internal/handlers | typed allowlist, no shell | Agent allowlisted handlers, input schema validation and local authority boundaries. |
-| P2.03 | IN_PROGRESS |  |  | agent inventory.collect done; Center inventory views pending | Host CPU/RAM/Disk/Network, Docker/container, systemd, Nginx/PHP inventory. |
-| P2.04   | TODO   |           |              |          | UI fleet list/detail, stale/offline states, job progress/events.                              |
-| P2.05 | IN_PROGRESS |  |  | locks + lease durability PASS; reboot reconciliation pending | Resource ownership + concurrency locks; auto-reconciliation after reboot/disconnect. |
+| Task ID | Status      | Change/PR | Test command                                | Evidence                                                     | Notes                                                                                         |
+| ------- | ----------- | --------- | ------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| P2.01   | PASS        |           | pnpm --filter @ppanel/api test:integration  | jobs.spec                                                    | Typed job schema, idempotency keys, task lease/TTL, timeout, cancellation, audit correlation. |
+| P2.02   | PASS        |           | go test ./internal/jobs ./internal/handlers | typed allowlist, no shell                                    | Agent allowlisted handlers, input schema validation and local authority boundaries.           |
+| P2.03   | IN_PROGRESS |           |                                             | agent inventory.collect done; Center inventory views pending | Host CPU/RAM/Disk/Network, Docker/container, systemd, Nginx/PHP inventory.                    |
+| P2.04   | TODO        |           |                                             |                                                              | UI fleet list/detail, stale/offline states, job progress/events.                              |
+| P2.05   | IN_PROGRESS |           |                                             | locks + lease durability PASS; reboot reconciliation pending | Resource ownership + concurrency locks; auto-reconciliation after reboot/disconnect.          |
 
 Phase tests: P2-T01, P2-T02, P2-T03, P2-T04 (see `TEST_REPORT.md`) · Gate: TODO
 
 ## P3
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                                         |
-| ------- | ------ | --------- | ------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| P3.01 | IN_PROGRESS |  |  | agent nginx -T parser + lab discovery PASS; Center model/UI pending | Scanner for `nginx -T` effective config, server blocks, includes, domains, roots, upstream and SSL references. |
-| P3.02 | IN_PROGRESS |  |  | agent php-fpm/ports/docker labels/systemd discovery | Docker/Compose/PHP-FPM/systemd/process/port discovery; provenance and confidence. |
-| P3.03   | TODO   |           |              |          | Model scan snapshots, unsupported directives and collisions; no config mutation.                                              |
-| P3.04   | TODO   |           |              |          | Import UI: Preview, mappings, Observe default, Adopt/Managed with explicit permissions.                                       |
-| P3.05   | TODO   |           |              |          | Safe supported Nginx operations: file snapshot, diff, syntax validation, apply/reload, postcheck and revert; drift detection. |
+| Task ID | Status      | Change/PR | Test command | Evidence                                                            | Notes                                                                                                                         |
+| ------- | ----------- | --------- | ------------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| P3.01   | IN_PROGRESS |           |              | agent nginx -T parser + lab discovery PASS; Center model/UI pending | Scanner for `nginx -T` effective config, server blocks, includes, domains, roots, upstream and SSL references.                |
+| P3.02   | IN_PROGRESS |           |              | agent php-fpm/ports/docker labels/systemd discovery                 | Docker/Compose/PHP-FPM/systemd/process/port discovery; provenance and confidence.                                             |
+| P3.03   | TODO        |           |              |                                                                     | Model scan snapshots, unsupported directives and collisions; no config mutation.                                              |
+| P3.04   | TODO        |           |              |                                                                     | Import UI: Preview, mappings, Observe default, Adopt/Managed with explicit permissions.                                       |
+| P3.05   | TODO        |           |              |                                                                     | Safe supported Nginx operations: file snapshot, diff, syntax validation, apply/reload, postcheck and revert; drift detection. |
 
 Phase tests: P3-T01, P3-T02, P3-T03, P3-T04, P3-T05 (see `TEST_REPORT.md`) · Gate: TODO
 

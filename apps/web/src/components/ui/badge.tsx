@@ -5,7 +5,14 @@ import { cn } from '@/lib/utils';
 export type Tone = 'ok' | 'warn' | 'stale' | 'crit' | 'info' | 'off';
 
 /** Glyphs from the design's tone table — status is never conveyed by colour alone. */
-export const TONE_GLYPH: Record<Tone, string> = { ok: '●', warn: '▲', stale: '◐', crit: '✕', info: '◆', off: '○' };
+export const TONE_GLYPH: Record<Tone, string> = {
+  ok: '●',
+  warn: '▲',
+  stale: '◐',
+  crit: '✕',
+  info: '◆',
+  off: '○',
+};
 
 const toneClass: Record<Tone, string> = {
   ok: 'bg-ok-bg text-ok',
@@ -76,7 +83,15 @@ const envClass: Record<Environment, string> = {
 };
 
 /** "■ PRODUCTION" style environment label. */
-export function EnvBadge({ env, label, className }: { env: Environment | 'all'; label: string; className?: string }) {
+export function EnvBadge({
+  env,
+  label,
+  className,
+}: {
+  env: Environment | 'all';
+  label: string;
+  className?: string;
+}) {
   return (
     <span
       className={cn(
@@ -93,7 +108,12 @@ export function EnvBadge({ env, label, className }: { env: Environment | 'all'; 
 
 export function OutlineTag({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <span className={cn('rounded-[3px] border border-line-strong px-1.5 font-mono text-[11px] whitespace-nowrap', className)}>
+    <span
+      className={cn(
+        'rounded-[3px] border border-line-strong px-1.5 font-mono text-[11px] whitespace-nowrap',
+        className,
+      )}
+    >
       {children}
     </span>
   );

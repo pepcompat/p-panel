@@ -47,7 +47,9 @@ export class AuthzService {
 
   /** `target` undefined means a global (unscoped) resource → only global bindings qualify. */
   can(user: AuthUser, perm: Permission, target?: ResourceScope): boolean {
-    return user.bindings.some((b) => rolePermissions(b.roleKey).includes(perm) && bindingCovers(b, target));
+    return user.bindings.some(
+      (b) => rolePermissions(b.roleKey).includes(perm) && bindingCovers(b, target),
+    );
   }
 
   /** Enforce a scoped permission; denied attempts are audited. */
@@ -64,7 +66,10 @@ export class AuthzService {
       targetType: audit.targetType,
       targetId: audit.targetId ?? null,
       result: 'denied',
-      metadata: { permission: perm, ...(target?.environment ? { environment: target.environment } : {}) },
+      metadata: {
+        permission: perm,
+        ...(target?.environment ? { environment: target.environment } : {}),
+      },
     });
     throw AppError.forbidden();
   }

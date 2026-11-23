@@ -30,7 +30,9 @@ export function ResourceMeter({
     <div
       className={cn(
         'grid items-center gap-2',
-        size === 'sm' ? 'grid-cols-[38px_minmax(0,1fr)_72px] text-[12px]' : 'grid-cols-[44px_minmax(0,1fr)_84px] text-[12.5px]',
+        size === 'sm'
+          ? 'grid-cols-[38px_minmax(0,1fr)_72px] text-[12px]'
+          : 'grid-cols-[44px_minmax(0,1fr)_84px] text-[12.5px]',
       )}
     >
       <span className="text-fg-muted">{label}</span>
@@ -40,11 +42,24 @@ export function ResourceMeter({
         aria-valuemin={has ? 0 : undefined}
         aria-valuemax={has ? 100 : undefined}
         aria-valuenow={has ? Math.round(pct) : undefined}
-        className={cn('overflow-hidden rounded-[3px] bg-track', size === 'sm' ? 'h-1.5' : 'h-2 rounded')}
+        className={cn(
+          'overflow-hidden rounded-[3px] bg-track',
+          size === 'sm' ? 'h-1.5' : 'h-2 rounded',
+        )}
       >
-        {has && <div className={cn('h-full', fill[tone], stale && 'opacity-45')} style={{ width: `${pct}%` }} />}
+        {has && (
+          <div
+            className={cn('h-full', fill[tone], stale && 'opacity-45')}
+            style={{ width: `${pct}%` }}
+          />
+        )}
       </div>
-      <span className={cn('text-right font-mono', has ? (stale ? 'text-stale' : text[tone]) : 'text-fg-subtle')}>
+      <span
+        className={cn(
+          'text-right font-mono',
+          has ? (stale ? 'text-stale' : text[tone]) : 'text-fg-subtle',
+        )}
+      >
         {has ? `${stale ? '◐ ' : ''}${Math.round(pct)}%` : noDataLabel}
       </span>
     </div>

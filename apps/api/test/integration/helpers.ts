@@ -81,14 +81,20 @@ const TABLES = [
 ];
 
 /** Wipes all data except the CA (kept so a running app's in-memory CA stays consistent). */
-export async function resetDb(prisma: PrismaService, opts: { seedUsers?: boolean } = { seedUsers: true }): Promise<void> {
+export async function resetDb(
+  prisma: PrismaService,
+  opts: { seedUsers?: boolean } = { seedUsers: true },
+): Promise<void> {
   await prisma.$executeRawUnsafe(`TRUNCATE ${TABLES.map((t) => `"${t}"`).join(', ')} CASCADE`);
   if (opts.seedUsers !== false) await seed(prisma);
 }
 
 export async function login(t: TestApp, name: string, password = 'password'): Promise<string> {
-  const res = await t.http.post('/api/v1/auth/login').send({ email: `${name}@ppanel.local`, password });
-  if (res.status !== 200 || !res.body.data?.accessToken) throw new Error(`login ${name} failed: ${res.status} ${JSON.stringify(res.body)}`);
+  const res = await t.http
+    .post('/api/v1/auth/login')
+    .send({ email: `${name}@ppanel.local`, password });
+  if (res.status !== 200 || !res.body.data?.accessToken)
+    throw new Error(`login ${name} failed: ${res.status} ${JSON.stringify(res.body)}`);
   return res.body.data.accessToken as string;
 }
 
@@ -105,7 +111,10 @@ const EC = { name: 'ECDSA', namedCurve: 'P-256' } as const;
 const SIG = { name: 'ECDSA', hash: 'SHA-256' } as const;
 
 function pem(der: ArrayBuffer, label: string): string {
-  return `-----BEGIN ${label}-----\n${Buffer.from(der).toString('base64').replace(/(.{64})/g, '$1\n').trim()}\n-----END ${label}-----\n`;
+  return `-----BEGIN ${label}-----\n${Buffer.from(der)
+    .toString('base64')
+    .replace(/(.{64})/g, '$1\n')
+    .trim()}\n-----END ${label}-----\n`;
 }
 
 export interface AgentKey {
@@ -122,17 +131,29 @@ export async function newAgentKey(curve: 'P-256' | 'P-384' = 'P-256'): Promise<A
     keys,
     signingAlgorithm: { name: 'ECDSA', hash: curve === 'P-256' ? 'SHA-256' : 'SHA-384' },
   });
-  return { keys, keyPem: pem(await webcrypto.subtle.exportKey('pkcs8', keys.privateKey), 'PRIVATE KEY'), csrPem: csr.toString('pem') };
+  return {
+    keys,
+    keyPem: pem(await webcrypto.subtle.exportKey('pkcs8', keys.privateKey), 'PRIVATE KEY'),
+    csrPem: csr.toString('pem'),
+  };
 }
 
 /** A completely separate CA that issues a look-alike agent certificate (spoofing attempt). */
-export async function spoofedAgentCert(serverId: string): Promise<{ keyPem: string; certPem: string }> {
-  const caKeys = (await webcrypto.subtle.generateKey(EC, true, ['sign', 'verify'])) as CryptoKeyPair;
+export async function spoofedAgentCert(
+  serverId: string,
+): Promise<{ keyPem: string; certPem: string }> {
+  const caKeys = (await webcrypto.subtle.generateKey(EC, true, [
+    'sign',
+    'verify',
+  ])) as CryptoKeyPair;
   const ca = await x509.X509CertificateGenerator.createSelfSigned({
     name: 'CN=pPanel Internal Agent CA evil',
     keys: caKeys,
     signingAlgorithm: SIG,
-    extensions: [new x509.BasicConstraintsExtension(true, 0, true), new x509.KeyUsagesExtension(x509.KeyUsageFlags.keyCertSign, true)],
+    extensions: [
+      new x509.BasicConstraintsExtension(true, 0, true),
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.keyCertSign, true),
+    ],
   });
   const leaf = await newAgentKey();
   const cert = await x509.X509CertificateGenerator.create({
@@ -143,7 +164,9 @@ export async function spoofedAgentCert(serverId: string): Promise<{ keyPem: stri
     signingAlgorithm: SIG,
     extensions: [
       new x509.ExtendedKeyUsageExtension([x509.ExtendedKeyUsage.clientAuth]),
-      new x509.SubjectAlternativeNameExtension([{ type: 'url', value: `ppanel://agent/${serverId}` }]),
+      new x509.SubjectAlternativeNameExtension([
+        { type: 'url', value: `ppanel://agent/${serverId}` },
+      ]),
     ],
   });
   return { keyPem: leaf.keyPem, certPem: cert.toString('pem') };
@@ -184,7 +207,9 @@ export function agentCall(
         agent: false,
         headers: {
           'X-Agent-Protocol': '1',
-          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+          ...(payload
+            ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+            : {}),
           ...headers,
         },
       },
@@ -224,17 +249,29 @@ export async function enrollAgent(
   const en = await t.http
     .post('/api/v1/enrollments')
     .set(bearer(accessToken))
-    .send({ name: opts.name ?? `node-${Math.random().toString(36).slice(2, 8)}`, environment: opts.environment ?? 'development' });
-  if (en.status !== 201) throw new Error(`enrollment create failed ${en.status} ${JSON.stringify(en.body)}`);
+    .send({
+      name: opts.name ?? `node-${Math.random().toString(36).slice(2, 8)}`,
+      environment: opts.environment ?? 'development',
+    });
+  if (en.status !== 201)
+    throw new Error(`enrollment create failed ${en.status} ${JSON.stringify(en.body)}`);
   const key = await newAgentKey();
-  const res = await t.http
-    .post('/api/v1/agent/enroll')
-    .send({ token: en.body.data.token, csrPem: key.csrPem, hostname: 'lab-node', facts: { os: { id: 'ubuntu', version: '24.04', arch: 'arm64' }, agentVersion: '0.1.0' } });
-  if (res.status !== 201) throw new Error(`agent enroll failed ${res.status} ${JSON.stringify(res.body)}`);
+  const res = await t.http.post('/api/v1/agent/enroll').send({
+    token: en.body.data.token,
+    csrPem: key.csrPem,
+    hostname: 'lab-node',
+    facts: { os: { id: 'ubuntu', version: '24.04', arch: 'arm64' }, agentVersion: '0.1.0' },
+  });
+  if (res.status !== 201)
+    throw new Error(`agent enroll failed ${res.status} ${JSON.stringify(res.body)}`);
   return {
     serverId: res.body.data.serverId,
     key,
-    creds: { keyPem: key.keyPem, certPem: res.body.data.certificatePem, caPem: res.body.data.caPem },
+    creds: {
+      keyPem: key.keyPem,
+      certPem: res.body.data.certificatePem,
+      caPem: res.body.data.caPem,
+    },
   };
 }
 

@@ -23,7 +23,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={push}>
       {children}
       {/* No secrets are ever passed to toasts. role=status → polite, never steals focus. */}
-      <div role="status" aria-live="polite" className="fixed right-5 bottom-5 z-50 flex max-w-[380px] flex-col gap-2">
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed right-5 bottom-5 z-50 flex max-w-[380px] flex-col gap-2"
+      >
         {toasts.map((t) => (
           <div
             key={t.id}

@@ -10,7 +10,10 @@ import { Notice } from '@/components/ui/states';
 import { cn } from '@/lib/utils';
 import { LocalTabs, PreviewAction, PreviewPage, Table, Td, Th, riskTone } from './shared';
 
-type Net = Record<string, { pub: string; priv: string; vpc: string; cidr: string; pref: string; vpcUnverified?: boolean }>;
+type Net = Record<
+  string,
+  { pub: string; priv: string; vpc: string; cidr: string; pref: string; vpcUnverified?: boolean }
+>;
 
 export function NetworkPreview() {
   const t = useT();
@@ -29,11 +32,26 @@ export function NetworkPreview() {
         <h2 className="m-0 text-[15px] font-semibold">Topology</h2>
         <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2.5">
           {[
-            ['Public ingress', 'Users → DNS A records → public ingress per domain', 'Direct Public Ingress (current)'],
-            ['Center (control plane)', 'center-sgp1 · 10.104.0.5', 'Agents connect outbound mTLS · not in the request path of apps'],
-            ['Gateway (optional)', 'gateway-sgp1-01 · 10.104.0.6', 'Not enabled · opt-in per domain'],
+            [
+              'Public ingress',
+              'Users → DNS A records → public ingress per domain',
+              'Direct Public Ingress (current)',
+            ],
+            [
+              'Center (control plane)',
+              'center-sgp1 · 10.104.0.5',
+              'Agents connect outbound mTLS · not in the request path of apps',
+            ],
+            [
+              'Gateway (optional)',
+              'gateway-sgp1-01 · 10.104.0.6',
+              'Not enabled · opt-in per domain',
+            ],
           ].map(([a, b, c]) => (
-            <div key={a} className="flex flex-col gap-0.5 rounded-md border border-line p-3 text-[13px]">
+            <div
+              key={a}
+              className="flex flex-col gap-0.5 rounded-md border border-line p-3 text-[13px]"
+            >
               <b>{a}</b>
               <span className="font-mono text-[12px]">{b}</span>
               <span className="text-[12px] text-fg-muted">{c}</span>
@@ -42,7 +60,10 @@ export function NetworkPreview() {
         </div>
         <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2.5">
           {[...vpcs.entries()].map(([name, v]) => (
-            <div key={name} className="flex flex-col gap-1.5 rounded-md border border-dashed border-line-strong p-3">
+            <div
+              key={name}
+              className="flex flex-col gap-1.5 rounded-md border border-dashed border-line-strong p-3"
+            >
               <div className="flex items-center gap-2">
                 <b className="flex-1 font-mono text-[13px]">{name}</b>
                 <span className="font-mono text-[11.5px] text-fg-muted">{v.cidr}</span>
@@ -50,7 +71,10 @@ export function NetworkPreview() {
               {v.servers.map((s) => {
                 const st = statusOf(s);
                 return (
-                  <div key={s} className="flex items-center gap-2 rounded bg-chip px-2 py-1 font-mono text-[12px]">
+                  <div
+                    key={s}
+                    className="flex items-center gap-2 rounded bg-chip px-2 py-1 font-mono text-[12px]"
+                  >
                     <ToneBadge tone={(st?.t ?? 'off') as DesignTone} size="sm">
                       {st?.status}
                     </ToneBadge>
@@ -63,19 +87,25 @@ export function NetworkPreview() {
           ))}
         </div>
         <Notice tone="warn" glyph="▲">
-          web-legacy-02: private path unverified (default-sgp1 VPC) · management traffic currently uses the public endpoint
+          web-legacy-02: private path unverified (default-sgp1 VPC) · management traffic currently
+          uses the public endpoint
         </Notice>
       </Card>
       <Card>
         <CardHeader title="Gateway mode per domain" />
         {['shop.w3.co', 'api.billing.w3.co', 'blog.w3.co'].map((dom) => (
-          <div key={dom} className="flex flex-wrap items-center gap-3 border-t border-line-subtle px-4 py-2.5 text-[13px] first:border-0">
+          <div
+            key={dom}
+            className="flex flex-wrap items-center gap-3 border-t border-line-subtle px-4 py-2.5 text-[13px] first:border-0"
+          >
             <span className="min-w-[160px] font-mono">{dom}</span>
             <span className="flex-1 text-fg-muted">Direct Public Ingress</span>
             <PreviewAction size="sm">Plan cutover…</PreviewAction>
           </div>
         ))}
-        <p className="m-0 border-t border-line-subtle px-4 py-2.5 text-[12px] text-fg-muted">DNS changes are never instant and do not guarantee zero downtime.</p>
+        <p className="m-0 border-t border-line-subtle px-4 py-2.5 text-[12px] text-fg-muted">
+          DNS changes are never instant and do not guarantee zero downtime.
+        </p>
       </Card>
     </PreviewPage>
   );
@@ -90,18 +120,32 @@ export function FirewallPreview() {
   const lockout = 'lockout' in pol && pol.lockout;
   return (
     <PreviewPage title={t('preview.firewall.title')} subtitle={t('preview.firewall.subtitle')}>
-      <LocalTabs label="Firewall views" value={tab} onChange={setTab} tabs={[['shared', 'Shared policies'], ['server', 'Per server']]} />
+      <LocalTabs
+        label="Firewall views"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          ['shared', 'Shared policies'],
+          ['server', 'Per server'],
+        ]}
+      />
       {tab === 'shared' ? (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
           <Card className="overflow-hidden">
-            <CardHeader title="Shared policies" actions={<PreviewAction size="sm">+ New policy</PreviewAction>} />
+            <CardHeader
+              title="Shared policies"
+              actions={<PreviewAction size="sm">+ New policy</PreviewAction>}
+            />
             {d.FW_POL.map((p) => (
               <button
                 key={p.id}
                 type="button"
                 aria-pressed={p.id === pid}
                 onClick={() => setPid(p.id)}
-                className={cn('flex w-full items-center gap-2 border-0 border-t border-line-subtle px-4 py-2.5 text-left first:border-t-0', p.id === pid ? 'bg-info-bg' : 'bg-surface hover:bg-surface-hover')}
+                className={cn(
+                  'flex w-full items-center gap-2 border-0 border-t border-line-subtle px-4 py-2.5 text-left first:border-t-0',
+                  p.id === pid ? 'bg-info-bg' : 'bg-surface hover:bg-surface-hover',
+                )}
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-mono text-[12.5px]">{p.name}</div>
@@ -109,12 +153,25 @@ export function FirewallPreview() {
                     {p.scopeLabel} · {p.rules.length} rules
                   </div>
                 </div>
-                <ToneBadge tone={'draft' in p && p.draft ? 'warn' : 'ok'}>{'draft' in p && p.draft ? 'draft' : `rev ${p.rev}`}</ToneBadge>
+                <ToneBadge tone={'draft' in p && p.draft ? 'warn' : 'ok'}>
+                  {'draft' in p && p.draft ? 'draft' : `rev ${p.rev}`}
+                </ToneBadge>
               </button>
             ))}
           </Card>
           <div className="flex flex-col gap-4">
-            <Table head={<><Th>Action</Th><Th>Direction</Th><Th>Proto/Port</Th><Th>Source / Dest</Th><Th>Notes</Th></>} minWidth={560}>
+            <Table
+              head={
+                <>
+                  <Th>Action</Th>
+                  <Th>Direction</Th>
+                  <Th>Proto/Port</Th>
+                  <Th>Source / Dest</Th>
+                  <Th>Notes</Th>
+                </>
+              }
+              minWidth={560}
+            >
               {pol.rules.map((r, i) => (
                 <tr key={i}>
                   <Td>
@@ -130,26 +187,46 @@ export function FirewallPreview() {
               ))}
             </Table>
             {lockout && (
-              <Notice tone="crit" glyph="✕" role="alert" title="Apply blocked: this policy would lock out management access">
-                Fix the rules or register a safe recovery mechanism, then request Platform Owner approval. There is no override button.
+              <Notice
+                tone="crit"
+                glyph="✕"
+                role="alert"
+                title="Apply blocked: this policy would lock out management access"
+              >
+                Fix the rules or register a safe recovery mechanism, then request Platform Owner
+                approval. There is no override button.
               </Notice>
             )}
             <div className="flex gap-2">
               <PreviewAction>+ Add rule</PreviewAction>
               <PreviewAction variant="primary">Push policy…</PreviewAction>
             </div>
-            <p className="m-0 text-[12px] text-fg-muted">Rollout order: dev → uat → (approval) → production · an agent that loses connection within 60 s after apply rolls back automatically.</p>
+            <p className="m-0 text-[12px] text-fg-muted">
+              Rollout order: dev → uat → (approval) → production · an agent that loses connection
+              within 60 s after apply rolls back automatically.
+            </p>
           </div>
         </div>
       ) : (
-        <Table head={<><Th>Server</Th><Th>Backend</Th><Th>Rules</Th><Th>Status</Th></>}>
+        <Table
+          head={
+            <>
+              <Th>Server</Th>
+              <Th>Backend</Th>
+              <Th>Rules</Th>
+              <Th>Status</Th>
+            </>
+          }
+        >
           {d.SERVERS.map((s) => (
             <tr key={s.name}>
               <Td className="font-mono text-[12.5px]">{s.name}</Td>
               <Td>
                 <OutlineTag>nftables</OutlineTag> <OutlineTag>DO Cloud Firewall</OutlineTag>
               </Td>
-              <Td className="font-mono text-[12px]">{(d.FW_LOCAL as Record<string, unknown[]>)[s.name]?.length ?? 0} local + shared</Td>
+              <Td className="font-mono text-[12px]">
+                {(d.FW_LOCAL as Record<string, unknown[]>)[s.name]?.length ?? 0} local + shared
+              </Td>
               <Td>
                 <ToneBadge tone={s.t as DesignTone}>{s.status}</ToneBadge>
               </Td>
@@ -167,7 +244,17 @@ export function SshPreview() {
   const [tab, setTab] = useState<'terminal' | 'keys' | 'hosts' | 'grants'>('keys');
   return (
     <PreviewPage title={t('preview.ssh.title')} subtitle={t('preview.ssh.subtitle')}>
-      <LocalTabs label="SSH sections" value={tab} onChange={setTab} tabs={[['terminal', 'Terminal'], ['keys', 'Keys'], ['hosts', 'Host keys'], ['grants', 'Access grants']]} />
+      <LocalTabs
+        label="SSH sections"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          ['terminal', 'Terminal'],
+          ['keys', 'Keys'],
+          ['hosts', 'Host keys'],
+          ['grants', 'Access grants'],
+        ]}
+      />
       {tab === 'terminal' && (
         <Card className="flex flex-col gap-3 p-4">
           <b className="text-[13.5px]">Pick a server to open a session</b>
@@ -178,7 +265,9 @@ export function SshPreview() {
               </PreviewAction>
             ))}
           </div>
-          <div className="h-40 rounded-md bg-terminal p-3 font-mono text-[12.5px] text-terminal-fg/60">no session</div>
+          <div className="h-40 rounded-md bg-terminal p-3 font-mono text-[12.5px] text-terminal-fg/60">
+            no session
+          </div>
         </Card>
       )}
       {tab === 'keys' && (
@@ -186,7 +275,9 @@ export function SshPreview() {
           <div className="flex flex-wrap items-center gap-2">
             <PreviewAction variant="primary">Generate key pair</PreviewAction>
             <PreviewAction>Upload private key</PreviewAction>
-            <span className="text-[12px] text-fg-muted">Private keys are stored only in the Center secret store and are never shown again.</span>
+            <span className="text-[12px] text-fg-muted">
+              Private keys are stored only in the Center secret store and are never shown again.
+            </span>
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,340px),1fr))] gap-3">
             {d.INIT_KEYS.map((k) => (
@@ -196,7 +287,14 @@ export function SshPreview() {
                   <ToneBadge tone={k.state === 'active' ? 'ok' : 'warn'}>{k.state}</ToneBadge>
                 </div>
                 <span className="font-mono text-[11.5px] break-all text-fg-muted">{k.fp}</span>
-                <DefList keyWidth={90} rows={[['Storage', k.store], ['Assigned', k.assigned], ['Last used', k.last]]} />
+                <DefList
+                  keyWidth={90}
+                  rows={[
+                    ['Storage', k.store],
+                    ['Assigned', k.assigned],
+                    ['Last used', k.last],
+                  ]}
+                />
                 <div className="flex gap-2">
                   <PreviewAction size="sm">Rotate…</PreviewAction>
                   <PreviewAction size="sm">Revoke…</PreviewAction>
@@ -207,14 +305,27 @@ export function SshPreview() {
         </div>
       )}
       {tab === 'hosts' && (
-        <Table head={<><Th>Server</Th><Th>Algorithm</Th><Th>Fingerprint</Th><Th>Status</Th></>}>
+        <Table
+          head={
+            <>
+              <Th>Server</Th>
+              <Th>Algorithm</Th>
+              <Th>Fingerprint</Th>
+              <Th>Status</Th>
+            </>
+          }
+        >
           {d.SERVERS.slice(0, 5).map((s, i) => (
             <tr key={s.name}>
               <Td className="font-mono text-[12.5px]">{s.name}</Td>
               <Td>ED25519</Td>
-              <Td className="font-mono text-[11.5px]">SHA256:{(s.name + 'q2vX1n7Lw0yPpR4dJk9fT3mZ').slice(0, 24)}…</Td>
+              <Td className="font-mono text-[11.5px]">
+                SHA256:{(s.name + 'q2vX1n7Lw0yPpR4dJk9fT3mZ').slice(0, 24)}…
+              </Td>
               <Td>
-                <ToneBadge tone={i === 2 ? 'crit' : 'ok'}>{i === 2 ? 'Changed · connection blocked' : 'Approved (TOFU)'}</ToneBadge>
+                <ToneBadge tone={i === 2 ? 'crit' : 'ok'}>
+                  {i === 2 ? 'Changed · connection blocked' : 'Approved (TOFU)'}
+                </ToneBadge>
               </Td>
             </tr>
           ))}
@@ -222,8 +333,14 @@ export function SshPreview() {
       )}
       {tab === 'grants' && (
         <Card>
-          {[['Somchai W.', 'deploy@app-prod-01:22', '30 min', 'ok', 'active'], ['Nat K.', 'deploy@app-uat-01:22', 'expired 13:10', 'off', 'expired']].map(([u, s, e, tone, st]) => (
-            <div key={s} className="flex flex-wrap items-center gap-3 border-t border-line-subtle px-4 py-2.5 text-[13px] first:border-0">
+          {[
+            ['Somchai W.', 'deploy@app-prod-01:22', '30 min', 'ok', 'active'],
+            ['Nat K.', 'deploy@app-uat-01:22', 'expired 13:10', 'off', 'expired'],
+          ].map(([u, s, e, tone, st]) => (
+            <div
+              key={s}
+              className="flex flex-wrap items-center gap-3 border-t border-line-subtle px-4 py-2.5 text-[13px] first:border-0"
+            >
               <span className="min-w-[110px]">{u}</span>
               <span className="flex-1 font-mono text-[12px]">{s}</span>
               <span className="text-fg-muted">{e}</span>
@@ -236,7 +353,19 @@ export function SshPreview() {
   );
 }
 
-type Plugin = [string, string, string, string, string, string, string, string, string, string, string[]?];
+type Plugin = [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string[]?,
+];
 
 export function PluginsPreview() {
   const t = useT();
@@ -251,7 +380,15 @@ export function PluginsPreview() {
   const inst = d.PL_INST as Record<string, string>;
   return (
     <PreviewPage title={t('preview.plugins.title')} subtitle={t('preview.plugins.subtitle')}>
-      <LocalTabs label="Plugin views" value={tab} onChange={setTab} tabs={[['catalog', 'Catalog'], ['installed', 'Installed']]} />
+      <LocalTabs
+        label="Plugin views"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          ['catalog', 'Catalog'],
+          ['installed', 'Installed'],
+        ]}
+      />
       {tab === 'catalog' ? (
         <>
           <div className="flex flex-wrap gap-1.5">
@@ -261,9 +398,17 @@ export function PluginsPreview() {
                 type="button"
                 aria-pressed={c === cat}
                 onClick={() => setCat(c)}
-                className={cn('min-h-8 rounded-full border px-3 text-[12.5px]', c === cat ? 'border-sidebar bg-sidebar text-sidebar-fg-strong' : 'border-line-strong bg-surface')}
+                className={cn(
+                  'min-h-8 rounded-full border px-3 text-[12.5px]',
+                  c === cat
+                    ? 'border-sidebar bg-sidebar text-sidebar-fg-strong'
+                    : 'border-line-strong bg-surface',
+                )}
               >
-                {c} <span className="font-mono text-[11px] opacity-70">{c === 'All' ? plugins.length : plugins.filter((x) => x[2] === c).length}</span>
+                {c}{' '}
+                <span className="font-mono text-[11px] opacity-70">
+                  {c === 'All' ? plugins.length : plugins.filter((x) => x[2] === c).length}
+                </span>
               </button>
             ))}
           </div>
@@ -275,7 +420,10 @@ export function PluginsPreview() {
                   type="button"
                   aria-pressed={x[0] === sel}
                   onClick={() => setSel(x[0])}
-                  className={cn('flex flex-col gap-1.5 rounded-lg border bg-surface p-3.5 text-left', x[0] === sel ? 'border-accent-strong' : 'border-line')}
+                  className={cn(
+                    'flex flex-col gap-1.5 rounded-lg border bg-surface p-3.5 text-left',
+                    x[0] === sel ? 'border-accent-strong' : 'border-line',
+                  )}
                 >
                   <div className="flex items-center gap-2">
                     <b className="flex-1 text-[14px]">{x[1]}</b>
@@ -298,12 +446,29 @@ export function PluginsPreview() {
               <Card as="aside" className="flex flex-col gap-2.5 p-4">
                 <div className="flex items-center">
                   <h2 className="m-0 flex-1 text-[16px] font-semibold">{p[1]}</h2>
-                  <button type="button" aria-label={t('common.close')} onClick={() => setSel(null)} className="h-8 w-8 border-0 bg-transparent">
+                  <button
+                    type="button"
+                    aria-label={t('common.close')}
+                    onClick={() => setSel(null)}
+                    className="h-8 w-8 border-0 bg-transparent"
+                  >
                     ✕
                   </button>
                 </div>
                 <span className="text-[13px] text-fg-3">{p[3]}</span>
-                <DefList keyWidth={110} rows={[['Support', p[5]], ['OS', 'Ubuntu 22.04/24.04 · Debian 12 · amd64/arm64'], ['Versions', p[4]], ['Dependencies', p[7]], ['Risk', p[6]], ['Actions', p[8]], ['Verification', p[9]], ['Manifest', `signed · ${p[0]}.manifest.json`]]} />
+                <DefList
+                  keyWidth={110}
+                  rows={[
+                    ['Support', p[5]],
+                    ['OS', 'Ubuntu 22.04/24.04 · Debian 12 · amd64/arm64'],
+                    ['Versions', p[4]],
+                    ['Dependencies', p[7]],
+                    ['Risk', p[6]],
+                    ['Actions', p[8]],
+                    ['Verification', p[9]],
+                    ['Manifest', `signed · ${p[0]}.manifest.json`],
+                  ]}
+                />
                 {p[5] !== 'verified' ? (
                   <Notice tone="neutral" glyph="○">
                     Not installable — no verified adapter yet (PROPOSED). Listed for planning only.
@@ -316,7 +481,17 @@ export function PluginsPreview() {
           </div>
         </>
       ) : (
-        <Table head={<><Th>Plugin</Th><Th>Server</Th><Th>Version</Th><Th>Managed by</Th><Th>State</Th></>}>
+        <Table
+          head={
+            <>
+              <Th>Plugin</Th>
+              <Th>Server</Th>
+              <Th>Version</Th>
+              <Th>Managed by</Th>
+              <Th>State</Th>
+            </>
+          }
+        >
           {d.INSTALLED.map((i, n) => (
             <tr key={n}>
               <Td>{i[0]}</Td>
@@ -351,7 +526,10 @@ export function RuntimesPreview() {
             type="button"
             aria-pressed={s.name === srv}
             onClick={() => setSrv(s.name)}
-            className={cn('min-h-8 rounded-md border px-3 font-mono text-[12.5px]', s.name === srv ? 'border-accent-strong bg-info-bg' : 'border-line-strong bg-surface')}
+            className={cn(
+              'min-h-8 rounded-md border px-3 font-mono text-[12.5px]',
+              s.name === srv ? 'border-accent-strong bg-info-bg' : 'border-line-strong bg-surface',
+            )}
           >
             {s.name}
           </button>
@@ -368,7 +546,12 @@ export function RuntimesPreview() {
                   <div className="flex flex-wrap items-center gap-2">
                     <b className="flex-1 font-mono text-[13px]">{i[0]}</b>
                     <OutlineTag>{i[1]}</OutlineTag>
-                    <ToneBadge tone={i[2] === 'Running' || i[2] === 'In use' || i[2] === 'Default' ? 'ok' : 'off'} size="sm">
+                    <ToneBadge
+                      tone={
+                        i[2] === 'Running' || i[2] === 'In use' || i[2] === 'Default' ? 'ok' : 'off'
+                      }
+                      size="sm"
+                    >
                       {i[2]}
                     </ToneBadge>
                   </div>
@@ -398,8 +581,24 @@ export function DatabasesPreview() {
   const d = useDesignData();
   const [name, setName] = useState('');
   return (
-    <PreviewPage title={t('preview.databases.title')} subtitle={t('preview.databases.subtitle')} actions={<PreviewAction variant="primary">+ Create database</PreviewAction>}>
-      <Table head={<><Th>Name</Th><Th>Engine</Th><Th>Host · bind</Th><Th>Databases</Th><Th>Status</Th><Th>Backup</Th></>} minWidth={860}>
+    <PreviewPage
+      title={t('preview.databases.title')}
+      subtitle={t('preview.databases.subtitle')}
+      actions={<PreviewAction variant="primary">+ Create database</PreviewAction>}
+    >
+      <Table
+        head={
+          <>
+            <Th>Name</Th>
+            <Th>Engine</Th>
+            <Th>Host · bind</Th>
+            <Th>Databases</Th>
+            <Th>Status</Th>
+            <Th>Backup</Th>
+          </>
+        }
+        minWidth={860}
+      >
         {d.DBS.map((x) => (
           <tr key={x.name}>
             <Td className="font-mono text-[12.5px]">{x.name}</Td>
@@ -421,9 +620,16 @@ export function DatabasesPreview() {
         <h2 className="m-0 text-[15px] font-semibold">Create PostgreSQL database</h2>
         <label className="flex flex-col gap-1 text-[12.5px] text-fg-3">
           Database name
-          <Input value={name} onChange={(e) => setName(e.target.value)} className="font-mono" placeholder="shop_reports" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="font-mono"
+            placeholder="shop_reports"
+          />
         </label>
-        <span className="font-mono text-[12px] text-fg-muted">owner password: •••••••• generated · secret://db/{name || '…'}/owner</span>
+        <span className="font-mono text-[12px] text-fg-muted">
+          owner password: •••••••• generated · secret://db/{name || '…'}/owner
+        </span>
         <PreviewAction variant="primary">Create</PreviewAction>
       </Card>
     </PreviewPage>

@@ -19,7 +19,11 @@ export default function EnrollServerPage() {
       </Link>
       <PageHeader title={t('enroll.title')} subtitle={t('enroll.pageSubtitle')} />
       <div className="max-w-[560px] rounded-lg border border-line bg-surface p-[18px]">
-        {can('servers.enroll') ? <EnrollWizard onClose={() => router.push('/servers')} /> : <ForbiddenState perm="servers.enroll" />}
+        {can('servers.enroll') ? (
+          <EnrollWizard onClose={() => router.push('/servers')} />
+        ) : (
+          <ForbiddenState perm="servers.enroll" />
+        )}
       </div>
     </Page>
   );

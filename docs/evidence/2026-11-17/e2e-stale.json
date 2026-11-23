@@ -1,1 +1,14 @@
-{"name":"lab-node-b2","status":"stale","hb":"2026-11-17T10:48:07.727Z","metrics":{"cpuPct":2.5,"memPct":34.6,"diskPct":38.6,"load1":0.39,"uptimeSec":24208,"sampledAt":"2026-11-17T10:48:07.721Z","stale":true}}
+{
+  "name": "lab-node-b2",
+  "status": "stale",
+  "hb": "2026-11-17T10:48:07.727Z",
+  "metrics": {
+    "cpuPct": 2.5,
+    "memPct": 34.6,
+    "diskPct": 38.6,
+    "load1": 0.39,
+    "uptimeSec": 24208,
+    "sampledAt": "2026-11-17T10:48:07.721Z",
+    "stale": true
+  }
+}

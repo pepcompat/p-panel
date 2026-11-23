@@ -68,8 +68,14 @@ function safeSession(): Storage | null {
 }
 
 const rid = () =>
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `mock-${Math.random().toString(16).slice(2)}`;
-const rand = (n = 24) => Array.from({ length: n }, () => 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)]).join('');
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `mock-${Math.random().toString(16).slice(2)}`;
+const rand = (n = 24) =>
+  Array.from(
+    { length: n },
+    () => 'abcdefghijkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 32)],
+  ).join('');
 
 class HttpError extends Error {
   constructor(
@@ -82,8 +88,19 @@ class HttpError extends Error {
   }
 }
 
-function ok(requestId: string, data: unknown, status = 200, paginate?: { page: number; limit: number; total: number }) {
-  const body: Record<string, unknown> = { success: true, statusCode: 0, message: 'ok', data, meta: { requestId } };
+function ok(
+  requestId: string,
+  data: unknown,
+  status = 200,
+  paginate?: { page: number; limit: number; total: number },
+) {
+  const body: Record<string, unknown> = {
+    success: true,
+    statusCode: 0,
+    message: 'ok',
+    data,
+    meta: { requestId },
+  };
   if (paginate) body.paginate = paginate;
   return new Response(JSON.stringify(body), {
     status,
@@ -93,8 +110,14 @@ function ok(requestId: string, data: unknown, status = 200, paginate?: { page: n
 
 function fail(requestId: string, e: HttpError) {
   return new Response(
-    JSON.stringify({ error: { code: e.code, message: e.message, details: e.details }, meta: { requestId } }),
-    { status: e.status, headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId } },
+    JSON.stringify({
+      error: { code: e.code, message: e.message, details: e.details },
+      meta: { requestId },
+    }),
+    {
+      status: e.status,
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
+    },
   );
 }
 
@@ -132,14 +155,18 @@ function currentUser(req: Request): MockUser {
   const h = req.headers.get('Authorization');
   const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
   const rec = token ? db().accessTokens.get(token) : undefined;
-  if (!rec || rec.exp < Date.now()) throw new HttpError(401, 'UNAUTHENTICATED', 'Access token missing or expired');
+  if (!rec || rec.exp < Date.now())
+    throw new HttpError(401, 'UNAUTHENTICATED', 'Access token missing or expired');
   const u = db().users.find((x) => x.id === rec.userId);
   if (!u) throw new HttpError(401, 'UNAUTHENTICATED', 'Session user no longer exists');
   return u;
 }
 
 function requirePerm(u: MockUser, perm: Permission, s?: Server) {
-  if (!hasPermFor(u, perm, s)) throw new HttpError(403, 'FORBIDDEN', `Missing permission ${perm} for this scope`, { required: perm });
+  if (!hasPermFor(u, perm, s))
+    throw new HttpError(403, 'FORBIDDEN', `Missing permission ${perm} for this scope`, {
+      required: perm,
+    });
 }
 
 function issueSession(u: MockUser, amr: string) {
@@ -161,7 +188,13 @@ const publicUser = (u: MockUser): UserPublic => ({
   updatedAt: u.createdAt,
 });
 
-function audit(actor: MockUser | null, action: string, target: Server | null, result: AuditEvent['result'], requestId: string) {
+function audit(
+  actor: MockUser | null,
+  action: string,
+  target: Server | null,
+  result: AuditEvent['result'],
+  requestId: string,
+) {
   db().audit.unshift({
     id: rid(),
     actorId: actor?.id ?? null,
@@ -183,10 +216,19 @@ const isSixDigits = (c: unknown) => typeof c === 'string' && /^\d{6}$/.test(c);
 function paginate<T>(items: T[], url: URL) {
   const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) || 1);
   const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 20) || 20));
-  return { slice: items.slice((page - 1) * limit, page * limit), paginate: { page, limit, total: items.length } };
+  return {
+    slice: items.slice((page - 1) * limit, page * limit),
+    paginate: { page, limit, total: items.length },
+  };
 }
 
-type Handler = (ctx: { req: Request; url: URL; params: string[]; body: Record<string, unknown>; requestId: string }) => Response | Promise<Response>;
+type Handler = (ctx: {
+  req: Request;
+  url: URL;
+  params: string[];
+  body: Record<string, unknown>;
+  requestId: string;
+}) => Response | Promise<Response>;
 const routes: Array<[string, RegExp, Handler]> = [];
 const on = (method: string, pattern: string, h: Handler) =>
   routes.push([method, new RegExp(`^${pattern.replace(/:[a-zA-Z]+/g, '([^/]+)')}$`), h]);
@@ -194,13 +236,22 @@ const on = (method: string, pattern: string, h: Handler) =>
 // ---------- setup ----------
 on('GET', '/setup/status', ({ requestId }) => ok(requestId, { bootstrapped: db().bootstrapped }));
 on('POST', '/setup/bootstrap', ({ body, requestId }) => {
-  if (db().bootstrapped) throw new HttpError(409, 'ALREADY_BOOTSTRAPPED', 'An administrator already exists');
+  if (db().bootstrapped)
+    throw new HttpError(409, 'ALREADY_BOOTSTRAPPED', 'An administrator already exists');
   const details: Array<{ field: string; message: string }> = [];
-  if (typeof body.email !== 'string' || !body.email.includes('@')) details.push({ field: 'email', message: 'Enter a valid email' });
-  if (typeof body.password !== 'string' || body.password.length < 12) details.push({ field: 'password', message: 'At least 12 characters' });
-  if (typeof body.displayName !== 'string' || !body.displayName.trim()) details.push({ field: 'displayName', message: 'Required' });
+  if (typeof body.email !== 'string' || !body.email.includes('@'))
+    details.push({ field: 'email', message: 'Enter a valid email' });
+  if (typeof body.password !== 'string' || body.password.length < 12)
+    details.push({ field: 'password', message: 'At least 12 characters' });
+  if (typeof body.displayName !== 'string' || !body.displayName.trim())
+    details.push({ field: 'displayName', message: 'Required' });
   if (details.length) throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', details);
-  if (body.setupToken !== 'dev-setup-token') throw new HttpError(401, 'SETUP_TOKEN_INVALID', 'Setup token is invalid (mock: dev-setup-token)');
+  if (body.setupToken !== 'dev-setup-token')
+    throw new HttpError(
+      401,
+      'SETUP_TOKEN_INVALID',
+      'Setup token is invalid (mock: dev-setup-token)',
+    );
   const u: MockUser = {
     id: rid(),
     email: String(body.email).trim(),
@@ -221,9 +272,12 @@ on('POST', '/setup/bootstrap', ({ body, requestId }) => {
 
 // ---------- auth ----------
 on('POST', '/auth/login', ({ body, requestId }) => {
-  const login = String(body.email ?? '').trim().toLowerCase();
+  const login = String(body.email ?? '')
+    .trim()
+    .toLowerCase();
   const u = db().users.find((x) => x.email === login || x.username === login);
-  if (!u || u.password !== body.password) throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
+  if (!u || u.password !== body.password)
+    throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
   if (u.mfaEnabled) {
     const mfaToken = `mock_mfa_${rand()}`;
     db().mfaTokens.set(mfaToken, u.id);
@@ -245,7 +299,8 @@ on('POST', '/auth/mfa/verify', ({ body, requestId }) => {
   return ok(requestId, issueSession(u, 'mfa'));
 });
 on('POST', '/auth/refresh', ({ req, requestId }) => {
-  if (req.headers.get('X-CSRF') !== '1') throw new HttpError(403, 'CSRF_REQUIRED', 'Missing X-CSRF header');
+  if (req.headers.get('X-CSRF') !== '1')
+    throw new HttpError(403, 'CSRF_REQUIRED', 'Missing X-CSRF header');
   const userId = safeSession()?.getItem(SESSION_KEY);
   const u = db().users.find((x) => x.id === userId);
   if (!u) throw new HttpError(401, 'REFRESH_INVALID', 'No refresh session');
@@ -260,28 +315,52 @@ on('POST', '/auth/logout', ({ req }) => {
 });
 on('GET', '/auth/me', ({ req, requestId }) => {
   const u = currentUser(req);
-  return ok(requestId, { user: publicUser(u), permissions: permissionsOf(u), bindings: u.bindings, mfaEnabled: u.mfaEnabled });
+  return ok(requestId, {
+    user: publicUser(u),
+    permissions: permissionsOf(u),
+    bindings: u.bindings,
+    mfaEnabled: u.mfaEnabled,
+  });
 });
 on('POST', '/auth/mfa/totp/setup', ({ req, requestId }) => {
   const u = currentUser(req);
-  const secret = 'JBSWY3DPEHPK3PXP' + rand(8).toUpperCase().replace(/[^A-Z2-7]/g, 'Q');
+  const secret =
+    'JBSWY3DPEHPK3PXP' +
+    rand(8)
+      .toUpperCase()
+      .replace(/[^A-Z2-7]/g, 'Q');
   db().pendingTotp.set(u.id, secret);
   const otpauthUrl = `otpauth://totp/pPanel:${encodeURIComponent(u.email)}?secret=${secret}&issuer=pPanel&algorithm=SHA1&digits=6&period=30`;
-  return ok(requestId, { otpauthUrl, secretMasked: `${secret.slice(0, 4)}••••••••${secret.slice(-4)}` });
+  return ok(requestId, {
+    otpauthUrl,
+    secretMasked: `${secret.slice(0, 4)}••••••••${secret.slice(-4)}`,
+  });
 });
 on('POST', '/auth/mfa/totp/confirm', ({ req, body, requestId }) => {
   const u = currentUser(req);
-  if (!db().pendingTotp.has(u.id)) throw new HttpError(409, 'MFA_NOT_PENDING', 'Start TOTP setup first');
-  if (!isSixDigits(body.code) || body.code === '000000') throw new HttpError(422, 'MFA_INVALID', 'The code is incorrect', [{ field: 'code', message: 'Code does not match' }]);
+  if (!db().pendingTotp.has(u.id))
+    throw new HttpError(409, 'MFA_NOT_PENDING', 'Start TOTP setup first');
+  if (!isSixDigits(body.code) || body.code === '000000')
+    throw new HttpError(422, 'MFA_INVALID', 'The code is incorrect', [
+      { field: 'code', message: 'Code does not match' },
+    ]);
   db().pendingTotp.delete(u.id);
   u.mfaEnabled = true;
   audit(u, 'auth.mfa.enable', null, 'success', requestId);
-  return ok(requestId, { recoveryCodes: Array.from({ length: 10 }, () => `${rand(4)}-${rand(4)}`) });
+  return ok(requestId, {
+    recoveryCodes: Array.from({ length: 10 }, () => `${rand(4)}-${rand(4)}`),
+  });
 });
 on('POST', '/auth/step-up', ({ req, body, requestId }) => {
   const u = currentUser(req);
-  if (!u.mfaEnabled) throw new HttpError(403, 'MFA_REQUIRED', 'Enable two-factor authentication before privileged production actions');
-  if (!isSixDigits(body.code) || body.code === '000000') throw new HttpError(401, 'MFA_INVALID', 'The code is incorrect or expired');
+  if (!u.mfaEnabled)
+    throw new HttpError(
+      403,
+      'MFA_REQUIRED',
+      'Enable two-factor authentication before privileged production actions',
+    );
+  if (!isSixDigits(body.code) || body.code === '000000')
+    throw new HttpError(401, 'MFA_INVALID', 'The code is incorrect or expired');
   const token = `mock_su_${rand()}`;
   const exp = Date.now() + 5 * 60e3;
   db().stepUpTokens.set(token, { userId: u.id, exp });
@@ -304,7 +383,13 @@ on('GET', '/servers', ({ req, url, requestId }) => {
     .servers.filter((s) => hasPermFor(u, 'fleet.read', s))
     .filter((s) => !env || s.environment === env)
     .filter((s) => !status || s.status === status)
-    .filter((s) => !q || s.name.includes(q) || s.tags.some((t) => t.includes(q)) || s.addresses.some((a) => a.address.includes(q)))
+    .filter(
+      (s) =>
+        !q ||
+        s.name.includes(q) ||
+        s.tags.some((t) => t.includes(q)) ||
+        s.addresses.some((a) => a.address.includes(q)),
+    )
     .map((s) => withAllowedActions(u, s));
   const { slice, paginate: p } = paginate(items, url);
   return ok(requestId, slice, 200, p);
@@ -321,13 +406,25 @@ on('PATCH', '/servers/:id', ({ req, params, body, requestId }) => {
   requirePerm(u, 'servers.operate', s);
   const ifMatch = req.headers.get('If-Match');
   if (ifMatch && Number(ifMatch) !== s.version) {
-    throw new HttpError(409, 'VERSION_CONFLICT', 'This server was changed by someone else. Reload and try again.', { currentVersion: s.version });
+    throw new HttpError(
+      409,
+      'VERSION_CONFLICT',
+      'This server was changed by someone else. Reload and try again.',
+      { currentVersion: s.version },
+    );
   }
   const details: Array<{ field: string; message: string }> = [];
-  if (body.name !== undefined && !/^[a-z0-9][a-z0-9-]{0,62}$/.test(String(body.name))) details.push({ field: 'name', message: 'Lowercase letters, digits and dashes; max 63' });
-  if (body.environment !== undefined && !ENVIRONMENTS.includes(body.environment as never)) details.push({ field: 'environment', message: 'Unknown environment' });
-  if (body.connectionPolicy !== undefined && !CONNECTION_POLICIES.includes(body.connectionPolicy as never)) details.push({ field: 'connectionPolicy', message: 'Unknown policy' });
-  if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.length > 20)) details.push({ field: 'tags', message: 'Up to 20 tags' });
+  if (body.name !== undefined && !/^[a-z0-9][a-z0-9-]{0,62}$/.test(String(body.name)))
+    details.push({ field: 'name', message: 'Lowercase letters, digits and dashes; max 63' });
+  if (body.environment !== undefined && !ENVIRONMENTS.includes(body.environment as never))
+    details.push({ field: 'environment', message: 'Unknown environment' });
+  if (
+    body.connectionPolicy !== undefined &&
+    !CONNECTION_POLICIES.includes(body.connectionPolicy as never)
+  )
+    details.push({ field: 'connectionPolicy', message: 'Unknown policy' });
+  if (body.tags !== undefined && (!Array.isArray(body.tags) || body.tags.length > 20))
+    details.push({ field: 'tags', message: 'Up to 20 tags' });
   if (details.length) throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', details);
   Object.assign(s, {
     ...(body.name !== undefined ? { name: body.name, hostname: s.hostname } : {}),
@@ -348,7 +445,11 @@ on('POST', '/servers/:id/revoke', ({ req, params, requestId }) => {
     const t = db().stepUpTokens.get(req.headers.get('X-Step-Up') ?? '');
     if (!t || t.userId !== u.id || t.exp < Date.now()) {
       audit(u, 'server.revoke', s, 'denied', requestId);
-      throw new HttpError(403, 'STEP_UP_REQUIRED', 'Production revoke requires a fresh 2FA confirmation');
+      throw new HttpError(
+        403,
+        'STEP_UP_REQUIRED',
+        'Production revoke requires a fresh 2FA confirmation',
+      );
     }
   }
   s.status = 'revoked';
@@ -364,10 +465,17 @@ on('POST', '/enrollments', ({ req, body, requestId }) => {
   requirePerm(u, 'servers.enroll');
   const parsed = createEnrollmentSchema.safeParse(body);
   if (!parsed.success) {
-    throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', parsed.error.issues.map((i) => ({ field: i.path.join('.'), message: i.message })));
+    throw new HttpError(
+      422,
+      'VALIDATION_FAILED',
+      'Validation failed',
+      parsed.error.issues.map((i) => ({ field: i.path.join('.'), message: i.message })),
+    );
   }
   if (db().servers.some((s) => s.name === parsed.data.name)) {
-    throw new HttpError(409, 'CONFLICT', 'A server with this name already exists', [{ field: 'name', message: 'Name already in use' }]);
+    throw new HttpError(409, 'CONFLICT', 'A server with this name already exists', [
+      { field: 'name', message: 'Name already in use' },
+    ]);
   }
   const token = `ppe_${rand(40)}`;
   const expiresAt = new Date(Date.now() + parsed.data.ttlMinutes * 60e3).toISOString();
@@ -397,10 +505,25 @@ on('POST', '/users/:id/role-bindings', ({ req, params, body, requestId }) => {
   requirePerm(u, 'users.manage');
   const target = db().users.find((x) => x.id === params[0]);
   if (!target) throw new HttpError(404, 'NOT_FOUND', 'User not found');
-  if (!ROLE_KEYS.includes(body.roleKey as never)) throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', [{ field: 'roleKey', message: 'Unknown role' }]);
-  if (!['global', 'environment', 'project', 'server'].includes(String(body.scopeType))) throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', [{ field: 'scopeType', message: 'Unknown scope' }]);
-  if (body.scopeType !== 'global' && !body.scopeId) throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', [{ field: 'scopeId', message: 'Required for scoped bindings' }]);
-  const b: RoleBinding = { id: rid(), userId: target.id, roleKey: body.roleKey as RoleBinding['roleKey'], scopeType: body.scopeType as RoleBinding['scopeType'], ...(body.scopeId ? { scopeId: String(body.scopeId) } : {}) };
+  if (!ROLE_KEYS.includes(body.roleKey as never))
+    throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', [
+      { field: 'roleKey', message: 'Unknown role' },
+    ]);
+  if (!['global', 'environment', 'project', 'server'].includes(String(body.scopeType)))
+    throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', [
+      { field: 'scopeType', message: 'Unknown scope' },
+    ]);
+  if (body.scopeType !== 'global' && !body.scopeId)
+    throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', [
+      { field: 'scopeId', message: 'Required for scoped bindings' },
+    ]);
+  const b: RoleBinding = {
+    id: rid(),
+    userId: target.id,
+    roleKey: body.roleKey as RoleBinding['roleKey'],
+    scopeType: body.scopeType as RoleBinding['scopeType'],
+    ...(body.scopeId ? { scopeId: String(body.scopeId) } : {}),
+  };
   target.bindings.push(b);
   audit(u, 'role_binding.create', null, 'success', requestId);
   return ok(requestId, b, 201);
@@ -410,7 +533,10 @@ on('DELETE', '/role-bindings/:id', ({ req, params, requestId }) => {
   requirePerm(u, 'users.manage');
   const owner = db().users.find((x) => x.bindings.some((b) => b.id === params[0]));
   if (!owner) throw new HttpError(404, 'NOT_FOUND', 'Role binding not found');
-  if (owner.id === u.id && owner.bindings.find((b) => b.id === params[0])?.roleKey === 'platform_owner') {
+  if (
+    owner.id === u.id &&
+    owner.bindings.find((b) => b.id === params[0])?.roleKey === 'platform_owner'
+  ) {
     throw new HttpError(409, 'LAST_OWNER', 'You cannot remove your own platform_owner binding');
   }
   owner.bindings = owner.bindings.filter((b) => b.id !== params[0]);
@@ -461,7 +587,11 @@ export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): P
       }
       return await h({ req, url, params: m.slice(1).map(decodeURIComponent), body, requestId });
     }
-    throw new HttpError(404, 'NOT_IMPLEMENTED', `No mock route for ${req.method} ${path} (backend PROPOSED)`);
+    throw new HttpError(
+      404,
+      'NOT_IMPLEMENTED',
+      `No mock route for ${req.method} ${path} (backend PROPOSED)`,
+    );
   } catch (e) {
     if (e instanceof HttpError) return fail(requestId, e);
     return fail(requestId, new HttpError(500, 'MOCK_ERROR', (e as Error).message));

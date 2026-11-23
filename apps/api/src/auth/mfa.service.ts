@@ -33,13 +33,21 @@ export class MfaService {
   ) {}
 
   async isEnabled(userId: string): Promise<boolean> {
-    const f = await this.prisma.mfaFactor.findUnique({ where: { userId_type: { userId, type: 'totp' } } });
+    const f = await this.prisma.mfaFactor.findUnique({
+      where: { userId_type: { userId, type: 'totp' } },
+    });
     return !!f?.confirmedAt;
   }
 
-  async setup(userId: string, email: string): Promise<{ otpauthUrl: string; secretMasked: string }> {
-    const existing = await this.prisma.mfaFactor.findUnique({ where: { userId_type: { userId, type: 'totp' } } });
-    if (existing?.confirmedAt) throw AppError.conflict('MFA is already enabled', ERROR_CODES.MFA_ALREADY_ENABLED);
+  async setup(
+    userId: string,
+    email: string,
+  ): Promise<{ otpauthUrl: string; secretMasked: string }> {
+    const existing = await this.prisma.mfaFactor.findUnique({
+      where: { userId_type: { userId, type: 'totp' } },
+    });
+    if (existing?.confirmedAt)
+      throw AppError.conflict('MFA is already enabled', ERROR_CODES.MFA_ALREADY_ENABLED);
     const secret = authenticator.generateSecret(20);
     const secretEnc = encryptSecret(this.config.masterKey, secret, aadFor(userId));
     await this.prisma.mfaFactor.upsert({
@@ -47,7 +55,13 @@ export class MfaService {
       create: { id: uuidv7(), userId, type: 'totp', secretEnc },
       update: { secretEnc, confirmedAt: null, lastUsedStep: null },
     });
-    await this.audit.record({ actorId: userId, action: 'auth.mfa.totp.setup', targetType: 'user', targetId: userId, result: 'success' });
+    await this.audit.record({
+      actorId: userId,
+      action: 'auth.mfa.totp.setup',
+      targetType: 'user',
+      targetId: userId,
+      result: 'success',
+    });
     return {
       otpauthUrl: authenticator.keyuri(email, 'pPanel', secret),
       secretMasked: `${secret.slice(0, 4)}${'•'.repeat(8)}${secret.slice(-4)}`,
@@ -55,10 +69,19 @@ export class MfaService {
   }
 
   async confirm(userId: string, code: string): Promise<{ recoveryCodes: string[] }> {
-    const factor = await this.prisma.mfaFactor.findUnique({ where: { userId_type: { userId, type: 'totp' } } });
-    if (!factor || factor.confirmedAt) throw AppError.conflict('No pending TOTP setup', ERROR_CODES.MFA_NOT_PENDING);
+    const factor = await this.prisma.mfaFactor.findUnique({
+      where: { userId_type: { userId, type: 'totp' } },
+    });
+    if (!factor || factor.confirmedAt)
+      throw AppError.conflict('No pending TOTP setup', ERROR_CODES.MFA_NOT_PENDING);
     if (!(await this.checkTotp(userId, code, true))) {
-      await this.audit.record({ actorId: userId, action: 'auth.mfa.totp.confirm', targetType: 'user', targetId: userId, result: 'failure' });
+      await this.audit.record({
+        actorId: userId,
+        action: 'auth.mfa.totp.confirm',
+        targetType: 'user',
+        targetId: userId,
+        result: 'failure',
+      });
       throw AppError.unauthenticated('Invalid code', ERROR_CODES.MFA_INVALID);
     }
     const codes = Array.from({ length: 10 }, newRecoveryCode);
@@ -66,10 +89,20 @@ export class MfaService {
       await tx.mfaFactor.update({ where: { id: factor.id }, data: { confirmedAt: new Date() } });
       await tx.recoveryCode.deleteMany({ where: { userId } });
       await tx.recoveryCode.createMany({
-        data: codes.map((c) => ({ id: uuidv7(), userId, codeHash: sha256Hex(normalizeRecoveryCode(c)) })),
+        data: codes.map((c) => ({
+          id: uuidv7(),
+          userId,
+          codeHash: sha256Hex(normalizeRecoveryCode(c)),
+        })),
       });
       await this.audit.record(
-        { actorId: userId, action: 'auth.mfa.totp.confirm', targetType: 'user', targetId: userId, result: 'success' },
+        {
+          actorId: userId,
+          action: 'auth.mfa.totp.confirm',
+          targetType: 'user',
+          targetId: userId,
+          result: 'success',
+        },
         tx,
       );
     });
@@ -81,11 +114,15 @@ export class MfaService {
    * Replay-safe: a time step can be used at most once (conditional update on last_used_step).
    */
   async checkTotp(userId: string, code: string, allowPending = false): Promise<boolean> {
-    const factor = await this.prisma.mfaFactor.findUnique({ where: { userId_type: { userId, type: 'totp' } } });
+    const factor = await this.prisma.mfaFactor.findUnique({
+      where: { userId_type: { userId, type: 'totp' } },
+    });
     if (!factor || (!factor.confirmedAt && !allowPending)) return false;
     let secret: string;
     try {
-      secret = decryptSecret(this.config.masterKey, factor.secretEnc, aadFor(userId)).toString('utf8');
+      secret = decryptSecret(this.config.masterKey, factor.secretEnc, aadFor(userId)).toString(
+        'utf8',
+      );
     } catch {
       return false;
     }

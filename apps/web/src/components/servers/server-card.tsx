@@ -9,26 +9,46 @@ import { GatedButton } from '@/components/ui/gated-button';
 import { address, osLabel, providerLabel } from '@/lib/servers';
 import { relativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import { PathBadge, ServerMeters, StatusBadge, proposedOrOffline, serverTone, whyKey } from './server-bits';
+import {
+  PathBadge,
+  ServerMeters,
+  StatusBadge,
+  proposedOrOffline,
+  serverTone,
+  whyKey,
+} from './server-bits';
 
 export function ServerCard({ server, now }: { server: Server; now: number }) {
   const t = useT();
   const pub = address(server, 'public');
   const priv = address(server, 'private');
   const why = whyKey(server);
-  const sub = [providerLabel(server), server.provider?.region, osLabel(server), server.tags.join(', ')].filter(Boolean).join(' · ');
+  const sub = [
+    providerLabel(server),
+    server.provider?.region,
+    osLabel(server),
+    server.tags.join(', '),
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const disk = server.metrics?.diskPct ?? null;
   const diskAlert = disk !== null && disk >= 90 ? `Disk ${Math.round(disk)}%` : null;
   return (
     <article
       aria-labelledby={`srv-${server.id}`}
       data-testid="server-card"
-      className={cn('flex flex-col gap-3 rounded-lg border border-t-[3px] border-line bg-surface px-4 py-3.5', toneBorderTop[serverTone(server)])}
+      className={cn(
+        'flex flex-col gap-3 rounded-lg border border-t-[3px] border-line bg-surface px-4 py-3.5',
+        toneBorderTop[serverTone(server)],
+      )}
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h3 id={`srv-${server.id}`} className="m-0 truncate font-mono text-[14px] font-medium">
-            <Link href={`/servers/${server.id}/overview`} className="text-fg no-underline hover:text-accent-text">
+            <Link
+              href={`/servers/${server.id}/overview`}
+              className="text-fg no-underline hover:text-accent-text"
+            >
               {server.name}
             </Link>
           </h3>
@@ -40,10 +60,21 @@ export function ServerCard({ server, now }: { server: Server; now: number }) {
       <div className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-[3px] text-[12px]">
         <span className="text-fg-muted">{t('servers.col.public')}</span>
         <span className="truncate font-mono">{pub?.address ?? t('card.noPublic')}</span>
-        {pub ? <CopyButton text={pub.address} ariaLabel={t('card.copyPublic', { name: server.name })} /> : <span />}
+        {pub ? (
+          <CopyButton text={pub.address} ariaLabel={t('card.copyPublic', { name: server.name })} />
+        ) : (
+          <span />
+        )}
         <span className="text-fg-muted">{t('servers.col.private')}</span>
         <span className="truncate font-mono">{priv?.address ?? '—'}</span>
-        {priv ? <CopyButton text={priv.address} ariaLabel={t('card.copyPrivate', { name: server.name })} /> : <span />}
+        {priv ? (
+          <CopyButton
+            text={priv.address}
+            ariaLabel={t('card.copyPrivate', { name: server.name })}
+          />
+        ) : (
+          <span />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -77,7 +108,14 @@ export function ServerCard({ server, now }: { server: Server; now: number }) {
         >
           {t('card.details')}
         </Link>
-        <GatedButton size="sm" className="font-mono" perm="ssh.connect" action="open_terminal" allowedActions={server.allowedActions} blockedReason={proposedOrOffline(server)}>
+        <GatedButton
+          size="sm"
+          className="font-mono"
+          perm="ssh.connect"
+          action="open_terminal"
+          allowedActions={server.allowedActions}
+          blockedReason={proposedOrOffline(server)}
+        >
           {t('card.terminal')}
         </GatedButton>
         <Link
@@ -86,7 +124,13 @@ export function ServerCard({ server, now }: { server: Server; now: number }) {
         >
           {t('card.metrics')}
         </Link>
-        <GatedButton size="sm" perm="servers.operate" action="restart_service" allowedActions={server.allowedActions} blockedReason={proposedOrOffline(server)}>
+        <GatedButton
+          size="sm"
+          perm="servers.operate"
+          action="restart_service"
+          allowedActions={server.allowedActions}
+          blockedReason={proposedOrOffline(server)}
+        >
           {t('card.restart')}
         </GatedButton>
       </div>

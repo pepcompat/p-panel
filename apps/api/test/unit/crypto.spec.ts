@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { decryptSecret, encryptSecret, safeEqual, sha256Hex, stableHash } from '../../src/common/crypto';
+import {
+  decryptSecret,
+  encryptSecret,
+  safeEqual,
+  sha256Hex,
+  stableHash,
+} from '../../src/common/crypto';
 import { uuidv7 } from '../../src/common/ids';
 
 const key = Buffer.alloc(32, 1);
@@ -23,10 +29,14 @@ describe('AES-256-GCM secret envelope', () => {
 
 describe('hash helpers', () => {
   it('sha256Hex / safeEqual / stableHash', () => {
-    expect(sha256Hex('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    expect(sha256Hex('abc')).toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
     expect(safeEqual('a', 'a')).toBe(true);
     expect(safeEqual('a', 'ab')).toBe(false);
-    expect(stableHash({ b: 1, a: [1, { d: 2, c: 3 }] })).toBe(stableHash({ a: [1, { c: 3, d: 2 }], b: 1 }));
+    expect(stableHash({ b: 1, a: [1, { d: 2, c: 3 }] })).toBe(
+      stableHash({ a: [1, { c: 3, d: 2 }], b: 1 }),
+    );
   });
 });
 

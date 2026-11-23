@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { type CreateRoleBindingInput, type CreateUserInput, ENVIRONMENTS, ERROR_CODES } from '@ppanel/shared-contracts';
+import {
+  type CreateRoleBindingInput,
+  type CreateUserInput,
+  ENVIRONMENTS,
+  ERROR_CODES,
+} from '@ppanel/shared-contracts';
 import type { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthzService } from '../auth/authz.service';
@@ -28,7 +33,11 @@ export class UsersService {
   ) {}
 
   private async gate(actor: AuthUser, action: string, targetId?: string) {
-    await this.authz.enforce(actor, 'users.manage', undefined, { action, targetType: 'user', targetId });
+    await this.authz.enforce(actor, 'users.manage', undefined, {
+      action,
+      targetType: 'user',
+      targetId,
+    });
   }
 
   async list(actor: AuthUser, pq: ParsedQuery) {
@@ -47,11 +56,17 @@ export class UsersService {
         orderBy: { [pq.sort]: pq.order },
         skip: pq.skip,
         take: pq.limit,
-        include: { roleBindings: true, mfaFactors: { where: { confirmedAt: { not: null } }, select: { id: true } } },
+        include: {
+          roleBindings: true,
+          mfaFactors: { where: { confirmedAt: { not: null } }, select: { id: true } },
+        },
       }),
     ]);
     return new Paginated(
-      rows.map((u) => ({ ...toUserPublic(u, u.mfaFactors.length > 0), bindings: u.roleBindings.map(toRoleBinding) })),
+      rows.map((u) => ({
+        ...toUserPublic(u, u.mfaFactors.length > 0),
+        bindings: u.roleBindings.map(toRoleBinding),
+      })),
       paginate(pq, total),
     );
   }
@@ -63,9 +78,12 @@ export class UsersService {
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         const id = uuidv7();
-        const u = await tx.user.create({ data: { id, email: input.email, displayName: input.displayName, passwordHash } });
+        const u = await tx.user.create({
+          data: { id, email: input.email, displayName: input.displayName, passwordHash },
+        });
         const bindings = [];
-        for (const b of input.bindings ?? []) bindings.push(await this.insertBinding(tx, id, b, actor.id));
+        for (const b of input.bindings ?? [])
+          bindings.push(await this.insertBinding(tx, id, b, actor.id));
         await this.audit.record(
           {
             actorId: actor.id,
@@ -73,7 +91,11 @@ export class UsersService {
             targetType: 'user',
             targetId: id,
             result: 'success',
-            diff: { email: input.email, displayName: input.displayName, bindings: input.bindings ?? [] },
+            diff: {
+              email: input.email,
+              displayName: input.displayName,
+              bindings: input.bindings ?? [],
+            },
           },
           tx,
         );
@@ -95,7 +117,14 @@ export class UsersService {
       const b = await this.prisma.$transaction(async (tx) => {
         const row = await this.insertBinding(tx, userId, input, actor.id);
         await this.audit.record(
-          { actorId: actor.id, action: 'role_bindings.create', targetType: 'role_binding', targetId: row.id, result: 'success', diff: { userId, ...input } },
+          {
+            actorId: actor.id,
+            action: 'role_bindings.create',
+            targetType: 'role_binding',
+            targetId: row.id,
+            result: 'success',
+            diff: { userId, ...input },
+          },
           tx,
         );
         return row;
@@ -117,29 +146,51 @@ export class UsersService {
         const owners = await tx.roleBinding.count({
           where: { roleKey: 'platform_owner', scopeType: 'global', user: { status: 'active' } },
         });
-        if (owners <= 1) throw AppError.conflict('Cannot remove the last platform owner', ERROR_CODES.LAST_OWNER);
+        if (owners <= 1)
+          throw AppError.conflict('Cannot remove the last platform owner', ERROR_CODES.LAST_OWNER);
       }
       await tx.roleBinding.delete({ where: { id: bindingId } });
       await this.audit.record(
-        { actorId: actor.id, action: 'role_bindings.delete', targetType: 'role_binding', targetId: bindingId, result: 'success', diff: toRoleBinding(b) },
+        {
+          actorId: actor.id,
+          action: 'role_bindings.delete',
+          targetType: 'role_binding',
+          targetId: bindingId,
+          result: 'success',
+          diff: toRoleBinding(b),
+        },
         tx,
       );
     });
   }
 
   private async validateScope(b: CreateRoleBindingInput): Promise<void> {
-    if (b.scopeType === 'environment' && !(ENVIRONMENTS as readonly string[]).includes(b.scopeId ?? '')) {
-      throw AppError.validation([{ path: 'scopeId', message: `must be one of ${ENVIRONMENTS.join(', ')}` }]);
+    if (
+      b.scopeType === 'environment' &&
+      !(ENVIRONMENTS as readonly string[]).includes(b.scopeId ?? '')
+    ) {
+      throw AppError.validation([
+        { path: 'scopeId', message: `must be one of ${ENVIRONMENTS.join(', ')}` },
+      ]);
     }
     if (b.scopeType === 'server') {
-      const ok = /^[0-9a-f-]{36}$/i.test(b.scopeId ?? '') && (await this.prisma.server.count({ where: { id: b.scopeId } })) > 0;
+      const ok =
+        /^[0-9a-f-]{36}$/i.test(b.scopeId ?? '') &&
+        (await this.prisma.server.count({ where: { id: b.scopeId } })) > 0;
       if (!ok) throw AppError.validation([{ path: 'scopeId', message: 'unknown server' }]);
     }
   }
 
   private insertBinding(tx: Tx, userId: string, b: CreateRoleBindingInput, createdById: string) {
     return tx.roleBinding.create({
-      data: { id: uuidv7(), userId, roleKey: b.roleKey, scopeType: b.scopeType, scopeId: b.scopeId ?? null, createdById },
+      data: {
+        id: uuidv7(),
+        userId,
+        roleKey: b.roleKey,
+        scopeType: b.scopeType,
+        scopeId: b.scopeId ?? null,
+        createdById,
+      },
     });
   }
 }

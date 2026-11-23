@@ -39,7 +39,11 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) && !el.isContentEditable) {
+      if (
+        e.key === '/' &&
+        !['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) &&
+        !el.isContentEditable
+      ) {
         e.preventDefault();
         searchRef.current?.focus();
       }
@@ -87,18 +91,22 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
         />
         <kbd className="rounded-[3px] border border-line px-[5px] font-mono text-[11px]">/</kbd>
       </form>
-      <div className="flex flex-wrap items-center gap-4 text-[12.5px] text-fg-3" aria-label={t('top.fleetLabel')}>
+      <div
+        className="flex flex-wrap items-center gap-4 text-[12.5px] text-fg-3"
+        aria-label={t('top.fleetLabel')}
+      >
         <Link href="/servers" className="text-fg-3 no-underline hover:text-fg">
           {counts ? (
             <>
               <b className="text-ok" aria-hidden="true">
                 ●
               </b>{' '}
-              {t('top.fleetOnline', { online: counts.online + counts.degraded, total: counts.total })}
+              {t('top.fleetOnline', {
+                online: counts.online + counts.degraded,
+                total: counts.total,
+              })}
               {counts.stale + counts.offline > 0 && (
-                <span className="ml-2 text-stale">
-                  ◐ {counts.stale + counts.offline}
-                </span>
+                <span className="ml-2 text-stale">◐ {counts.stale + counts.offline}</span>
               )}
             </>
           ) : (

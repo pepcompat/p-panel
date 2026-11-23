@@ -1,5 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { CreateEnrollmentInput, Enrollment, EnrollmentCreated, Environment } from '@ppanel/shared-contracts';
+import type {
+  CreateEnrollmentInput,
+  Enrollment,
+  EnrollmentCreated,
+  Environment,
+} from '@ppanel/shared-contracts';
 import type { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthzService } from '../auth/authz.service';
@@ -24,10 +29,15 @@ export class EnrollmentsService {
   ) {}
 
   async create(user: AuthUser, input: CreateEnrollmentInput): Promise<EnrollmentCreated> {
-    await this.authz.enforce(user, 'servers.enroll', { environment: input.environment }, {
-      action: 'enrollments.create',
-      targetType: 'enrollment',
-    });
+    await this.authz.enforce(
+      user,
+      'servers.enroll',
+      { environment: input.environment },
+      {
+        action: 'enrollments.create',
+        targetType: 'enrollment',
+      },
+    );
     const token = `${ENROLLMENT_TOKEN_PREFIX}${randomToken(32)}`;
     const id = uuidv7();
     const expiresAt = new Date(Date.now() + input.ttlMinutes * 60_000);
@@ -51,7 +61,12 @@ export class EnrollmentsService {
           targetType: 'enrollment',
           targetId: id,
           result: 'success',
-          diff: { name: input.name, environment: input.environment, tags: input.tags ?? [], ttlMinutes: input.ttlMinutes },
+          diff: {
+            name: input.name,
+            environment: input.environment,
+            tags: input.tags ?? [],
+            ttlMinutes: input.ttlMinutes,
+          },
         },
         tx,
       );
@@ -71,12 +86,20 @@ export class EnrollmentsService {
     const where: Prisma.AgentEnrollmentWhereInput = {
       AND: [
         envs === 'all' ? {} : { environment: { in: envs } },
-        buildWhere(pq, { environment: { prop: 'environment', type: 'string' }, created_at: { prop: 'createdAt', type: 'date' } }),
+        buildWhere(pq, {
+          environment: { prop: 'environment', type: 'string' },
+          created_at: { prop: 'createdAt', type: 'date' },
+        }),
       ],
     };
     const [total, rows] = await Promise.all([
       this.prisma.agentEnrollment.count({ where }),
-      this.prisma.agentEnrollment.findMany({ where, orderBy: { [pq.sort]: pq.order }, skip: pq.skip, take: pq.limit }),
+      this.prisma.agentEnrollment.findMany({
+        where,
+        orderBy: { [pq.sort]: pq.order },
+        skip: pq.skip,
+        take: pq.limit,
+      }),
     ]);
     const now = Date.now();
     const items: Enrollment[] = rows.map((r) => ({

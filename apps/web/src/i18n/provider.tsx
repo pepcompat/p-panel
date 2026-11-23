@@ -1,8 +1,24 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { MessageKey } from './en';
-import { DEFAULT_LOCALE, LANG_STORAGE_KEY, dictionaries, isLocale, translate, type Locale, type Vars } from './core';
+import {
+  DEFAULT_LOCALE,
+  LANG_STORAGE_KEY,
+  dictionaries,
+  isLocale,
+  translate,
+  type Locale,
+  type Vars,
+} from './core';
 
 interface I18nValue {
   locale: Locale;
@@ -21,7 +37,13 @@ function readStoredLocale(): Locale {
   }
 }
 
-export function I18nProvider({ children, initialLocale }: { children: ReactNode; initialLocale?: Locale }) {
+export function I18nProvider({
+  children,
+  initialLocale,
+}: {
+  children: ReactNode;
+  initialLocale?: Locale;
+}) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale ?? DEFAULT_LOCALE);
 
   // Restore the persisted choice after hydration (server render is always English).

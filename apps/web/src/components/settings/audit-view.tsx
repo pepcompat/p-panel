@@ -59,7 +59,12 @@ export function AuditView() {
   });
 
   if (!allowed || (isApiError(q.error) && q.error.status === 403)) {
-    return <ForbiddenState perm="audit.read" requestId={isApiError(q.error) ? q.error.requestId : null} />;
+    return (
+      <ForbiddenState
+        perm="audit.read"
+        requestId={isApiError(q.error) ? q.error.requestId : null}
+      />
+    );
   }
 
   const apply = (f: Filters) => {
@@ -73,7 +78,8 @@ export function AuditView() {
   };
   const total = q.data?.paginate.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / LIMIT));
-  const set = (k: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const set = (k: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setDraft((d) => ({ ...d, [k]: e.target.value }));
 
   return (
     <div className="flex flex-col gap-4">
@@ -85,10 +91,42 @@ export function AuditView() {
           apply(draft);
         }}
       >
-        <Field label={t('audit.filter.action')}>{(p) => <Input {...p} value={draft.action} onChange={set('action')} placeholder="server." className="font-mono text-[13px]" />}</Field>
-        <Field label={t('audit.filter.actor')}>{(p) => <Input {...p} value={draft.actor_id} onChange={set('actor_id')} className="font-mono text-[13px]" />}</Field>
-        <Field label={t('audit.filter.target')}>{(p) => <Input {...p} value={draft.target_id} onChange={set('target_id')} className="font-mono text-[13px]" />}</Field>
-        <Field label={t('audit.filter.since')}>{(p) => <Input {...p} type="datetime-local" value={draft.since} onChange={set('since')} />}</Field>
+        <Field label={t('audit.filter.action')}>
+          {(p) => (
+            <Input
+              {...p}
+              value={draft.action}
+              onChange={set('action')}
+              placeholder="server."
+              className="font-mono text-[13px]"
+            />
+          )}
+        </Field>
+        <Field label={t('audit.filter.actor')}>
+          {(p) => (
+            <Input
+              {...p}
+              value={draft.actor_id}
+              onChange={set('actor_id')}
+              className="font-mono text-[13px]"
+            />
+          )}
+        </Field>
+        <Field label={t('audit.filter.target')}>
+          {(p) => (
+            <Input
+              {...p}
+              value={draft.target_id}
+              onChange={set('target_id')}
+              className="font-mono text-[13px]"
+            />
+          )}
+        </Field>
+        <Field label={t('audit.filter.since')}>
+          {(p) => (
+            <Input {...p} type="datetime-local" value={draft.since} onChange={set('since')} />
+          )}
+        </Field>
         <div className="flex gap-2">
           <Button type="submit" variant="primary">
             {t('audit.apply')}
@@ -116,36 +154,63 @@ export function AuditView() {
             <EmptyState title={t('audit.empty')} />
           </div>
         ) : (
-          <table className="w-full min-w-[900px] border-collapse text-[13px]" aria-busy={q.isFetching}>
+          <table
+            className="w-full min-w-[900px] border-collapse text-[13px]"
+            aria-busy={q.isFetching}
+          >
             <thead>
               <tr className="bg-surface-2 text-left text-[12px] text-fg-muted">
-                <th scope="col" className="px-4 py-[9px] font-medium">{t('audit.col.time')}</th>
-                <th scope="col" className="px-2 py-[9px] font-medium">{t('audit.col.actor')}</th>
-                <th scope="col" className="px-2 py-[9px] font-medium">{t('audit.col.action')}</th>
-                <th scope="col" className="px-2 py-[9px] font-medium">{t('audit.col.target')}</th>
-                <th scope="col" className="px-2 py-[9px] font-medium">{t('audit.col.result')}</th>
-                <th scope="col" className="px-4 py-[9px] font-medium">{t('audit.col.requestId')}</th>
+                <th scope="col" className="px-4 py-[9px] font-medium">
+                  {t('audit.col.time')}
+                </th>
+                <th scope="col" className="px-2 py-[9px] font-medium">
+                  {t('audit.col.actor')}
+                </th>
+                <th scope="col" className="px-2 py-[9px] font-medium">
+                  {t('audit.col.action')}
+                </th>
+                <th scope="col" className="px-2 py-[9px] font-medium">
+                  {t('audit.col.target')}
+                </th>
+                <th scope="col" className="px-2 py-[9px] font-medium">
+                  {t('audit.col.result')}
+                </th>
+                <th scope="col" className="px-4 py-[9px] font-medium">
+                  {t('audit.col.requestId')}
+                </th>
               </tr>
             </thead>
             <tbody>
               {q.data.items.map((e) => (
                 <tr key={e.id} className="border-t border-line-subtle">
-                  <td className="px-4 py-2 font-mono text-[12px] whitespace-nowrap">{formatDateTime(e.createdAt, locale)}</td>
+                  <td className="px-4 py-2 font-mono text-[12px] whitespace-nowrap">
+                    {formatDateTime(e.createdAt, locale)}
+                  </td>
                   <td className="px-2 py-2">
                     <div>{e.actorLabel ?? e.actorType ?? '—'}</div>
-                    {e.actorId && <div className="font-mono text-[11px] text-fg-subtle">{e.actorId}</div>}
+                    {e.actorId && (
+                      <div className="font-mono text-[11px] text-fg-subtle">{e.actorId}</div>
+                    )}
                   </td>
                   <td className="px-2 py-2 font-mono text-[12.5px]">{e.action}</td>
                   <td className="px-2 py-2">
                     <div>{e.targetLabel ?? e.targetType ?? '—'}</div>
-                    {e.targetId && <div className="font-mono text-[11px] text-fg-subtle">{e.targetId}</div>}
+                    {e.targetId && (
+                      <div className="font-mono text-[11px] text-fg-subtle">{e.targetId}</div>
+                    )}
                   </td>
                   <td className="px-2 py-2">
-                    <ToneBadge tone={e.result === 'success' ? 'ok' : e.result === 'denied' ? 'crit' : 'warn'}>
-                      {['success', 'denied', 'failure'].includes(e.result) ? t(`audit.result.${e.result}` as MessageKey) : e.result}
+                    <ToneBadge
+                      tone={e.result === 'success' ? 'ok' : e.result === 'denied' ? 'crit' : 'warn'}
+                    >
+                      {['success', 'denied', 'failure'].includes(e.result)
+                        ? t(`audit.result.${e.result}` as MessageKey)
+                        : e.result}
                     </ToneBadge>
                   </td>
-                  <td className="px-4 py-2 font-mono text-[11.5px] break-all text-fg-muted">{e.requestId ?? '—'}</td>
+                  <td className="px-4 py-2 font-mono text-[11.5px] break-all text-fg-muted">
+                    {e.requestId ?? '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>

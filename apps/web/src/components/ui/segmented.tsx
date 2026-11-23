@@ -33,7 +33,12 @@ export function Segmented<V extends string>({
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const enabled = options.filter((o) => !o.disabled && !disabled);
   const onKey = (e: KeyboardEvent, idx: number) => {
-    const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    const dir =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        ? 1
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? -1
+          : 0;
     if (!dir || enabled.length === 0) return;
     e.preventDefault();
     const cur = enabled.findIndex((o) => o.value === options[idx]!.value);
@@ -42,7 +47,14 @@ export function Segmented<V extends string>({
     refs.current[options.indexOf(next)]?.focus();
   };
   return (
-    <div role="radiogroup" aria-label={label} className={cn('flex flex-wrap overflow-hidden rounded-md border border-line-strong', className)}>
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={cn(
+        'flex flex-wrap overflow-hidden rounded-md border border-line-strong',
+        className,
+      )}
+    >
       {options.map((o, i) => {
         const checked = o.value === value;
         return (
@@ -62,11 +74,15 @@ export function Segmented<V extends string>({
               'flex items-center gap-1.5 border-0 px-3 text-[12.5px] focus-visible:-outline-offset-2 disabled:opacity-50',
               size === 'sm' ? 'min-h-8' : 'min-h-9',
               mono && 'min-w-10 justify-center font-mono text-[12px]',
-              checked ? 'bg-sidebar text-sidebar-fg-strong dark:bg-accent-strong' : 'bg-surface text-fg-3 hover:bg-surface-hover',
+              checked
+                ? 'bg-sidebar text-sidebar-fg-strong dark:bg-accent-strong'
+                : 'bg-surface text-fg-3 hover:bg-surface-hover',
             )}
           >
             {o.label}
-            {o.count !== undefined && <span className="font-mono text-[11px] opacity-70">{o.count}</span>}
+            {o.count !== undefined && (
+              <span className="font-mono text-[11px] opacity-70">{o.count}</span>
+            )}
           </button>
         );
       })}

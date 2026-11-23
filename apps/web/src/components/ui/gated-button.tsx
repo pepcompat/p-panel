@@ -29,7 +29,13 @@ export function GatedButton({
   const { me } = useAuth();
   const t = useT();
   const reasonId = useId();
-  const gate = evaluateGate({ permissions: me?.permissions, perm, action, allowedActions, blockedReason });
+  const gate = evaluateGate({
+    permissions: me?.permissions,
+    perm,
+    action,
+    allowedActions,
+    blockedReason,
+  });
   if (gate.allowed) {
     return (
       <Button disabled={disabled} {...rest}>

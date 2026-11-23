@@ -2,7 +2,13 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ENVIRONMENTS, ROLE_KEYS, type RoleBinding, type RoleKey, type ScopeType } from '@ppanel/shared-contracts';
+import {
+  ENVIRONMENTS,
+  ROLE_KEYS,
+  type RoleBinding,
+  type RoleKey,
+  type ScopeType,
+} from '@ppanel/shared-contracts';
 import { useI18n } from '@/i18n/provider';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { usersApi } from '@/lib/api/endpoints';
@@ -23,7 +29,9 @@ import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/
 const SCOPES: ScopeType[] = ['global', 'environment', 'project', 'server'];
 
 function scopeText(b: RoleBinding, t: ReturnType<typeof useI18n>['t']) {
-  return b.scopeType === 'global' ? t('scope.global') : `${t(`scope.${b.scopeType}`)}: ${b.scopeId ?? '—'}`;
+  return b.scopeType === 'global'
+    ? t('scope.global')
+    : `${t(`scope.${b.scopeType}`)}: ${b.scopeId ?? '—'}`;
 }
 
 function AddBindingDialog({ user, onClose }: { user: UserRecord; onClose: () => void }) {
@@ -35,9 +43,15 @@ function AddBindingDialog({ user, onClose }: { user: UserRecord; onClose: () => 
   const [scopeId, setScopeId] = useState<string>('development');
   const m = useMutation<unknown, ApiError>({
     mutationFn: () =>
-      usersApi.addBinding(user.id, { roleKey, scopeType, scopeId: scopeType === 'global' ? undefined : scopeId.trim() }).catch((e) => {
-        throw toApiError(e);
-      }),
+      usersApi
+        .addBinding(user.id, {
+          roleKey,
+          scopeType,
+          scopeId: scopeType === 'global' ? undefined : scopeId.trim(),
+        })
+        .catch((e) => {
+          throw toApiError(e);
+        }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.users });
       toast(t('binding.added'), 'ok');
@@ -54,7 +68,11 @@ function AddBindingDialog({ user, onClose }: { user: UserRecord; onClose: () => 
       footer={
         <>
           <Button onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" disabled={m.isPending || (scopeType !== 'global' && !scopeId.trim())} onClick={() => m.mutate()}>
+          <Button
+            variant="primary"
+            disabled={m.isPending || (scopeType !== 'global' && !scopeId.trim())}
+            onClick={() => m.mutate()}
+          >
             {m.isPending ? t('common.saving') : t('binding.add')}
           </Button>
         </>
@@ -105,7 +123,14 @@ function AddBindingDialog({ user, onClose }: { user: UserRecord; onClose: () => 
       )}
       {(scopeType === 'project' || scopeType === 'server') && (
         <Field label={t('binding.scopeId')} hint={t('binding.scopeIdHint')} error={fe.scopeId}>
-          {(p) => <Input {...p} value={scopeId} onChange={(e) => setScopeId(e.target.value)} className="font-mono" />}
+          {(p) => (
+            <Input
+              {...p}
+              value={scopeId}
+              onChange={(e) => setScopeId(e.target.value)}
+              className="font-mono"
+            />
+          )}
         </Field>
       )}
       {m.error && Object.keys(fe).length === 0 && <ErrorState error={m.error} />}
@@ -113,7 +138,15 @@ function AddBindingDialog({ user, onClose }: { user: UserRecord; onClose: () => 
   );
 }
 
-function RemoveBindingDialog({ user, binding, onClose }: { user: UserRecord; binding: RoleBinding; onClose: () => void }) {
+function RemoveBindingDialog({
+  user,
+  binding,
+  onClose,
+}: {
+  user: UserRecord;
+  binding: RoleBinding;
+  onClose: () => void;
+}) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const toast = useToast();
@@ -134,7 +167,11 @@ function RemoveBindingDialog({ user, binding, onClose }: { user: UserRecord; bin
       onOpenChange={(o) => !o && onClose()}
       closeLabel={t('common.close')}
       title={t('binding.removeTitle')}
-      description={t('binding.removeBody', { user: user.displayName, role: t(`role.${binding.roleKey}`), scope: scopeText(binding, t) })}
+      description={t('binding.removeBody', {
+        user: user.displayName,
+        role: t(`role.${binding.roleKey}`),
+        scope: scopeText(binding, t),
+      })}
       footer={
         <>
           <Button onClick={onClose}>{t('common.cancel')}</Button>
@@ -153,13 +190,22 @@ export function UsersView() {
   const { t } = useI18n();
   const { can } = useAuth();
   const allowed = can('users.manage');
-  const q = useQuery({ queryKey: qk.users, queryFn: () => usersApi.list({ limit: 100 }), enabled: allowed });
+  const q = useQuery({
+    queryKey: qk.users,
+    queryFn: () => usersApi.list({ limit: 100 }),
+    enabled: allowed,
+  });
   const [adding, setAdding] = useState<UserRecord | null>(null);
   const [removing, setRemoving] = useState<{ user: UserRecord; binding: RoleBinding } | null>(null);
   const now = Date.now();
 
   if (!allowed || (isApiError(q.error) && q.error.status === 403)) {
-    return <ForbiddenState perm="users.manage" requestId={isApiError(q.error) ? q.error.requestId : null} />;
+    return (
+      <ForbiddenState
+        perm="users.manage"
+        requestId={isApiError(q.error) ? q.error.requestId : null}
+      />
+    );
   }
 
   return (
@@ -180,10 +226,18 @@ export function UsersView() {
           <table className="w-full min-w-[760px] border-collapse text-[13px]">
             <thead>
               <tr className="bg-surface-2 text-left text-[12px] text-fg-muted">
-                <th scope="col" className="px-4 py-[9px] font-medium">{t('users.col.user')}</th>
-                <th scope="col" className="px-2 py-[9px] font-medium">{t('users.col.bindings')}</th>
-                <th scope="col" className="px-2 py-[9px] font-medium">{t('users.col.mfa')}</th>
-                <th scope="col" className="px-2 py-[9px] font-medium">{t('users.col.lastLogin')}</th>
+                <th scope="col" className="px-4 py-[9px] font-medium">
+                  {t('users.col.user')}
+                </th>
+                <th scope="col" className="px-2 py-[9px] font-medium">
+                  {t('users.col.bindings')}
+                </th>
+                <th scope="col" className="px-2 py-[9px] font-medium">
+                  {t('users.col.mfa')}
+                </th>
+                <th scope="col" className="px-2 py-[9px] font-medium">
+                  {t('users.col.lastLogin')}
+                </th>
                 <th scope="col" className="px-4 py-[9px] font-medium">
                   <span className="sr-only">{t('users.addBinding')}</span>
                 </th>
@@ -198,18 +252,26 @@ export function UsersView() {
                   </td>
                   <td className="px-2 py-2.5">
                     {u.bindings === undefined ? (
-                      <span className="text-[12px] text-fg-muted">{t('users.bindingsUnknown')}</span>
+                      <span className="text-[12px] text-fg-muted">
+                        {t('users.bindingsUnknown')}
+                      </span>
                     ) : (
                       <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
                         {u.bindings.map((b) => (
-                          <li key={b.id} className="inline-flex items-center gap-1 rounded border border-line-strong bg-surface py-px pr-0.5 pl-2 text-[12px]">
+                          <li
+                            key={b.id}
+                            className="inline-flex items-center gap-1 rounded border border-line-strong bg-surface py-px pr-0.5 pl-2 text-[12px]"
+                          >
                             <b className="font-medium">{t(`role.${b.roleKey}`)}</b>
                             <span className="text-fg-muted">· {scopeText(b, t)}</span>
                             <GatedButton
                               variant="ghost"
                               size="xs"
                               perm="users.manage"
-                              aria-label={t('binding.remove', { role: t(`role.${b.roleKey}`), scope: scopeText(b, t) })}
+                              aria-label={t('binding.remove', {
+                                role: t(`role.${b.roleKey}`),
+                                scope: scopeText(b, t),
+                              })}
                               onClick={() => setRemoving({ user: u, binding: b })}
                             >
                               ✕
@@ -219,8 +281,14 @@ export function UsersView() {
                       </ul>
                     )}
                   </td>
-                  <td className={`px-2 py-2.5 text-[12.5px] ${u.mfaEnabled ? 'text-ok' : 'text-warn'}`}>{u.mfaEnabled ? t('users.mfaOn') : t('users.mfaOff')}</td>
-                  <td className="px-2 py-2.5 text-[12.5px]">{relativeTime(u.lastLoginAt, t, now)}</td>
+                  <td
+                    className={`px-2 py-2.5 text-[12.5px] ${u.mfaEnabled ? 'text-ok' : 'text-warn'}`}
+                  >
+                    {u.mfaEnabled ? t('users.mfaOn') : t('users.mfaOff')}
+                  </td>
+                  <td className="px-2 py-2.5 text-[12.5px]">
+                    {relativeTime(u.lastLoginAt, t, now)}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <GatedButton size="sm" perm="users.manage" onClick={() => setAdding(u)}>
                       {t('users.addBinding')}
@@ -236,7 +304,13 @@ export function UsersView() {
         {t('users.policyNote')}
       </Notice>
       {adding && <AddBindingDialog user={adding} onClose={() => setAdding(null)} />}
-      {removing && <RemoveBindingDialog user={removing.user} binding={removing.binding} onClose={() => setRemoving(null)} />}
+      {removing && (
+        <RemoveBindingDialog
+          user={removing.user}
+          binding={removing.binding}
+          onClose={() => setRemoving(null)}
+        />
+      )}
     </div>
   );
 }

@@ -20,7 +20,15 @@ import { envBadgeKey } from '@/lib/servers';
 
 const TTL_OPTIONS = [5, 10, 15, 30, 60];
 
-function TokenView({ result, onDone, onAnother }: { result: EnrollmentCreated; onDone: () => void; onAnother: () => void }) {
+function TokenView({
+  result,
+  onDone,
+  onAnother,
+}: {
+  result: EnrollmentCreated;
+  onDone: () => void;
+  onAnother: () => void;
+}) {
   const { t, locale } = useI18n();
   const now = useNow(1000);
   const remaining = new Date(result.expiresAt).getTime() - now;
@@ -41,7 +49,10 @@ function TokenView({ result, onDone, onAnother }: { result: EnrollmentCreated; o
         <Notice tone="warn" glyph="▲" role="alert" title={t('enroll.tokenTitle')}>
           {t('enroll.tokenWarn')}{' '}
           <span className="font-mono">
-            {t('enroll.expires', { time: formatClock(new Date(result.expiresAt), locale), remaining: formatDuration(remaining) })}
+            {t('enroll.expires', {
+              time: formatClock(new Date(result.expiresAt), locale),
+              remaining: formatDuration(remaining),
+            })}
           </span>
         </Notice>
       )}
@@ -54,7 +65,13 @@ function TokenView({ result, onDone, onAnother }: { result: EnrollmentCreated; o
           {result.installCommand}
         </pre>
       </div>
-      <CopyButton text={result.installCommand} label={t('enroll.copyCommand')} variant="secondary" size="md" disabled={expired} />
+      <CopyButton
+        text={result.installCommand}
+        label={t('enroll.copyCommand')}
+        variant="secondary"
+        size="md"
+        disabled={expired}
+      />
       <ol className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
         {steps.map(([g, c, label]) => (
           <li key={label} className="flex gap-2">
@@ -75,7 +92,13 @@ function TokenView({ result, onDone, onAnother }: { result: EnrollmentCreated; o
   );
 }
 
-export function EnrollWizard({ onClose, defaultEnv = 'production' }: { onClose?: () => void; defaultEnv?: Environment }) {
+export function EnrollWizard({
+  onClose,
+  defaultEnv = 'production',
+}: {
+  onClose?: () => void;
+  defaultEnv?: Environment;
+}) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const [name, setName] = useState('');
@@ -118,7 +141,12 @@ export function EnrollWizard({ onClose, defaultEnv = 'production' }: { onClose?:
         setBusy(true);
         setError(null);
         try {
-          const res = await enrollmentsApi.create({ name: name.trim(), environment: env, tags: tagList.length ? tagList : undefined, ttlMinutes: ttl });
+          const res = await enrollmentsApi.create({
+            name: name.trim(),
+            environment: env,
+            tags: tagList.length ? tagList : undefined,
+            ttlMinutes: ttl,
+          });
           setResult(res);
           void qc.invalidateQueries({ queryKey: qk.servers });
         } catch (err) {
@@ -156,7 +184,15 @@ export function EnrollWizard({ onClose, defaultEnv = 'production' }: { onClose?:
         {fe.environment && <span className="text-[12px] text-crit">{fe.environment}</span>}
       </div>
       <Field label={t('enroll.tags')} hint={t('enroll.tagsHint')} error={fe.tags}>
-        {(p) => <Input {...p} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="web" autoComplete="off" />}
+        {(p) => (
+          <Input
+            {...p}
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder="web"
+            autoComplete="off"
+          />
+        )}
       </Field>
       <Field label={t('enroll.ttl')} error={fe.ttlMinutes}>
         {(p) => (
@@ -177,12 +213,21 @@ export function EnrollWizard({ onClose, defaultEnv = 'production' }: { onClose?:
           </span>
         ))}
       </div>
-      {env === 'production' && <p className="m-0 text-[12px] text-fg-muted">{t('enroll.prodWarn')}</p>}
+      {env === 'production' && (
+        <p className="m-0 text-[12px] text-fg-muted">{t('enroll.prodWarn')}</p>
+      )}
       <p className="m-0 text-[12px] text-fg-muted">{t('env.note')}</p>
       {error && Object.keys(fe).length === 0 && (
-        <div role="alert" className="rounded-md border border-crit bg-crit-bg px-3 py-2 text-[13px]">
+        <div
+          role="alert"
+          className="rounded-md border border-crit bg-crit-bg px-3 py-2 text-[13px]"
+        >
           {error.message}
-          {error.requestId && <div className="font-mono text-[11.5px] text-fg-muted">{t('common.requestId')}: {error.requestId}</div>}
+          {error.requestId && (
+            <div className="font-mono text-[11.5px] text-fg-muted">
+              {t('common.requestId')}: {error.requestId}
+            </div>
+          )}
         </div>
       )}
       <Button type="submit" variant="primary" disabled={busy || !name.trim()}>

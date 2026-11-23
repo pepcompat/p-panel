@@ -7,7 +7,9 @@ import { TEST_DATABASE_URL, ADMIN_DATABASE_URL, TEST_DB_NAME } from './env';
 export default async function setup(): Promise<void> {
   const admin = new PrismaClient({ datasourceUrl: ADMIN_DATABASE_URL });
   try {
-    const rows = await admin.$queryRaw<Array<{ exists: boolean }>>`SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = ${TEST_DB_NAME}) AS "exists"`;
+    const rows = await admin.$queryRaw<
+      Array<{ exists: boolean }>
+    >`SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = ${TEST_DB_NAME}) AS "exists"`;
     if (!rows[0]?.exists) await admin.$executeRawUnsafe(`CREATE DATABASE "${TEST_DB_NAME}"`);
   } finally {
     await admin.$disconnect();

@@ -30,9 +30,22 @@ export function Notice({
     ok: 'border-line bg-ok-bg',
     neutral: 'border-transparent bg-chip-2',
   }[tone];
-  const g = { warn: 'text-warn', crit: 'text-crit', info: 'text-info', ok: 'text-ok', neutral: 'text-fg-muted' }[tone];
+  const g = {
+    warn: 'text-warn',
+    crit: 'text-crit',
+    info: 'text-info',
+    ok: 'text-ok',
+    neutral: 'text-fg-muted',
+  }[tone];
   return (
-    <div role={role} className={cn('flex items-start gap-3 rounded-lg border px-3.5 py-3 text-[13.5px]', box, className)}>
+    <div
+      role={role}
+      className={cn(
+        'flex items-start gap-3 rounded-lg border px-3.5 py-3 text-[13.5px]',
+        box,
+        className,
+      )}
+    >
       {glyph && (
         <span aria-hidden="true" className={cn('font-bold', g)}>
           {glyph}
@@ -47,11 +60,25 @@ export function Notice({
   );
 }
 
-export function ErrorState({ error, onRetry, className }: { error: unknown; onRetry?: () => void; className?: string }) {
+export function ErrorState({
+  error,
+  onRetry,
+  className,
+}: {
+  error: unknown;
+  onRetry?: () => void;
+  className?: string;
+}) {
   const t = useT();
   const e = toApiError(error);
   return (
-    <div role="alert" className={cn('flex flex-col gap-2 rounded-lg border border-crit bg-crit-bg p-4 text-[13.5px]', className)}>
+    <div
+      role="alert"
+      className={cn(
+        'flex flex-col gap-2 rounded-lg border border-crit bg-crit-bg p-4 text-[13.5px]',
+        className,
+      )}
+    >
       <div className="flex items-center gap-2">
         <span aria-hidden="true" className="font-bold text-crit">
           ✕
@@ -81,7 +108,10 @@ export function ErrorState({ error, onRetry, className }: { error: unknown; onRe
 export function ForbiddenState({ perm, requestId }: { perm: string; requestId?: string | null }) {
   const t = useT();
   return (
-    <div role="alert" className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-5 text-[13.5px]">
+    <div
+      role="alert"
+      className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-5 text-[13.5px]"
+    >
       <b>
         <span aria-hidden="true" className="text-off">
           ○{' '}
@@ -98,7 +128,15 @@ export function ForbiddenState({ perm, requestId }: { perm: string; requestId?: 
   );
 }
 
-export function EmptyState({ title, body, action }: { title: ReactNode; body?: ReactNode; action?: ReactNode }) {
+export function EmptyState({
+  title,
+  body,
+  action,
+}: {
+  title: ReactNode;
+  body?: ReactNode;
+  action?: ReactNode;
+}) {
   return (
     <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-line-strong bg-surface p-6 text-[13.5px]">
       <b>{title}</b>
@@ -120,8 +158,14 @@ export function ProposedBanner({ body }: { body?: ReactNode }) {
 export function PreviewBanner() {
   const t = useT();
   return (
-    <div role="note" data-testid="preview-banner" className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed border-info bg-info-bg px-3.5 py-2.5 text-[13px]">
-      <span className="rounded bg-info px-2 py-px font-mono text-[11px] font-semibold tracking-[.06em] text-white">PREVIEW</span>
+    <div
+      role="note"
+      data-testid="preview-banner"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed border-info bg-info-bg px-3.5 py-2.5 text-[13px]"
+    >
+      <span className="rounded bg-info px-2 py-px font-mono text-[11px] font-semibold tracking-[.06em] text-white">
+        PREVIEW
+      </span>
       <b>{t('state.preview.title')}</b>
       <span className="text-fg-2">{t('state.preview.body')}</span>
     </div>

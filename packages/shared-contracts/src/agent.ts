@@ -86,7 +86,9 @@ export interface HeartbeatResponse {
   certRenewAfter: string;
 }
 
-export const certificateRotateSchema = z.object({ csrPem: z.string().min(100).max(16_384) }).strict();
+export const certificateRotateSchema = z
+  .object({ csrPem: z.string().min(100).max(16_384) })
+  .strict();
 
 export const taskAckSchema = z.object({ leaseToken: z.string().min(16).max(128) }).strict();
 /** Error codes the Go agent reports in `result.error.code`. */
@@ -121,7 +123,10 @@ export const taskResultSchema = z
     leaseToken: z.string().min(16).max(128),
     status: z.enum(['succeeded', 'failed', 'rejected']),
     output: z.unknown().optional(),
-    error: z.union([z.string().max(4096), taskResultErrorSchema]).nullable().optional(),
+    error: z
+      .union([z.string().max(4096), taskResultErrorSchema])
+      .nullable()
+      .optional(),
   })
   .strict();
 export type TaskResultInput = z.infer<typeof taskResultSchema>;

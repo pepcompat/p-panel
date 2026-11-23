@@ -8,7 +8,6 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-
 function uuidv7(): string {
   const b = randomBytes(16);
   const ts = BigInt(Date.now());
@@ -27,8 +26,14 @@ export const SEED_USERS = [
 ] as const;
 
 export async function seed(prisma: PrismaClient): Promise<void> {
-  if (process.env.NODE_ENV === 'production') throw new Error('[seed] refusing to seed: NODE_ENV=production');
-  const passwordHash = await argon2.hash('password', { type: argon2.argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 });
+  if (process.env.NODE_ENV === 'production')
+    throw new Error('[seed] refusing to seed: NODE_ENV=production');
+  const passwordHash = await argon2.hash('password', {
+    type: argon2.argon2id,
+    memoryCost: 19_456,
+    timeCost: 2,
+    parallelism: 1,
+  });
   for (const u of SEED_USERS) {
     const email = `${u.name}@ppanel.local`;
     const user = await prisma.user.upsert({
@@ -36,21 +41,31 @@ export async function seed(prisma: PrismaClient): Promise<void> {
       create: { id: uuidv7(), email, displayName: u.displayName, passwordHash },
       update: {},
     });
-    const has = await prisma.roleBinding.findFirst({ where: { userId: user.id, roleKey: u.role, scopeType: 'global' } });
-    if (!has) await prisma.roleBinding.create({ data: { id: uuidv7(), userId: user.id, roleKey: u.role, scopeType: 'global' } });
+    const has = await prisma.roleBinding.findFirst({
+      where: { userId: user.id, roleKey: u.role, scopeType: 'global' },
+    });
+    if (!has)
+      await prisma.roleBinding.create({
+        data: { id: uuidv7(), userId: user.id, roleKey: u.role, scopeType: 'global' },
+      });
   }
 }
 
 const isCli = /seed\.[cm]?[tj]s$/.test(process.argv[1] ?? '');
 if (isCli) {
-  for (const f of [path.join(__dirname, '../.env'), path.join(__dirname, '../../../.env')]) if (existsSync(f)) process.loadEnvFile(f);
+  for (const f of [path.join(__dirname, '../.env'), path.join(__dirname, '../../../.env')])
+    if (existsSync(f)) process.loadEnvFile(f);
   if (process.env.NODE_ENV === 'production') {
     console.error('[seed] refusing to seed: NODE_ENV=production');
     process.exit(1);
   }
   const prisma = new PrismaClient();
   seed(prisma)
-    .then(() => console.log(`[seed] ok: ${SEED_USERS.map((u) => `${u.name}@ppanel.local`).join(', ')} (password: "password")`))
+    .then(() =>
+      console.log(
+        `[seed] ok: ${SEED_USERS.map((u) => `${u.name}@ppanel.local`).join(', ')} (password: "password")`,
+      ),
+    )
     .catch((e: unknown) => {
       console.error('[seed] failed', e);
       process.exitCode = 1;

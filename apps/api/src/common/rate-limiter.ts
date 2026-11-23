@@ -20,7 +20,8 @@ export class RateLimiter {
       this.windows.set(key, w);
     }
     w.count += 1;
-    if (w.count > limit) throw AppError.rateLimited(Math.max(1, Math.ceil((w.resetAt - now) / 1000)));
+    if (w.count > limit)
+      throw AppError.rateLimited(Math.max(1, Math.ceil((w.resetAt - now) / 1000)));
   }
 
   reset(prefix?: string): void {

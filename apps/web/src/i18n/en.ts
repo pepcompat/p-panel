@@ -34,16 +34,20 @@ export const en = {
   'common.dash': '—',
 
   'state.error.title': 'Could not load data',
-  'state.error.network': 'Cannot reach the pPanel API. Check your connection or that the Center is running.',
+  'state.error.network':
+    'Cannot reach the pPanel API. Check your connection or that the Center is running.',
   'state.forbidden.title': 'You don’t have access to this',
-  'state.forbidden.body': 'Your role bindings do not include the permission required here ({perm}). Ask a Platform Owner to grant it.',
+  'state.forbidden.body':
+    'Your role bindings do not include the permission required here ({perm}). Ask a Platform Owner to grant it.',
   'state.empty.title': 'Nothing here yet',
   'state.stale.title': 'Showing last known data',
   'state.stale.body': 'Some data is older than expected. Values are last-known, not live.',
   'state.proposed.title': 'Backend not implemented yet (PROPOSED)',
-  'state.proposed.body': 'This screen shows the designed layout only. Actions are disabled and nothing is sent to servers until the Center API implements it.',
+  'state.proposed.body':
+    'This screen shows the designed layout only. Actions are disabled and nothing is sent to servers until the Center API implements it.',
   'state.preview.title': 'Preview — mock data, backend PROPOSED',
-  'state.preview.body': 'Layout from the design prototype with sample data. Nothing here reflects your fleet, and actions do not change anything.',
+  'state.preview.body':
+    'Layout from the design prototype with sample data. Nothing here reflects your fleet, and actions do not change anything.',
 
   'nav.label': 'Main navigation',
   'nav.section.operate': 'Operate',
@@ -100,7 +104,8 @@ export const en = {
   'env.badge.uat': 'UAT',
   'env.badge.development': 'DEVELOPMENT',
   'env.badge.all': 'ALL ENVIRONMENTS',
-  'env.note': 'Environment groups are user-managed labels for grouping and approval policy — not a network or firewall trust boundary.',
+  'env.note':
+    'Environment groups are user-managed labels for grouping and approval policy — not a network or firewall trust boundary.',
 
   'status.online': 'Online',
   'status.degraded': 'Degraded',
@@ -124,11 +129,16 @@ export const en = {
   'policy.private_only': 'Private-only',
   'policy.public_preferred': 'Public preferred',
   'policy.public_only': 'Public-only',
-  'policy.explain.auto': 'Center picks the private address when it is verified, otherwise the public one. Every failover is shown with its reason.',
-  'policy.explain.private_preferred': 'Use the private (VPC) address; fall back to public only when private is unreachable, and record why.',
-  'policy.explain.private_only': 'Fail-closed: if the private path is unreachable, pPanel will NOT fall back to the public endpoint. Management stops until private connectivity returns or the policy is changed (audited).',
-  'policy.explain.public_preferred': 'Use the public address; private is used only when public is unreachable.',
-  'policy.explain.public_only': 'Management traffic always crosses the public endpoint. Only use this when the server has no private interface.',
+  'policy.explain.auto':
+    'Center picks the private address when it is verified, otherwise the public one. Every failover is shown with its reason.',
+  'policy.explain.private_preferred':
+    'Use the private (VPC) address; fall back to public only when private is unreachable, and record why.',
+  'policy.explain.private_only':
+    'Fail-closed: if the private path is unreachable, pPanel will NOT fall back to the public endpoint. Management stops until private connectivity returns or the policy is changed (audited).',
+  'policy.explain.public_preferred':
+    'Use the public address; private is used only when public is unreachable.',
+  'policy.explain.public_only':
+    'Management traffic always crosses the public endpoint. Only use this when the server has no private interface.',
 
   'time.justNow': 'just now',
   'time.secondsAgo': '{n} s ago',
@@ -143,7 +153,8 @@ export const en = {
   'metric.disk': 'Disk',
 
   'perm.missing': 'Requires permission: {perm}',
-  'perm.actionNotAllowed': 'Not allowed for this server ({action}). The Center did not grant this action — for example the agent is offline or the server is outside your scope.',
+  'perm.actionNotAllowed':
+    'Not allowed for this server ({action}). The Center did not grant this action — for example the agent is offline or the server is outside your scope.',
   'perm.offline': 'Disabled while the agent is offline or stale',
   'perm.proposed': 'Backend not implemented yet (PROPOSED)',
 
@@ -154,7 +165,8 @@ export const en = {
   'login.signingIn': 'Signing in…',
   'login.sessionExpired': 'Your session expired. Sign in again.',
   'login.signedOut': 'You have been signed out.',
-  'login.mockHint': 'Mock mode · accounts dev / superadmin / admin / user1 · password “password” · superadmin uses 2FA (any 6 digits except 000000).',
+  'login.mockHint':
+    'Mock mode · accounts dev / superadmin / admin / user1 · password “password” · superadmin uses 2FA (any 6 digits except 000000).',
   'mfa.title': 'Two-factor authentication',
   'mfa.hint': 'Enter the 6-digit code from your authenticator app.',
   'mfa.code': '2FA code',
@@ -166,17 +178,20 @@ export const en = {
   'mfa.verify': 'Confirm',
   'mfa.backToLogin': '← Back to sign in',
   'bootstrap.title': 'Create the first administrator',
-  'bootstrap.body': 'No users exist yet. The first account becomes Platform Owner. You need the one-time setup token printed by the Center at first start.',
+  'bootstrap.body':
+    'No users exist yet. The first account becomes Platform Owner. You need the one-time setup token printed by the Center at first start.',
   'bootstrap.displayName': 'Display name',
   'bootstrap.setupToken': 'Setup token',
-  'bootstrap.setupTokenHint': 'From PPANEL_SETUP_TOKEN or the Center log at first start. Mock mode: dev-setup-token',
+  'bootstrap.setupTokenHint':
+    'From PPANEL_SETUP_TOKEN or the Center log at first start. Mock mode: dev-setup-token',
   'bootstrap.passwordHint': 'At least 12 characters.',
   'bootstrap.submit': 'Create administrator',
   'bootstrap.done': 'Administrator created. Sign in to continue.',
   'bootstrap.checking': 'Checking setup status…',
 
   'setup2fa.title': 'Set up two-factor authentication',
-  'setup2fa.intro': 'Production actions, approvals and revocations require a second factor. Use any TOTP authenticator app.',
+  'setup2fa.intro':
+    'Production actions, approvals and revocations require a second factor. Use any TOTP authenticator app.',
   'setup2fa.start': 'Generate QR code',
   'setup2fa.scan': '1 · Scan this QR code with your authenticator app',
   'setup2fa.qrAlt': 'QR code for your authenticator app',
@@ -185,7 +200,8 @@ export const en = {
   'setup2fa.confirm': 'Confirm and enable',
   'setup2fa.already': 'Two-factor authentication is already enabled for your account.',
   'setup2fa.recoveryTitle': 'Save your recovery codes',
-  'setup2fa.recoveryBody': 'Each code can be used once if you lose your authenticator. They are shown only now and will not be shown again.',
+  'setup2fa.recoveryBody':
+    'Each code can be used once if you lose your authenticator. They are shown only now and will not be shown again.',
   'setup2fa.copyCodes': 'Copy codes',
   'setup2fa.ack': 'I have stored these codes somewhere safe',
   'setup2fa.done': 'Continue to pPanel',
@@ -215,7 +231,8 @@ export const en = {
   'overview.noServers': 'No servers enrolled yet.',
 
   'servers.title': 'Servers',
-  'servers.subtitle': '{count} servers · agents connect outbound to Center only; no management port is opened on hosts',
+  'servers.subtitle':
+    '{count} servers · agents connect outbound to Center only; no management port is opened on hosts',
   'servers.enroll': '+ Enroll server',
   'servers.view': 'View',
   'servers.view.cards': 'Cards',
@@ -226,7 +243,8 @@ export const en = {
   'servers.collapse': 'Collapse',
   'servers.expand': 'Expand',
   'servers.empty.title': 'No servers enrolled yet',
-  'servers.empty.body': 'Enroll a server to install the outbound-only agent. Nothing is opened on the host.',
+  'servers.empty.body':
+    'Enroll a server to install the outbound-only agent. Nothing is opened on the host.',
   'servers.empty.filtered': 'No servers match the current filters.',
   'servers.col.server': 'Server',
   'servers.col.env': 'Env',
@@ -255,7 +273,8 @@ export const en = {
   'card.revokedWhy': 'Agent revoked · re-enroll to manage this server',
 
   'enroll.title': 'Enroll server',
-  'enroll.pageSubtitle': 'Creates a one-time token. The agent connects outbound to the Center over mTLS; nothing is opened on the host.',
+  'enroll.pageSubtitle':
+    'Creates a one-time token. The agent connects outbound to the Center over mTLS; nothing is opened on the host.',
   'enroll.name': 'Server name',
   'enroll.nameHint': 'Lowercase letters, digits and dashes (max 63).',
   'enroll.environment': 'Environment',
@@ -277,7 +296,8 @@ export const en = {
   'enroll.step.appear': 'Server appears in the fleet as Enrolling → Online',
   'enroll.done': 'I copied it — close',
   'enroll.another': 'Enroll another server',
-  'enroll.prodWarn': 'Production servers require approval policies for privileged actions after enrollment.',
+  'enroll.prodWarn':
+    'Production servers require approval policies for privileged actions after enrollment.',
 
   'detail.back': '← Servers',
   'detail.meta': '{provider} · {region} · {os} · agent {agent} · heartbeat {hb}',
@@ -311,7 +331,8 @@ export const en = {
   'sd.capabilities': 'Capabilities',
   'sd.os': 'OS / kernel',
   'sd.allowedActions': 'Allowed actions',
-  'sd.allowedHint': 'Computed by the Center for you and this server. The UI never enables an action the Center did not grant.',
+  'sd.allowedHint':
+    'Computed by the Center for you and this server. The UI never enables an action the Center did not grant.',
   'sd.action.edit': 'Edit settings & connection policy',
   'sd.action.restart_service': 'Restart allowlisted service',
   'sd.action.rotate_cert': 'Rotate agent certificate',
@@ -322,7 +343,8 @@ export const en = {
   'sd.action.granted': 'Granted',
   'sd.action.notGranted': 'Not granted by the Center',
 
-  'net.note': 'ⓘ Editing endpoint metadata in pPanel does not edit Ubuntu netplan, network interfaces, routes or change the Public IP.',
+  'net.note':
+    'ⓘ Editing endpoint metadata in pPanel does not edit Ubuntu netplan, network interfaces, routes or change the Public IP.',
   'net.addresses': 'Addresses',
   'net.verified': 'verified {ago}',
   'net.unverified': 'not verified',
@@ -331,10 +353,12 @@ export const en = {
   'net.appEndpoint': 'Application backend endpoint',
   'net.appEndpointProposed': 'Per-app backend endpoints arrive with Applications (PROPOSED).',
   'net.policy': 'Preferred management connection',
-  'net.policyHelp': 'Changes are audited and versioned. Saving uses If-Match so concurrent edits are never silently overwritten.',
+  'net.policyHelp':
+    'Changes are audited and versioned. Saving uses If-Match so concurrent edits are never silently overwritten.',
   'net.save': 'Save connection policy',
   'net.saved': 'Connection policy saved',
-  'net.conflict': 'Someone else changed this server. Reload to see the latest values before saving again.',
+  'net.conflict':
+    'Someone else changed this server. Reload to see the latest values before saving again.',
   'net.runDiag': 'Run diagnostics',
   'net.diag': 'Network diagnosis',
   'net.do': 'DigitalOcean inventory',
@@ -350,7 +374,8 @@ export const en = {
   'net.field.provider': 'Provider',
   'net.detected': 'detected',
   'net.override': 'override',
-  'net.privateOnlyNoPrivate': 'This server has no verified private address. With Private-only, management is blocked (fail-closed) until the private path is verified.',
+  'net.privateOnlyNoPrivate':
+    'This server has no verified private address. With Private-only, management is blocked (fail-closed) until the private path is verified.',
 
   'settings.identity': 'Identity & labels',
   'settings.name': 'Name',
@@ -364,7 +389,8 @@ export const en = {
   'settings.privileged': 'privileged',
   'settings.destructive': 'destructive',
   'revoke.title': 'Revoke agent on {name}?',
-  'revoke.body': 'The agent certificate is revoked immediately and the agent is rejected on its next call. Workloads on the host keep running; the server must be re-enrolled to be managed again.',
+  'revoke.body':
+    'The agent certificate is revoked immediately and the agent is rejected on its next call. Workloads on the host keep running; the server must be re-enrolled to be managed again.',
   'revoke.typeName': 'Type {name} to confirm',
   'revoke.stepUp': 'Confirm 2FA code (production)',
   'revoke.stepUpHint': 'Production revoke requires a fresh second factor (step-up, valid 5 min).',
@@ -373,10 +399,14 @@ export const en = {
   'revoke.done': 'Agent revoked · recorded in audit',
   'revoke.target': 'Target: {target} · recorded in audit',
 
-  'proposed.applications': 'Applications discovered or deployed on this server, with ownership mode (Discover / Observe / Adopt / Managed).',
-  'proposed.terminal': 'Browser terminal through the Center SSH gateway: host-key pinning, step-up MFA and just-in-time approval for production.',
-  'proposed.firewall': 'Host firewall (nftables/ufw) and DigitalOcean Cloud Firewall rules, desired vs observed, with drift detection.',
-  'proposed.software': 'Installed plugins and packages from the signed catalog, with drift and verification status.',
+  'proposed.applications':
+    'Applications discovered or deployed on this server, with ownership mode (Discover / Observe / Adopt / Managed).',
+  'proposed.terminal':
+    'Browser terminal through the Center SSH gateway: host-key pinning, step-up MFA and just-in-time approval for production.',
+  'proposed.firewall':
+    'Host firewall (nftables/ufw) and DigitalOcean Cloud Firewall rules, desired vs observed, with drift detection.',
+  'proposed.software':
+    'Installed plugins and packages from the signed catalog, with drift and verification status.',
   'proposed.runtimes': 'PHP / Node.js / Python / Docker runtimes — host-wide vs app-scoped.',
   'proposed.databases': 'Database engines on this host, bind addresses and backup status.',
   'proposed.monitoring': 'Time-series metrics. Missing data is shown as gaps, never as 0.',
@@ -385,7 +415,8 @@ export const en = {
   'proposed.events': 'Heartbeats, jobs and audit events for this server.',
 
   'users.title': 'Users & roles',
-  'users.subtitle': 'Role bindings are scoped: global ⊇ environment ⊇ server. Authorization is enforced by the Center; this page only manages bindings.',
+  'users.subtitle':
+    'Role bindings are scoped: global ⊇ environment ⊇ server. Authorization is enforced by the Center; this page only manages bindings.',
   'users.col.user': 'User',
   'users.col.bindings': 'Role bindings',
   'users.col.mfa': '2FA',
@@ -395,7 +426,8 @@ export const en = {
   'users.addBinding': '+ Role binding',
   'users.bindingsUnknown': 'Not returned by the API',
   'users.empty': 'No users found.',
-  'users.policyNote': 'Production: Nginx edits and restores require Platform Owner approval · privileged actions require 2FA re-confirmation',
+  'users.policyNote':
+    'Production: Nginx edits and restores require Platform Owner approval · privileged actions require 2FA re-confirmation',
   'binding.title': 'Add role binding for {user}',
   'binding.role': 'Role',
   'binding.scope': 'Scope',
@@ -423,12 +455,14 @@ export const en = {
   'security.title': 'Security',
   'security.mfa': 'Your two-factor authentication',
   'security.mfaOn': 'Enabled. Production actions ask for a fresh code (step-up).',
-  'security.mfaOff': 'Not enabled. You cannot approve or perform privileged production actions until it is on.',
+  'security.mfaOff':
+    'Not enabled. You cannot approve or perform privileged production actions until it is on.',
   'security.setup': 'Set up 2FA',
   'security.sessions': 'Sessions & policies',
 
   'audit.title': 'Audit log',
-  'audit.subtitle': 'Every mutating request writes an audit event with actor, action, target, result and request ID.',
+  'audit.subtitle':
+    'Every mutating request writes an audit event with actor, action, target, result and request ID.',
   'audit.filter.action': 'Action starts with',
   'audit.filter.actor': 'Actor ID',
   'audit.filter.target': 'Target ID',
@@ -448,36 +482,49 @@ export const en = {
   'audit.result.failure': 'failure',
 
   'preview.applications.title': 'Applications',
-  'preview.applications.subtitle': 'Showing 6 of 34 apps in your scope · ownership shown as-is, never auto-upgraded',
+  'preview.applications.subtitle':
+    'Showing 6 of 34 apps in your scope · ownership shown as-is, never auto-upgraded',
   'preview.deployments.title': 'Deploy a new app',
   'preview.deployments.crumb': 'Deployments / New',
   'preview.imports.crumb': 'Discovery & Import / scan-0142',
   'preview.imports.title': 'web-legacy-02 · Nginx scan results',
-  'preview.imports.subtitle': 'Read-only scan finished 14:05 ICT · config checksum matches before/after · nginx uptime unchanged',
+  'preview.imports.subtitle':
+    'Read-only scan finished 14:05 ICT · config checksum matches before/after · nginx uptime unchanged',
   'preview.monitoring.title': 'Monitoring · CPU',
-  'preview.monitoring.subtitle': 'Prometheus · 15-day retention · missing data shown as gaps, not 0',
+  'preview.monitoring.subtitle':
+    'Prometheus · 15-day retention · missing data shown as gaps, not 0',
   'preview.logs.title': 'Logs',
-  'preview.logs.subtitle': 'Loki · 30-day retention (data before Oct 18 expired) · search limited to servers/apps in your scope · secrets redacted',
+  'preview.logs.subtitle':
+    'Loki · 30-day retention (data before Oct 18 expired) · search limited to servers/apps in your scope · secrets redacted',
   'preview.backups.crumb': 'Backups / policy: shop-prod-daily',
   'preview.backups.title': 'Snapshots · shop-db (PostgreSQL 16)',
-  'preview.backups.subtitle': 'Daily 02:00 ICT · keep 14 daily + 8 weekly · Restic encrypted · offsite: s3-bkk-archive',
+  'preview.backups.subtitle':
+    'Daily 02:00 ICT · keep 14 daily + 8 weekly · Restic encrypted · offsite: s3-bkk-archive',
   'preview.alerts.title': 'Alerts',
   'preview.network.title': 'Network',
-  'preview.network.subtitle': 'Control plane, optional Gateway and VPC paths · DigitalOcean sgp1 · VPC membership verified via DO API (read-only), not inferred from ping',
+  'preview.network.subtitle':
+    'Control plane, optional Gateway and VPC paths · DigitalOcean sgp1 · VPC membership verified via DO API (read-only), not inferred from ping',
   'preview.ssh.title': 'SSH & Credentials',
-  'preview.ssh.subtitle': 'Human SSH goes through the Center SSH gateway · private keys never reach the browser',
+  'preview.ssh.subtitle':
+    'Human SSH goes through the Center SSH gateway · private keys never reach the browser',
   'preview.firewall.title': 'Firewall Policies',
-  'preview.firewall.subtitle': 'Manage every server’s firewall from Center · the agent translates rules to nftables or ufw as supported · built-in lockout protection',
+  'preview.firewall.subtitle':
+    'Manage every server’s firewall from Center · the agent translates rules to nftables or ufw as supported · built-in lockout protection',
   'preview.plugins.title': 'Plugins & Software',
-  'preview.plugins.subtitle': 'Signed, allowlisted manifests only — no downloaded shell scripts · only verified adapters are installable · catalog-only entries are shown as unsupported',
+  'preview.plugins.subtitle':
+    'Signed, allowlisted manifests only — no downloaded shell scripts · only verified adapters are installable · catalog-only entries are shown as unsupported',
   'preview.runtimes.title': 'Runtimes',
-  'preview.runtimes.subtitle': 'PHP / Node.js / Python / Docker per server · host-wide changes affect every app on the server; app-scoped changes do not',
+  'preview.runtimes.subtitle':
+    'PHP / Node.js / Python / Docker per server · host-wide changes affect every app on the server; app-scoped changes do not',
   'preview.databases.title': 'Databases',
-  'preview.databases.subtitle': 'Credentials are secret references · bind to private interfaces by default · no public DB ports',
+  'preview.databases.subtitle':
+    'Credentials are secret references · bind to private interfaces by default · no public DB ports',
   'preview.ai.title': 'AI & MCP',
-  'preview.ai.subtitle': 'MCP is an adapter over the same Center services as this UI · AI can propose and request; only Center authorizes, executes and verifies · no shell tools',
+  'preview.ai.subtitle':
+    'MCP is an adapter over the same Center services as this UI · AI can propose and request; only Center authorizes, executes and verifies · no shell tools',
   'preview.approvals.title': 'Approvals',
-  'preview.approvals.subtitle': 'Single-use, time-bound approvals bound to actor, action, target, artifact digest and plan hash · requesters cannot approve their own requests',
+  'preview.approvals.subtitle':
+    'Single-use, time-bound approvals bound to actor, action, target, artifact digest and plan hash · requesters cannot approve their own requests',
   'preview.disabledAction': 'Preview only — no backend',
 } as const;
 

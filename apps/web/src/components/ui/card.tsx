@@ -1,7 +1,16 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-export function Card({ children, className, as: As = 'section', ...rest }: { children: ReactNode; className?: string; as?: 'section' | 'article' | 'div' | 'aside' } & Record<string, unknown>) {
+export function Card({
+  children,
+  className,
+  as: As = 'section',
+  ...rest
+}: {
+  children: ReactNode;
+  className?: string;
+  as?: 'section' | 'article' | 'div' | 'aside';
+} & Record<string, unknown>) {
   return (
     <As className={cn('rounded-lg border border-line bg-surface', className)} {...rest}>
       {children}
@@ -9,7 +18,17 @@ export function Card({ children, className, as: As = 'section', ...rest }: { chi
   );
 }
 
-export function CardHeader({ title, actions, id, className }: { title: ReactNode; actions?: ReactNode; id?: string; className?: string }) {
+export function CardHeader({
+  title,
+  actions,
+  id,
+  className,
+}: {
+  title: ReactNode;
+  actions?: ReactNode;
+  id?: string;
+  className?: string;
+}) {
   return (
     <div className={cn('flex items-center gap-2 border-b border-line-soft px-4 py-3', className)}>
       <h2 id={id} className="m-0 flex-1 text-[15px] font-semibold">
@@ -46,16 +65,35 @@ export function PageHeader({
 }
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('flex max-w-[1440px] flex-col gap-4 p-4 sm:p-6', className)}>{children}</div>;
+  return (
+    <div className={cn('flex max-w-[1440px] flex-col gap-4 p-4 sm:p-6', className)}>{children}</div>
+  );
 }
 
-export function DefList({ rows, keyWidth = 120 }: { rows: Array<[ReactNode, ReactNode, { mono?: boolean; className?: string }?]>; keyWidth?: number }) {
+export function DefList({
+  rows,
+  keyWidth = 120,
+}: {
+  rows: Array<[ReactNode, ReactNode, { mono?: boolean; className?: string }?]>;
+  keyWidth?: number;
+}) {
   return (
-    <dl className="m-0 grid gap-x-3 gap-y-1.5 text-[13px]" style={{ gridTemplateColumns: `${keyWidth}px minmax(0,1fr)` }}>
+    <dl
+      className="m-0 grid gap-x-3 gap-y-1.5 text-[13px]"
+      style={{ gridTemplateColumns: `${keyWidth}px minmax(0,1fr)` }}
+    >
       {rows.map(([k, v, o], i) => (
         <div key={i} className="contents">
           <dt className="text-fg-muted">{k}</dt>
-          <dd className={cn('m-0 break-words', o?.mono && 'font-mono text-[12.5px] break-all', o?.className)}>{v}</dd>
+          <dd
+            className={cn(
+              'm-0 break-words',
+              o?.mono && 'font-mono text-[12.5px] break-all',
+              o?.className,
+            )}
+          >
+            {v}
+          </dd>
         </div>
       ))}
     </dl>

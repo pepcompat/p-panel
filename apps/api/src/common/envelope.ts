@@ -1,4 +1,9 @@
-import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from '@nestjs/common';
+import {
+  type CallHandler,
+  type ExecutionContext,
+  Injectable,
+  type NestInterceptor,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import type { ListEnvelope, Paginate, SuccessEnvelope } from '@ppanel/shared-contracts';
 import { map, type Observable } from 'rxjs';
@@ -13,7 +18,13 @@ export class Paginated<T> {
 }
 
 export function successEnvelope<T>(data: T, message = 'ok'): SuccessEnvelope<T> {
-  return { success: true, statusCode: 0, message, data, meta: { requestId: currentRequestId() ?? '' } };
+  return {
+    success: true,
+    statusCode: 0,
+    message,
+    data,
+    meta: { requestId: currentRequestId() ?? '' },
+  };
 }
 
 export function listEnvelope<T>(items: T[], paginate: Paginate, message = 'ok'): ListEnvelope<T> {

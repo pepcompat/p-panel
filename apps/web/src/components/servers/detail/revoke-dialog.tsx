@@ -16,7 +16,15 @@ import { ToneBadge } from '@/components/ui/badge';
 import { ErrorState, Notice } from '@/components/ui/states';
 
 /** Destructive confirm: type the server name; production additionally requires step-up 2FA (X-Step-Up). */
-export function RevokeDialog({ server, open, onOpenChange }: { server: Server; open: boolean; onOpenChange: (o: boolean) => void }) {
+export function RevokeDialog({
+  server,
+  open,
+  onOpenChange,
+}: {
+  server: Server;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const { t } = useI18n();
   const { me } = useAuth();
   const toast = useToast();
@@ -79,7 +87,15 @@ export function RevokeDialog({ server, open, onOpenChange }: { server: Server; o
         {t('revoke.target', { target: `${server.name} (${server.environment})` })}
       </div>
       <Field label={t('revoke.typeName', { name: server.name })}>
-        {(p) => <Input {...p} value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" className="font-mono" />}
+        {(p) => (
+          <Input
+            {...p}
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            className="font-mono"
+          />
+        )}
       </Field>
       {prod &&
         (mfaMissing ? (

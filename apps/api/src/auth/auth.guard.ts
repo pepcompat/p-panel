@@ -50,17 +50,26 @@ export class AuthGuard implements CanActivate {
     const header = req.header('authorization') ?? '';
     const m = /^Bearer\s+(\S+)$/i.exec(header);
     if (!m) throw AppError.unauthenticated();
-    const claims = this.tokens.verify<AccessClaims>('access', m[1]!, () => AppError.unauthenticated());
+    const claims = this.tokens.verify<AccessClaims>('access', m[1]!, () =>
+      AppError.unauthenticated(),
+    );
     const session = await this.prisma.session.findUnique({
       where: { id: claims.sid },
       select: { revokedAt: true, expiresAt: true, userId: true },
     });
-    if (!session || session.revokedAt || session.userId !== claims.sub) throw AppError.unauthenticated();
+    if (!session || session.revokedAt || session.userId !== claims.sub)
+      throw AppError.unauthenticated();
     const user = await this.prisma.user.findUnique({
       where: { id: claims.sub },
       select: { id: true, email: true, status: true, roleBindings: true },
     });
     if (!user || user.status !== 'active') throw AppError.unauthenticated();
-    return { id: user.id, email: user.email, sessionId: claims.sid, amr: claims.amr ?? [], bindings: user.roleBindings };
+    return {
+      id: user.id,
+      email: user.email,
+      sessionId: claims.sid,
+      amr: claims.amr ?? [],
+      bindings: user.roleBindings,
+    };
   }
 }

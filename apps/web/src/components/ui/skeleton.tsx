@@ -6,7 +6,12 @@ export function Skeleton({ className }: { className?: string }) {
 
 export function CardSkeletonGrid({ count = 6, label }: { count?: number; label: string }) {
   return (
-    <div role="status" aria-busy="true" aria-label={label} className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-3">
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-3"
+    >
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
           <Skeleton className="h-4 w-1/2" />

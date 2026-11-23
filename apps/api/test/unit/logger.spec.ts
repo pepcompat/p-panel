@@ -7,15 +7,25 @@ describe('structured JSON logger', () => {
     const lines: string[] = [];
     const log = new JsonLogger('debug', { write: (l) => lines.push(l) });
     requestContext.run({ requestId: 'req-1' }, () => {
-      log.emit('info', 'login with Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl token ppe_abcdefghijklmnopqrstuvwxyz', {
-        password: 'hunter2',
-        refreshToken: 'abc',
-        nested: { csrPem: '---', apiKey: 'k', fine: 'visible' },
-        authorization: 'Bearer zzz',
-      });
+      log.emit(
+        'info',
+        'login with Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl token ppe_abcdefghijklmnopqrstuvwxyz',
+        {
+          password: 'hunter2',
+          refreshToken: 'abc',
+          nested: { csrPem: '---', apiKey: 'k', fine: 'visible' },
+          authorization: 'Bearer zzz',
+        },
+      );
     });
     const e = JSON.parse(lines[0]!);
-    expect(e).toMatchObject({ level: 'info', requestId: 'req-1', password: '[REDACTED]', refreshToken: '[REDACTED]', authorization: '[REDACTED]' });
+    expect(e).toMatchObject({
+      level: 'info',
+      requestId: 'req-1',
+      password: '[REDACTED]',
+      refreshToken: '[REDACTED]',
+      authorization: '[REDACTED]',
+    });
     expect(e.nested).toEqual({ csrPem: '[REDACTED]', apiKey: '[REDACTED]', fine: 'visible' });
     expect(new Date(e.timestamp).toISOString()).toBe(e.timestamp);
     expect(lines[0]).not.toMatch(/hunter2|eyJhbGci|ppe_abcdef/);
@@ -37,6 +47,8 @@ describe('structured JSON logger', () => {
     expect(out.msg).not.toContain('AAAA');
     expect(out.msg).not.toContain('$argon2id$');
     expect(out.mfaEnabled).toBe(true);
-    expect(redact('db postgres://ppanel:s3cret@127.0.0.1:5432/x')).toBe('db postgres://ppanel:[REDACTED]@127.0.0.1:5432/x');
+    expect(redact('db postgres://ppanel:s3cret@127.0.0.1:5432/x')).toBe(
+      'db postgres://ppanel:[REDACTED]@127.0.0.1:5432/x',
+    );
   });
 });

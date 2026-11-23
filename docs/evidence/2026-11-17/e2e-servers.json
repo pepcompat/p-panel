@@ -1,2 +1,38 @@
-{"id":"01a1e91a-6097-79ef-a55f-b91c5ed6529c","name":"lab-node-b2","environment":"uat","status":"online","hb":"2026-11-17T10:44:55.044Z","caps":["nginx"],"m":{"cpuPct":2.7,"memPct":35.2,"diskPct":38.6,"load1":0.54,"uptimeSec":24016,"sampledAt":"2026-11-17T10:44:55.038Z","stale":false},"addr":["private:172.20.0.5"]}
-{"id":"01a1e91a-6005-7c93-ac77-17944adfb929","name":"lab-node-a2","environment":"production","status":"online","hb":"2026-11-17T10:44:55.027Z","caps":["nginx","php-fpm"],"m":{"cpuPct":2.7,"memPct":35.2,"diskPct":38.6,"load1":0.54,"uptimeSec":24016,"sampledAt":"2026-11-17T10:44:55.018Z","stale":false},"addr":["private:172.20.0.4"]}
+[
+  {
+    "id": "01a1e91a-6097-79ef-a55f-b91c5ed6529c",
+    "name": "lab-node-b2",
+    "environment": "uat",
+    "status": "online",
+    "hb": "2026-11-17T10:44:55.044Z",
+    "caps": ["nginx"],
+    "m": {
+      "cpuPct": 2.7,
+      "memPct": 35.2,
+      "diskPct": 38.6,
+      "load1": 0.54,
+      "uptimeSec": 24016,
+      "sampledAt": "2026-11-17T10:44:55.038Z",
+      "stale": false
+    },
+    "addr": ["private:172.20.0.5"]
+  },
+  {
+    "id": "01a1e91a-6005-7c93-ac77-17944adfb929",
+    "name": "lab-node-a2",
+    "environment": "production",
+    "status": "online",
+    "hb": "2026-11-17T10:44:55.027Z",
+    "caps": ["nginx", "php-fpm"],
+    "m": {
+      "cpuPct": 2.7,
+      "memPct": 35.2,
+      "diskPct": 38.6,
+      "load1": 0.54,
+      "uptimeSec": 24016,
+      "sampledAt": "2026-11-17T10:44:55.018Z",
+      "stale": false
+    },
+    "addr": ["private:172.20.0.4"]
+  }
+]

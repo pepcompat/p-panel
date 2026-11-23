@@ -37,7 +37,12 @@ export class AuditController {
     if (pq.q) where.action = { contains: pq.q, mode: 'insensitive' };
     const [total, rows] = await Promise.all([
       this.prisma.auditEvent.count({ where }),
-      this.prisma.auditEvent.findMany({ where, orderBy: [{ [pq.sort]: pq.order }, { id: pq.order }], skip: pq.skip, take: pq.limit }),
+      this.prisma.auditEvent.findMany({
+        where,
+        orderBy: [{ [pq.sort]: pq.order }, { id: pq.order }],
+        skip: pq.skip,
+        take: pq.limit,
+      }),
     ]);
     const items: AuditEvent[] = rows.map((r) => ({
       id: r.id,

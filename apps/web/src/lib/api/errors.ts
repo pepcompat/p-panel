@@ -15,7 +15,13 @@ export class ApiError extends Error {
   readonly details: unknown;
   readonly requestId: string | null;
 
-  constructor(opts: { status: number; code: string; message: string; details?: unknown; requestId?: string | null }) {
+  constructor(opts: {
+    status: number;
+    code: string;
+    message: string;
+    details?: unknown;
+    requestId?: string | null;
+  }) {
     super(opts.message);
     this.name = 'ApiError';
     this.status = opts.status;
@@ -46,12 +52,17 @@ export class ApiError extends Error {
           const rec = item as Record<string, unknown>;
           const field = (rec.field ?? rec.path ?? rec.property) as unknown;
           const msg = (rec.message ?? rec.msg) as unknown;
-          const key = Array.isArray(field) ? field.join('.') : typeof field === 'string' ? field : null;
+          const key = Array.isArray(field)
+            ? field.join('.')
+            : typeof field === 'string'
+              ? field
+              : null;
           if (key && typeof msg === 'string') out[key] = msg;
         }
       }
     } else if (d && typeof d === 'object') {
-      for (const [k, v] of Object.entries(d as Record<string, unknown>)) if (typeof v === 'string') out[k] = v;
+      for (const [k, v] of Object.entries(d as Record<string, unknown>))
+        if (typeof v === 'string') out[k] = v;
     }
     return out;
   }

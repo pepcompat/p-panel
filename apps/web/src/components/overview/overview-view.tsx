@@ -18,9 +18,26 @@ import { EmptyState, ErrorState, ForbiddenState } from '@/components/ui/states';
 import { StatusBadge } from '@/components/servers/server-bits';
 import { cn } from '@/lib/utils';
 
-const SEVERITY: Record<Server['status'], number> = { offline: 0, stale: 1, degraded: 2, revoked: 3, enrolling: 4, online: 5 };
+const SEVERITY: Record<Server['status'], number> = {
+  offline: 0,
+  stale: 1,
+  degraded: 2,
+  revoked: 3,
+  enrolling: 4,
+  online: 5,
+};
 
-function Stat({ label, value, sub, tone }: { label: string; value: string | number; sub: string; tone?: string }) {
+function Stat({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  sub: string;
+  tone?: string;
+}) {
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-line bg-surface px-4 py-3.5">
       <span className="text-[12.5px] text-fg-muted">{label}</span>
@@ -32,7 +49,11 @@ function Stat({ label, value, sub, tone }: { label: string; value: string | numb
 
 function PreviewTag() {
   const { t } = useI18n();
-  return <span className="rounded border border-dashed border-info px-1.5 font-mono text-[10.5px] text-info">{t('overview.previewNote')}</span>;
+  return (
+    <span className="rounded border border-dashed border-info px-1.5 font-mono text-[10.5px] text-info">
+      {t('overview.previewNote')}
+    </span>
+  );
 }
 
 export function OverviewView() {
@@ -52,7 +73,10 @@ export function OverviewView() {
         title={t('overview.title')}
         subtitle={
           q.dataUpdatedAt && c
-            ? t('overview.subtitle', { time: formatClock(new Date(q.dataUpdatedAt), locale), stale: c.stale + c.offline })
+            ? t('overview.subtitle', {
+                time: formatClock(new Date(q.dataUpdatedAt), locale),
+                stale: c.stale + c.offline,
+              })
             : t('overview.subtitleUnknown')
         }
         actions={
@@ -71,12 +95,40 @@ export function OverviewView() {
               Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-[98px]" />)
             ) : (
               <>
-                <Stat label={t('overview.stat.registered')} value={v(c?.total)} sub={c ? t('overview.stat.subTotal') : t('overview.stat.unknown')} />
-                <Stat label={t('overview.stat.online')} value={v(c?.online)} sub={t('overview.stat.subOnline')} tone="text-ok" />
-                <Stat label={t('overview.stat.degraded')} value={v(c?.degraded)} sub={t('overview.stat.subDegraded')} tone={c?.degraded ? 'text-warn' : undefined} />
-                <Stat label={t('overview.stat.stale')} value={v(c?.stale)} sub={t('overview.stat.subStale')} tone={c?.stale ? 'text-stale' : undefined} />
-                <Stat label={t('overview.stat.offline')} value={v(c?.offline)} sub={t('overview.stat.subOffline')} tone={c?.offline ? 'text-crit' : undefined} />
-                <Stat label={t('overview.stat.enrolling')} value={v(c?.other)} sub={t('overview.stat.subTotal')} />
+                <Stat
+                  label={t('overview.stat.registered')}
+                  value={v(c?.total)}
+                  sub={c ? t('overview.stat.subTotal') : t('overview.stat.unknown')}
+                />
+                <Stat
+                  label={t('overview.stat.online')}
+                  value={v(c?.online)}
+                  sub={t('overview.stat.subOnline')}
+                  tone="text-ok"
+                />
+                <Stat
+                  label={t('overview.stat.degraded')}
+                  value={v(c?.degraded)}
+                  sub={t('overview.stat.subDegraded')}
+                  tone={c?.degraded ? 'text-warn' : undefined}
+                />
+                <Stat
+                  label={t('overview.stat.stale')}
+                  value={v(c?.stale)}
+                  sub={t('overview.stat.subStale')}
+                  tone={c?.stale ? 'text-stale' : undefined}
+                />
+                <Stat
+                  label={t('overview.stat.offline')}
+                  value={v(c?.offline)}
+                  sub={t('overview.stat.subOffline')}
+                  tone={c?.offline ? 'text-crit' : undefined}
+                />
+                <Stat
+                  label={t('overview.stat.enrolling')}
+                  value={v(c?.other)}
+                  sub={t('overview.stat.subTotal')}
+                />
               </>
             )}
           </div>
@@ -97,29 +149,46 @@ export function OverviewView() {
             <TableSkeleton label={t('common.loading')} />
           ) : servers.length === 0 ? (
             <div className="p-4">
-              <EmptyState title={t('overview.noServers')} action={<Link href="/servers?enroll=1">{t('servers.enroll')}</Link>} />
+              <EmptyState
+                title={t('overview.noServers')}
+                action={<Link href="/servers?enroll=1">{t('servers.enroll')}</Link>}
+              />
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse text-[13px]">
                 <thead>
                   <tr className="text-left text-[12px] text-fg-muted">
-                    <th scope="col" className="px-4 py-2 font-medium">{t('servers.col.server')}</th>
-                    <th scope="col" className="px-2 py-2 font-medium">{t('servers.col.status')}</th>
-                    <th scope="col" className="px-2 py-2 font-medium">{t('metric.cpu')}</th>
-                    <th scope="col" className="px-2 py-2 font-medium">{t('metric.ram')}</th>
-                    <th scope="col" className="px-4 py-2 font-medium">{t('metric.disk')}</th>
+                    <th scope="col" className="px-4 py-2 font-medium">
+                      {t('servers.col.server')}
+                    </th>
+                    <th scope="col" className="px-2 py-2 font-medium">
+                      {t('servers.col.status')}
+                    </th>
+                    <th scope="col" className="px-2 py-2 font-medium">
+                      {t('metric.cpu')}
+                    </th>
+                    <th scope="col" className="px-2 py-2 font-medium">
+                      {t('metric.ram')}
+                    </th>
+                    <th scope="col" className="px-4 py-2 font-medium">
+                      {t('metric.disk')}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {top.map((s) => {
                     const m = s.metrics;
                     const stale = !!m?.stale;
-                    const cell = (n: number | null | undefined) => (m && n != null ? `${stale ? '◐ ' : ''}${Math.round(n)}%` : t('common.noData'));
+                    const cell = (n: number | null | undefined) =>
+                      m && n != null ? `${stale ? '◐ ' : ''}${Math.round(n)}%` : t('common.noData');
                     return (
                       <tr key={s.id} className="border-t border-line-subtle">
                         <td className="px-4 py-[9px]">
-                          <Link href={`/servers/${s.id}/overview`} className="font-mono text-[12.5px] text-fg">
+                          <Link
+                            href={`/servers/${s.id}/overview`}
+                            className="font-mono text-[12.5px] text-fg"
+                          >
                             {s.name}
                           </Link>
                           <div className="text-[11.5px] text-fg-subtle">
@@ -129,10 +198,29 @@ export function OverviewView() {
                         <td className="px-2">
                           <StatusBadge status={s.status} />
                         </td>
-                        <td className={cn('px-2 font-mono text-[12px]', stale ? 'text-stale' : !m && 'text-fg-subtle')}>{cell(m?.cpuPct)}</td>
-                        <td className={cn('px-2 font-mono text-[12px]', stale ? 'text-stale' : !m && 'text-fg-subtle')}>{cell(m?.memPct)}</td>
+                        <td
+                          className={cn(
+                            'px-2 font-mono text-[12px]',
+                            stale ? 'text-stale' : !m && 'text-fg-subtle',
+                          )}
+                        >
+                          {cell(m?.cpuPct)}
+                        </td>
+                        <td
+                          className={cn(
+                            'px-2 font-mono text-[12px]',
+                            stale ? 'text-stale' : !m && 'text-fg-subtle',
+                          )}
+                        >
+                          {cell(m?.memPct)}
+                        </td>
                         <td className="px-4 py-[9px]">
-                          <ResourceMeter label={t('metric.disk')} value={m ? m.diskPct : null} stale={stale} noDataLabel={t('common.noData')} />
+                          <ResourceMeter
+                            label={t('metric.disk')}
+                            value={m ? m.diskPct : null}
+                            stale={stale}
+                            noDataLabel={t('common.noData')}
+                          />
                         </td>
                       </tr>
                     );
@@ -147,8 +235,14 @@ export function OverviewView() {
           <Card>
             <CardHeader title={t('overview.incidents')} actions={<PreviewTag />} />
             {d.INC.map((i) => (
-              <div key={i.id} className="flex items-start gap-3 border-t border-line-subtle px-4 py-2.5 first:border-0">
-                <span aria-hidden="true" className={cn('w-3.5 font-bold', toneText[i.t as DesignTone])}>
+              <div
+                key={i.id}
+                className="flex items-start gap-3 border-t border-line-subtle px-4 py-2.5 first:border-0"
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn('w-3.5 font-bold', toneText[i.t as DesignTone])}
+                >
                   {TONE_GLYPH[i.t as DesignTone]}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -171,7 +265,10 @@ export function OverviewView() {
               }
             />
             {d.APPS.slice(0, 4).map((a) => (
-              <div key={a.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 border-t border-line-subtle px-4 py-[9px] first:border-0">
+              <div
+                key={a.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 border-t border-line-subtle px-4 py-[9px] first:border-0"
+              >
                 <span className="text-[13.5px]">
                   {a.id} <span className="font-mono text-[12px] text-fg-subtle">{a.dep}</span>
                 </span>

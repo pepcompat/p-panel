@@ -1,4 +1,9 @@
-import { Inject, Injectable, type OnApplicationBootstrap, type OnApplicationShutdown } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  type OnApplicationBootstrap,
+  type OnApplicationShutdown,
+} from '@nestjs/common';
 import {
   AGENT_PROTOCOL_VERSION,
   certificateRotateSchema,
@@ -73,13 +78,22 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     server.requestTimeout = 60_000;
     server.headersTimeout = 30_000;
     server.keepAliveTimeout = 65_000;
-    server.on('tlsClientError', (err) => logger.emit('warn', 'agent gateway TLS handshake rejected', { component: 'gateway', reason: err.message }));
+    server.on('tlsClientError', (err) =>
+      logger.emit('warn', 'agent gateway TLS handshake rejected', {
+        component: 'gateway',
+        reason: err.message,
+      }),
+    );
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, host, () => resolve());
     });
     this.server = server;
-    logger.emit('info', 'agent gateway listening (mTLS)', { component: 'gateway', port: this.port, host });
+    logger.emit('info', 'agent gateway listening (mTLS)', {
+      component: 'gateway',
+      port: this.port,
+      host,
+    });
     return this.port!;
   }
 
@@ -100,7 +114,13 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     app.use((req: Request, _res: Response, next: NextFunction) => {
       const v = req.header('x-agent-protocol');
       if (v !== undefined && v.split('.')[0] !== AGENT_PROTOCOL_VERSION) {
-        return next(new AppError(426, ERROR_CODES.AGENT_PROTOCOL_UNSUPPORTED, `Unsupported agent protocol ${v}; supported: ${AGENT_PROTOCOL_VERSION}`));
+        return next(
+          new AppError(
+            426,
+            ERROR_CODES.AGENT_PROTOCOL_UNSUPPORTED,
+            `Unsupported agent protocol ${v}; supported: ${AGENT_PROTOCOL_VERSION}`,
+          ),
+        );
       }
       next();
     });
@@ -109,7 +129,11 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     app.use(async (req: AgentRequest, _res: Response, next: NextFunction) => {
       try {
         const socket = req.socket as TLSSocket;
-        if (!socket.authorized) throw AppError.unauthenticated('Client certificate required', ERROR_CODES.AGENT_CERT_REVOKED);
+        if (!socket.authorized)
+          throw AppError.unauthenticated(
+            'Client certificate required',
+            ERROR_CODES.AGENT_CERT_REVOKED,
+          );
         const peer = socket.getPeerCertificate();
         const cn = Array.isArray(peer?.subject?.CN) ? peer.subject.CN[0] : peer?.subject?.CN;
         req.agent = await this.agent.identify(peer?.serialNumber, cn);
@@ -121,10 +145,12 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
 
     app.use(express.json({ limit: this.config.BODY_LIMIT }));
 
-    const ok = (res: Response, data: unknown, status = 200) => res.status(status).json(successEnvelope(data));
+    const ok = (res: Response, data: unknown, status = 200) =>
+      res.status(status).json(successEnvelope(data));
     const jobIdParam = (req: Request): string => {
       const id = String(req.params.jobId);
-      if (!UUID_RE.test(id)) throw AppError.conflict('Task is not leased to this agent', ERROR_CODES.TASK_NOT_LEASED);
+      if (!UUID_RE.test(id))
+        throw AppError.conflict('Task is not leased to this agent', ERROR_CODES.TASK_NOT_LEASED);
       return id;
     };
 
@@ -135,7 +161,8 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     app.get('/agent/v1/tasks', async (req: AgentRequest, res: Response) => {
       const raw = req.query.waitSec;
       const waitSec = raw === undefined ? MAX_WAIT_SEC : Number(raw);
-      if (!Number.isFinite(waitSec) || waitSec < 0) throw AppError.badRequest('waitSec must be >= 0');
+      if (!Number.isFinite(waitSec) || waitSec < 0)
+        throw AppError.badRequest('waitSec must be >= 0');
       const deadline = Date.now() + Math.min(waitSec, MAX_WAIT_SEC) * 1000;
       const abort = new AbortController();
       res.on('close', () => abort.abort());
@@ -164,7 +191,9 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
       ok(res, await this.agent.rotate(req.agent!, body.csrPem));
     });
 
-    app.use((_req: Request, _res: Response, next: NextFunction) => next(AppError.notFound('Route')));
+    app.use((_req: Request, _res: Response, next: NextFunction) =>
+      next(AppError.notFound('Route')),
+    );
     app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
       const { status, body, headers } = toErrorResponse(err);
       if (headers) for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);

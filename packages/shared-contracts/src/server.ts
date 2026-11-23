@@ -4,7 +4,14 @@ import { systemdUnitSchema } from './jobs';
 export const ENVIRONMENTS = ['production', 'uat', 'development'] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
 
-export const SERVER_STATUSES = ['enrolling', 'online', 'degraded', 'offline', 'stale', 'revoked'] as const;
+export const SERVER_STATUSES = [
+  'enrolling',
+  'online',
+  'degraded',
+  'offline',
+  'stale',
+  'revoked',
+] as const;
 export type ServerStatus = (typeof SERVER_STATUSES)[number];
 
 export const CONNECTION_POLICIES = [
@@ -69,7 +76,12 @@ export const STALE_AFTER_SEC = 45;
 export const OFFLINE_AFTER_SEC = 120;
 
 export const createEnrollmentSchema = z.object({
-  name: z.string().trim().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/),
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(63)
+    .regex(/^[a-z0-9][a-z0-9-]*$/),
   environment: z.enum(ENVIRONMENTS),
   tags: z.array(z.string().trim().min(1).max(32)).max(20).optional(),
   ttlMinutes: z.number().int().min(5).max(60).default(15),
@@ -87,7 +99,13 @@ export interface EnrollmentCreated {
 
 export const updateServerSchema = z
   .object({
-    name: z.string().trim().min(1).max(63).regex(/^[a-z0-9][a-z0-9-]*$/).optional(),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(63)
+      .regex(/^[a-z0-9][a-z0-9-]*$/)
+      .optional(),
     environment: z.enum(ENVIRONMENTS).optional(),
     tags: z.array(z.string().trim().min(1).max(32)).max(20).optional(),
     groupId: z.string().uuid().nullable().optional(),

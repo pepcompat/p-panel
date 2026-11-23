@@ -39,7 +39,11 @@ export class TokenService {
 
   verify<T extends object>(kind: TokenKind, token: string, onError: () => AppError): T {
     try {
-      return this.jwt.verify<T>(token, { algorithms: ['HS256'], issuer: 'ppanel', audience: `ppanel:${kind}` });
+      return this.jwt.verify<T>(token, {
+        algorithms: ['HS256'],
+        issuer: 'ppanel',
+        audience: `ppanel:${kind}`,
+      });
     } catch {
       throw onError();
     }

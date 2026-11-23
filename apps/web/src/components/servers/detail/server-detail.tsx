@@ -5,7 +5,14 @@ import type { Server } from '@ppanel/shared-contracts';
 import { useI18n } from '@/i18n/provider';
 import { useServer } from '@/lib/queries';
 import { isApiError } from '@/lib/api/errors';
-import { SERVER_TABS, address, envBadgeKey, osLabel, providerLabel, type ServerTab } from '@/lib/servers';
+import {
+  SERVER_TABS,
+  address,
+  envBadgeKey,
+  osLabel,
+  providerLabel,
+  type ServerTab,
+} from '@/lib/servers';
 import { relativeTime } from '@/lib/time';
 import { useNow } from '@/lib/use-now';
 import { cn } from '@/lib/utils';
@@ -49,10 +56,15 @@ function Header({ server, now }: { server: Server; now: number }) {
             [t('servers.col.public'), pub?.address, 'card.copyPublic'],
             [t('servers.col.private'), priv?.address, 'card.copyPrivate'],
           ].map(([label, addr, key]) => (
-            <span key={label} className="inline-flex items-center gap-1.5 rounded-[5px] border border-line-strong bg-surface py-0.5 pr-1 pl-2.5">
+            <span
+              key={label}
+              className="inline-flex items-center gap-1.5 rounded-[5px] border border-line-strong bg-surface py-0.5 pr-1 pl-2.5"
+            >
               <span className="text-fg-muted">{label}</span>
               <span className="font-mono">{addr ?? '—'}</span>
-              {addr && <CopyButton text={addr} ariaLabel={t(key as MessageKey, { name: server.name })} />}
+              {addr && (
+                <CopyButton text={addr} ariaLabel={t(key as MessageKey, { name: server.name })} />
+              )}
             </span>
           ))}
           <PathBadge server={server} />
@@ -60,10 +72,23 @@ function Header({ server, now }: { server: Server; now: number }) {
         {why && <div className="text-[12px] text-crit">{t(why)}</div>}
       </div>
       <div className="flex flex-wrap gap-2">
-        <GatedButton variant="dark" className="min-h-[38px]" perm="ssh.connect" action="open_terminal" allowedActions={server.allowedActions} blockedReason={proposedOrOffline(server)}>
+        <GatedButton
+          variant="dark"
+          className="min-h-[38px]"
+          perm="ssh.connect"
+          action="open_terminal"
+          allowedActions={server.allowedActions}
+          blockedReason={proposedOrOffline(server)}
+        >
           {t('detail.openTerminal')}
         </GatedButton>
-        <GatedButton className="min-h-[38px]" perm="servers.operate" action="restart_service" allowedActions={server.allowedActions} blockedReason={proposedOrOffline(server)}>
+        <GatedButton
+          className="min-h-[38px]"
+          perm="servers.operate"
+          action="restart_service"
+          allowedActions={server.allowedActions}
+          blockedReason={proposedOrOffline(server)}
+        >
           {t('detail.restart')}
         </GatedButton>
       </div>
@@ -80,7 +105,12 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
   let content: React.ReactNode;
   if (q.isPending) {
     content = (
-      <div role="status" aria-busy="true" aria-label={t('common.loading')} className="flex flex-col gap-3">
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label={t('common.loading')}
+        className="flex flex-col gap-3"
+      >
         <Skeleton className="h-7 w-72" />
         <Skeleton className="h-4 w-96 max-w-full" />
         <Skeleton className="h-10 w-full" />
@@ -113,10 +143,14 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
             {q.isError && <ErrorState error={q.error} onRetry={() => void q.refetch()} />}
             {(server.status === 'stale' || server.status === 'offline') && (
               <Notice tone="warn" glyph="◐" title={t('state.stale.title')} role="status">
-                {t('state.stale.body')} {t('common.lastUpdated', { time: relativeTime(server.lastHeartbeatAt, t, now) })}
+                {t('state.stale.body')}{' '}
+                {t('common.lastUpdated', { time: relativeTime(server.lastHeartbeatAt, t, now) })}
               </Notice>
             )}
-            <nav aria-label={t('detail.sections')} className="flex gap-0.5 overflow-x-auto border-b border-line">
+            <nav
+              aria-label={t('detail.sections')}
+              className="flex gap-0.5 overflow-x-auto border-b border-line"
+            >
               {SERVER_TABS.map((k) => {
                 const active = k === tab;
                 return (
@@ -127,7 +161,9 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
                     scroll={false}
                     className={cn(
                       'flex min-h-10 shrink-0 items-center border-b-2 px-3 text-[13px] whitespace-nowrap no-underline hover:no-underline focus-visible:-outline-offset-2',
-                      active ? 'border-accent-strong font-medium text-fg' : 'border-transparent text-fg-muted hover:text-fg',
+                      active
+                        ? 'border-accent-strong font-medium text-fg'
+                        : 'border-transparent text-fg-muted hover:text-fg',
                     )}
                   >
                     {t(`tab.${k}`)}
@@ -143,7 +179,9 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
           {tab === 'overview' && <OverviewTab server={server} now={now} />}
           {tab === 'network' && <NetworkTab server={server} now={now} />}
           {tab === 'settings' && <SettingsTab server={server} />}
-          {tab !== 'overview' && tab !== 'network' && tab !== 'settings' && <ProposedTab server={server} tab={tab} now={now} />}
+          {tab !== 'overview' && tab !== 'network' && tab !== 'settings' && (
+            <ProposedTab server={server} tab={tab} now={now} />
+          )}
         </div>
       )}
     </div>

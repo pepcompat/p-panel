@@ -39,14 +39,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <span className="font-mono text-[11px] text-sidebar-muted">{t('app.tagline')}</span>
         </div>
       </div>
-      <nav aria-label={t('nav.label')} className="flex flex-1 flex-col gap-0.5 overflow-auto px-2 pb-2">
+      <nav
+        aria-label={t('nav.label')}
+        className="flex flex-1 flex-col gap-0.5 overflow-auto px-2 pb-2"
+      >
         {NAV.map((item, i) => {
           const head = i === 0 || NAV[i - 1]!.section !== item.section;
           const active = isActive(item, pathname);
           return (
             <Fragment key={item.id}>
               {head && (
-                <div className="px-2.5 pt-3 pb-1 text-[10.5px] tracking-[.08em] text-sidebar-dim uppercase" aria-hidden="true">
+                <div
+                  className="px-2.5 pt-3 pb-1 text-[10.5px] tracking-[.08em] text-sidebar-dim uppercase"
+                  aria-hidden="true"
+                >
                   {t(item.section)}
                 </div>
               )}
@@ -56,15 +62,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'flex min-h-9 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13.5px] no-underline hover:no-underline focus-visible:outline-offset-[-2px]',
-                  active ? 'bg-sidebar-active text-sidebar-fg-strong' : 'text-sidebar-fg hover:bg-sidebar-hover hover:text-sidebar-fg-strong',
+                  active
+                    ? 'bg-sidebar-active text-sidebar-fg-strong'
+                    : 'text-sidebar-fg hover:bg-sidebar-hover hover:text-sidebar-fg-strong',
                 )}
               >
-                <span aria-hidden="true" className="w-[18px] font-mono text-[11px] text-sidebar-dim">
+                <span
+                  aria-hidden="true"
+                  className="w-[18px] font-mono text-[11px] text-sidebar-dim"
+                >
                   {String(i + 1).padStart(2, '0')}
                 </span>
                 <span className="flex-1">{t(item.label)}</span>
                 {item.preview && (
-                  <span className="font-mono text-[10px] text-sidebar-dim" title={t('state.preview.title')}>
+                  <span
+                    className="font-mono text-[10px] text-sidebar-dim"
+                    title={t('state.preview.title')}
+                  >
                     {t('nav.preview')}
                   </span>
                 )}
@@ -79,7 +93,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           {role ? ` · ${t(`role.${role}`)}` : ''}
         </span>
         <span className="text-[11.5px] text-sidebar-muted">
-          {t('account.scope', { scope: scopeSummary(me?.bindings ?? []) })} · {me?.mfaEnabled ? t('account.mfaOn') : t('account.mfaOff')}
+          {t('account.scope', { scope: scopeSummary(me?.bindings ?? []) })} ·{' '}
+          {me?.mfaEnabled ? t('account.mfaOn') : t('account.mfaOff')}
         </span>
         <button
           type="button"

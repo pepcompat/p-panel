@@ -63,7 +63,23 @@ test('enroll shows one-time token once', async ({ page }) => {
   await page.screenshot({ path: 'test-results/enroll-token.png' });
 });
 
-const PREVIEW_ROUTES = ['/applications', '/deployments', '/approvals', '/imports', '/network', '/firewall', '/ssh', '/plugins', '/runtimes', '/databases', '/monitoring', '/logs', '/backups', '/alerts', '/ai-mcp'];
+const PREVIEW_ROUTES = [
+  '/applications',
+  '/deployments',
+  '/approvals',
+  '/imports',
+  '/network',
+  '/firewall',
+  '/ssh',
+  '/plugins',
+  '/runtimes',
+  '/databases',
+  '/monitoring',
+  '/logs',
+  '/backups',
+  '/alerts',
+  '/ai-mcp',
+];
 
 test('every preview route renders with the preview banner and no page errors', async ({ page }) => {
   const errors: string[] = [];
@@ -75,14 +91,22 @@ test('every preview route renders with the preview banner and no page errors', a
     await expect(page.getByTestId('preview-banner'), r).toBeVisible();
     await expect(page.locator('h1').first(), r).toBeVisible();
   }
-  for (const r of ['/overview', '/settings/users', '/settings/audit', '/settings/security', '/servers/new']) {
+  for (const r of [
+    '/overview',
+    '/settings/users',
+    '/settings/audit',
+    '/settings/security',
+    '/servers/new',
+  ]) {
     await page.goto(r);
     await expect(page.locator('h1').first(), r).toBeVisible();
   }
   expect(errors).toEqual([]);
 });
 
-test('viewer sees permission-gated enroll button disabled and users page forbidden', async ({ page }) => {
+test('viewer sees permission-gated enroll button disabled and users page forbidden', async ({
+  page,
+}) => {
   await signIn(page, 'user1');
   await expect(page).toHaveURL(/\/overview/);
   await page.goto('/servers');

@@ -18,10 +18,16 @@ export class AppError extends Error {
   static validation(details: unknown, message = 'Validation failed') {
     return new AppError(422, ERROR_CODES.VALIDATION_FAILED, message, details);
   }
-  static unauthenticated(message = 'Authentication required', code: string = ERROR_CODES.UNAUTHENTICATED) {
+  static unauthenticated(
+    message = 'Authentication required',
+    code: string = ERROR_CODES.UNAUTHENTICATED,
+  ) {
     return new AppError(401, code, message);
   }
-  static forbidden(message = 'You do not have permission to perform this action', code: string = ERROR_CODES.FORBIDDEN) {
+  static forbidden(
+    message = 'You do not have permission to perform this action',
+    code: string = ERROR_CODES.FORBIDDEN,
+  ) {
     return new AppError(403, code, message);
   }
   static notFound(what = 'Resource') {
@@ -31,8 +37,14 @@ export class AppError extends Error {
     return new AppError(409, code, message, details);
   }
   static rateLimited(retryAfterSec: number) {
-    return new AppError(429, ERROR_CODES.RATE_LIMITED, 'Too many requests, slow down', { retryAfterSec }, {
-      'Retry-After': String(retryAfterSec),
-    });
+    return new AppError(
+      429,
+      ERROR_CODES.RATE_LIMITED,
+      'Too many requests, slow down',
+      { retryAfterSec },
+      {
+        'Retry-After': String(retryAfterSec),
+      },
+    );
   }
 }

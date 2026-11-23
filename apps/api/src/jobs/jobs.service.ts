@@ -80,7 +80,9 @@ export class JobsService {
   ): Promise<{ created: boolean; job: Job }> {
     const server = await this.servers.load(user, serverId, 'servers.operate', 'jobs.create');
     if (!isJobType(input.type)) {
-      throw new AppError(422, ERROR_CODES.JOB_TYPE_UNKNOWN, `Unknown job type: ${input.type}`, { allowed: Object.keys(JOB_TYPES) });
+      throw new AppError(422, ERROR_CODES.JOB_TYPE_UNKNOWN, `Unknown job type: ${input.type}`, {
+        allowed: Object.keys(JOB_TYPES),
+      });
     }
     const type = input.type;
     const def = JOB_TYPES[type];
@@ -94,15 +96,24 @@ export class JobsService {
     const idempotencyKey = idempotencyKeyHeader ?? uuidv7();
 
     // Idempotent replay first: same key → same job (even if the server was revoked since).
-    const existing = await this.prisma.job.findUnique({ where: { serverId_idempotencyKey: { serverId, idempotencyKey } } });
+    const existing = await this.prisma.job.findUnique({
+      where: { serverId_idempotencyKey: { serverId, idempotencyKey } },
+    });
     if (existing) return { created: false, job: this.assertSameRequest(existing, type, params) };
 
-    if (server.status === 'revoked') throw AppError.conflict('Server is revoked', ERROR_CODES.SERVER_REVOKED);
-    if (def.mutating && server.environment === 'production') this.auth.assertStepUp(user, stepUpHeader);
+    if (server.status === 'revoked')
+      throw AppError.conflict('Server is revoked', ERROR_CODES.SERVER_REVOKED);
+    if (def.mutating && server.environment === 'production')
+      this.auth.assertStepUp(user, stepUpHeader);
     if (type === 'service.restart' && !server.ownedUnits.includes(String(params.unit))) {
-      throw new AppError(422, ERROR_CODES.RESOURCE_NOT_OWNED, 'Unit is not in this server’s owned-resource allowlist', {
-        unit: params.unit,
-      });
+      throw new AppError(
+        422,
+        ERROR_CODES.RESOURCE_NOT_OWNED,
+        'Unit is not in this server’s owned-resource allowlist',
+        {
+          unit: params.unit,
+        },
+      );
     }
 
     const id = uuidv7();
@@ -125,7 +136,15 @@ export class JobsService {
           },
         });
         await this.audit.record(
-          { actorId: user.id, action: 'jobs.create', targetType: 'job', targetId: id, result: 'success', diff: { serverId, type, params }, metadata: { serverId, type } },
+          {
+            actorId: user.id,
+            action: 'jobs.create',
+            targetType: 'job',
+            targetId: id,
+            result: 'success',
+            diff: { serverId, type, params },
+            metadata: { serverId, type },
+          },
           tx,
         );
         return r;
@@ -134,14 +153,19 @@ export class JobsService {
       return { created: true, job: toJob(row) };
     } catch (e) {
       if (!isUniqueViolation(e)) throw e;
-      const raced = await this.prisma.job.findUniqueOrThrow({ where: { serverId_idempotencyKey: { serverId, idempotencyKey } } });
+      const raced = await this.prisma.job.findUniqueOrThrow({
+        where: { serverId_idempotencyKey: { serverId, idempotencyKey } },
+      });
       return { created: false, job: this.assertSameRequest(raced, type, params) };
     }
   }
 
   private assertSameRequest(existing: JobRow, type: string, params: Record<string, unknown>): Job {
     if (existing.type !== type || stableStringify(existing.params) !== stableStringify(params)) {
-      throw AppError.conflict('Idempotency-Key was already used for a different request', ERROR_CODES.CONFLICT);
+      throw AppError.conflict(
+        'Idempotency-Key was already used for a different request',
+        ERROR_CODES.CONFLICT,
+      );
     }
     return toJob(existing);
   }
@@ -160,7 +184,12 @@ export class JobsService {
     };
     const [total, rows] = await Promise.all([
       this.prisma.job.count({ where }),
-      this.prisma.job.findMany({ where, orderBy: [{ [pq.sort]: pq.order }, { id: pq.order }], skip: pq.skip, take: pq.limit }),
+      this.prisma.job.findMany({
+        where,
+        orderBy: [{ [pq.sort]: pq.order }, { id: pq.order }],
+        skip: pq.skip,
+        take: pq.limit,
+      }),
     ]);
     return new Paginated(rows.map(toJob), paginate(pq, total));
   }
@@ -176,12 +205,27 @@ export class JobsService {
     await this.servers.load(user, serverId, 'servers.operate', 'jobs.cancel');
     const r = await this.prisma.job.updateMany({
       where: { id: jobId, serverId, status: { in: ['queued', 'leased'] } },
-      data: { status: 'cancelled', finishedAt: new Date(), leaseTokenHash: null, error: { code: 'CANCELLED' } },
+      data: {
+        status: 'cancelled',
+        finishedAt: new Date(),
+        leaseTokenHash: null,
+        error: { code: 'CANCELLED' },
+      },
     });
     const row = await this.prisma.job.findFirst({ where: { id: jobId, serverId } });
     if (!row) throw AppError.notFound('Job');
-    if (r.count !== 1) throw AppError.conflict(`Job is ${row.status} and cannot be cancelled`, ERROR_CODES.JOB_NOT_CANCELLABLE);
-    await this.audit.record({ actorId: user.id, action: 'jobs.cancel', targetType: 'job', targetId: jobId, result: 'success' });
+    if (r.count !== 1)
+      throw AppError.conflict(
+        `Job is ${row.status} and cannot be cancelled`,
+        ERROR_CODES.JOB_NOT_CANCELLABLE,
+      );
+    await this.audit.record({
+      actorId: user.id,
+      action: 'jobs.cancel',
+      targetType: 'job',
+      targetId: jobId,
+      result: 'success',
+    });
     return toJob(row);
   }
 
@@ -250,7 +294,11 @@ export class JobsService {
     }
   }
 
-  private async lockForAgent(tx: Prisma.TransactionClient, serverId: string, jobId: string): Promise<JobRow | null> {
+  private async lockForAgent(
+    tx: Prisma.TransactionClient,
+    serverId: string,
+    jobId: string,
+  ): Promise<JobRow | null> {
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM jobs WHERE id = ${jobId}::uuid AND server_id = ${serverId}::uuid FOR UPDATE`;
     if (rows.length === 0) return null;
@@ -275,16 +323,26 @@ export class JobsService {
       }
       await tx.job.update({
         where: { id: jobId },
-        data: { status: 'running', startedAt: now, leaseUntil: new Date(now.getTime() + this.config.PPANEL_TASK_RUNNING_LEASE_SEC * 1000) },
+        data: {
+          status: 'running',
+          startedAt: now,
+          leaseUntil: new Date(now.getTime() + this.config.PPANEL_TASK_RUNNING_LEASE_SEC * 1000),
+        },
       });
       return 'ok' as const;
     });
-    if (outcome === 'expired') throw AppError.conflict('Task lease or TTL expired', ERROR_CODES.TASK_EXPIRED);
-    if (outcome === 'not_leased') throw AppError.conflict('Task is not leased to this agent', ERROR_CODES.TASK_NOT_LEASED);
+    if (outcome === 'expired')
+      throw AppError.conflict('Task lease or TTL expired', ERROR_CODES.TASK_EXPIRED);
+    if (outcome === 'not_leased')
+      throw AppError.conflict('Task is not leased to this agent', ERROR_CODES.TASK_NOT_LEASED);
     return { status: 'running' };
   }
 
-  async result(serverId: string, jobId: string, input: TaskResultInput): Promise<{ accepted: true }> {
+  async result(
+    serverId: string,
+    jobId: string,
+    input: TaskResultInput,
+  ): Promise<{ accepted: true }> {
     const now = new Date();
     const outcome = await this.prisma.$transaction(async (tx) => {
       const job = await this.lockForAgent(tx, serverId, jobId);
@@ -292,7 +350,12 @@ export class JobsService {
       if (job.status === 'succeeded' || job.status === 'failed') return 'ok' as const; // idempotent replay
       if (job.status === 'expired' || job.status === 'cancelled') return job.status;
       if (job.status !== 'leased' && job.status !== 'running') return 'not_leased' as const;
-      const error = input.error == null ? null : typeof input.error === 'string' ? { message: input.error } : input.error;
+      const error =
+        input.error == null
+          ? null
+          : typeof input.error === 'string'
+            ? { message: input.error }
+            : input.error;
       // `rejected` (agent refused the grant) is persisted as `failed` carrying the REJECTED_* code.
       const status = input.status === 'succeeded' ? 'succeeded' : 'failed';
       await tx.job.update({
@@ -313,7 +376,14 @@ export class JobsService {
           targetType: 'job',
           targetId: jobId,
           result: status === 'succeeded' ? 'success' : 'failure',
-          metadata: { type: job.type, status, reported: input.status, acked: job.status === 'running', attempt: job.attempt, ...(error && 'code' in error ? { errorCode: error.code } : {}) },
+          metadata: {
+            type: job.type,
+            status,
+            reported: input.status,
+            acked: job.status === 'running',
+            attempt: job.attempt,
+            ...(error && 'code' in error ? { errorCode: error.code } : {}),
+          },
         },
         tx,
       );
@@ -324,7 +394,8 @@ export class JobsService {
       logger.emit('warn', 'late result for expired job ignored', { jobId, serverId });
       throw AppError.conflict('Task lease or TTL expired', ERROR_CODES.TASK_EXPIRED);
     }
-    if (outcome === 'cancelled') throw AppError.conflict('Task was cancelled', ERROR_CODES.TASK_NOT_LEASED);
+    if (outcome === 'cancelled')
+      throw AppError.conflict('Task was cancelled', ERROR_CODES.TASK_NOT_LEASED);
     throw AppError.conflict('Task is not leased to this agent', ERROR_CODES.TASK_NOT_LEASED);
   }
 
@@ -334,15 +405,25 @@ export class JobsService {
     const now = new Date();
     const r = await this.prisma.job.updateMany({
       where: { serverId, id: { in: jobIds }, status: 'running', leaseUntil: { gt: now } },
-      data: { leaseUntil: new Date(now.getTime() + this.config.PPANEL_TASK_RUNNING_LEASE_SEC * 1000) },
+      data: {
+        leaseUntil: new Date(now.getTime() + this.config.PPANEL_TASK_RUNNING_LEASE_SEC * 1000),
+      },
     });
     return r.count;
   }
 
   /** State for a job whose lease lapsed: mutating → expired forever; read-only → re-queued if TTL allows. */
-  private lapsedTransition(job: Pick<JobRow, 'mutating' | 'expiresAt'>, now: Date): Prisma.JobUpdateInput {
+  private lapsedTransition(
+    job: Pick<JobRow, 'mutating' | 'expiresAt'>,
+    now: Date,
+  ): Prisma.JobUpdateInput {
     if (job.mutating || job.expiresAt <= now) {
-      return { status: 'expired', finishedAt: now, leaseUntil: null, error: { code: job.mutating ? 'LEASE_EXPIRED' : 'TTL_EXPIRED' } };
+      return {
+        status: 'expired',
+        finishedAt: now,
+        leaseUntil: null,
+        error: { code: job.mutating ? 'LEASE_EXPIRED' : 'TTL_EXPIRED' },
+      };
     }
     return { status: 'queued', leaseUntil: null, leaseTokenHash: null, leasedAt: null };
   }
@@ -351,19 +432,37 @@ export class JobsService {
    * Expiry sweeper (idempotent, safe to run concurrently on several instances).
    * Invariant: a mutating job never returns to `queued` once leased.
    */
-  async sweep(now = new Date()): Promise<{ expiredQueued: number; expiredMutating: number; requeued: number; expiredReadOnly: number }> {
+  async sweep(now = new Date()): Promise<{
+    expiredQueued: number;
+    expiredMutating: number;
+    requeued: number;
+    expiredReadOnly: number;
+  }> {
     const expiredQueued = await this.prisma.job.updateMany({
       where: { status: 'queued', expiresAt: { lte: now } },
       data: { status: 'expired', finishedAt: now, error: { code: 'TTL_EXPIRED' } },
     });
-    const lapsed = { status: { in: ['leased', 'running'] }, leaseUntil: { lte: now } } satisfies Prisma.JobWhereInput;
+    const lapsed = {
+      status: { in: ['leased', 'running'] },
+      leaseUntil: { lte: now },
+    } satisfies Prisma.JobWhereInput;
     const expiredMutating = await this.prisma.job.updateMany({
       where: { ...lapsed, mutating: true },
-      data: { status: 'expired', finishedAt: now, leaseUntil: null, error: { code: 'LEASE_EXPIRED' } },
+      data: {
+        status: 'expired',
+        finishedAt: now,
+        leaseUntil: null,
+        error: { code: 'LEASE_EXPIRED' },
+      },
     });
     const expiredReadOnly = await this.prisma.job.updateMany({
       where: { ...lapsed, mutating: false, expiresAt: { lte: now } },
-      data: { status: 'expired', finishedAt: now, leaseUntil: null, error: { code: 'TTL_EXPIRED' } },
+      data: {
+        status: 'expired',
+        finishedAt: now,
+        leaseUntil: null,
+        error: { code: 'TTL_EXPIRED' },
+      },
     });
     const requeued = await this.prisma.job.updateMany({
       where: { ...lapsed, mutating: false, expiresAt: { gt: now } },
@@ -375,7 +474,8 @@ export class JobsService {
       requeued: requeued.count,
       expiredReadOnly: expiredReadOnly.count,
     };
-    if (out.expiredQueued + out.expiredMutating + out.requeued + out.expiredReadOnly > 0) logger.emit('info', 'job sweep', out);
+    if (out.expiredQueued + out.expiredMutating + out.requeued + out.expiredReadOnly > 0)
+      logger.emit('info', 'job sweep', out);
     return out;
   }
 

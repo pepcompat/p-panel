@@ -1,26 +1,30 @@
-import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react';
+import {
+  forwardRef,
+  useId,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+} from 'react';
 import { cn } from '@/lib/utils';
 
 const control =
   'w-full rounded-md border border-line-strong bg-surface px-2.5 py-2 text-[14px] text-fg placeholder:text-fg-subtle disabled:bg-chip disabled:text-fg-subtle aria-[invalid=true]:border-crit';
 
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
-  { className, ...rest },
-  ref,
-) {
-  return <input ref={ref} className={cn(control, className)} {...rest} />;
-});
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function Input({ className, ...rest }, ref) {
+    return <input ref={ref} className={cn(control, className)} {...rest} />;
+  },
+);
 
-export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select(
-  { className, children, ...rest },
-  ref,
-) {
-  return (
-    <select ref={ref} className={cn(control, 'py-[7px]', className)} {...rest}>
-      {children}
-    </select>
-  );
-});
+export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
+  function Select({ className, children, ...rest }, ref) {
+    return (
+      <select ref={ref} className={cn(control, 'py-[7px]', className)} {...rest}>
+        {children}
+      </select>
+    );
+  },
+);
 
 /** Label + control + hint + error with correct aria wiring. */
 export function Field({

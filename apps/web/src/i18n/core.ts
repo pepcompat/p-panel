@@ -28,7 +28,10 @@ export function missingKeys(dict: Dictionary, base: Record<string, string> = en)
 }
 
 /** Keys present in `dict` that English does not define (typos / stale keys). */
-export function extraKeys(dict: Record<string, string | undefined>, base: Record<string, string> = en): string[] {
+export function extraKeys(
+  dict: Record<string, string | undefined>,
+  base: Record<string, string> = en,
+): string[] {
   return Object.keys(dict).filter((k) => !(k in base));
 }
 

@@ -10,7 +10,10 @@ const VALUE_PATTERNS: Array<[RegExp, string]> = [
   [/ppe_[A-Za-z0-9_-]{10,}/g, 'ppe_[REDACTED]'],
   [/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, '[REDACTED_JWT]'],
   [/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[REDACTED]'],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]'],
+  [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+    '[REDACTED_PRIVATE_KEY]',
+  ],
   [/\$argon2id?\$[^\s"']+/g, '[REDACTED_HASH]'],
   [/([a-z][a-z0-9+.-]*:\/\/[^:@\s/]+:)[^@\s]+@/gi, '$1[REDACTED]@'],
 ];
@@ -27,12 +30,19 @@ export function redact(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') return redactString(value);
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof Error) {
-    return { name: value.name, message: redactString(value.message), stack: value.stack && redactString(value.stack) };
+    return {
+      name: value.name,
+      message: redactString(value.message),
+      stack: value.stack && redactString(value.stack),
+    };
   }
   if (Array.isArray(value)) return value.slice(0, 100).map((v) => redact(v, depth + 1));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = SECRET_KEY_RE.test(k) && v !== undefined && v !== null && typeof v !== 'boolean' ? '[REDACTED]' : redact(v, depth + 1);
+    out[k] =
+      SECRET_KEY_RE.test(k) && v !== undefined && v !== null && typeof v !== 'boolean'
+        ? '[REDACTED]'
+        : redact(v, depth + 1);
   }
   return out;
 }
@@ -77,7 +87,10 @@ export class JsonLogger implements LoggerService {
   }
   error(message: unknown, ...rest: unknown[]): void {
     const [stack, context] = rest as [string | undefined, string | undefined];
-    this.emit('error', message, { ...(context ? { context } : {}), ...(typeof stack === 'string' ? { stack } : {}) });
+    this.emit('error', message, {
+      ...(context ? { context } : {}),
+      ...(typeof stack === 'string' ? { stack } : {}),
+    });
   }
   warn(message: unknown, ...rest: unknown[]): void {
     this.emit('warn', message, ctx(rest));

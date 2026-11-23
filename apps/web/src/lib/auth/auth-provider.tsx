@@ -1,6 +1,15 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Permission } from '@ppanel/shared-contracts';
@@ -115,7 +124,13 @@ export function useAuth(): AuthValue {
 }
 
 /** Test/helper context provider with a fixed identity. */
-export function StaticAuthProvider({ me, children }: { me: MeResponse | null; children: ReactNode }) {
+export function StaticAuthProvider({
+  me,
+  children,
+}: {
+  me: MeResponse | null;
+  children: ReactNode;
+}) {
   const value = useMemo<AuthValue>(
     () => ({
       status: me ? 'authenticated' : 'anonymous',

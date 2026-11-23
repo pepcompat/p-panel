@@ -37,7 +37,10 @@ export function SettingsTab({ server }: { server: Server }) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const dirty = name !== server.name || env !== server.environment || tagList.join(',') !== server.tags.join(',');
+  const dirty =
+    name !== server.name ||
+    env !== server.environment ||
+    tagList.join(',') !== server.tags.join(',');
   const fe = patch.error?.fieldErrors ?? {};
   const conflict = patch.error?.status === 409;
 
@@ -58,7 +61,15 @@ export function SettingsTab({ server }: { server: Server }) {
           }}
         >
           <Field label={t('settings.name')} hint={t('enroll.nameHint')} error={fe.name}>
-            {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value.toLowerCase())} className="font-mono text-[13px]" maxLength={63} />}
+            {(p) => (
+              <Input
+                {...p}
+                value={name}
+                onChange={(e) => setName(e.target.value.toLowerCase())}
+                className="font-mono text-[13px]"
+                maxLength={63}
+              />
+            )}
           </Field>
           <div className="flex flex-col gap-1">
             <span className="text-[12.5px] text-fg-3">{t('settings.environment')}</span>
@@ -94,9 +105,18 @@ export function SettingsTab({ server }: { server: Server }) {
               {t('net.conflict')}
             </Notice>
           )}
-          {patch.error && !conflict && Object.keys(fe).length === 0 && <ErrorState error={patch.error} />}
+          {patch.error && !conflict && Object.keys(fe).length === 0 && (
+            <ErrorState error={patch.error} />
+          )}
           <div className="flex gap-2">
-            <GatedButton type="submit" variant="primary" perm="servers.operate" action="edit" allowedActions={server.allowedActions} disabled={!dirty || patch.isPending || !name.trim()}>
+            <GatedButton
+              type="submit"
+              variant="primary"
+              perm="servers.operate"
+              action="edit"
+              allowedActions={server.allowedActions}
+              disabled={!dirty || patch.isPending || !name.trim()}
+            >
               {patch.isPending ? t('common.saving') : t('settings.save')}
             </GatedButton>
           </div>
@@ -105,14 +125,33 @@ export function SettingsTab({ server }: { server: Server }) {
       <Card className="flex flex-col gap-2.5 p-4">
         <h2 className="m-0 text-[15px] font-semibold">{t('settings.agentCert')}</h2>
         <span className="font-mono text-[12.5px] text-fg-3">
-          {server.certificate ? t('sd.certExpires', { serial: server.certificate.serial, date: formatDateTime(server.certificate.notAfter, locale) }) : t('sd.noCert')}
+          {server.certificate
+            ? t('sd.certExpires', {
+                serial: server.certificate.serial,
+                date: formatDateTime(server.certificate.notAfter, locale),
+              })
+            : t('sd.noCert')}
         </span>
         <div className="flex flex-wrap gap-2">
-          <GatedButton perm="servers.operate" action="rotate_cert" allowedActions={server.allowedActions} blockedReason={isLive(server) ? { key: 'perm.proposed' } : { key: 'perm.offline' }}>
-            {t('settings.rotate')} <span className="font-mono text-[10.5px] text-warn">{t('settings.privileged')}</span>
+          <GatedButton
+            perm="servers.operate"
+            action="rotate_cert"
+            allowedActions={server.allowedActions}
+            blockedReason={isLive(server) ? { key: 'perm.proposed' } : { key: 'perm.offline' }}
+          >
+            {t('settings.rotate')}{' '}
+            <span className="font-mono text-[10.5px] text-warn">{t('settings.privileged')}</span>
           </GatedButton>
-          <GatedButton variant="secondary" className="border-crit text-crit" perm="servers.revoke" action="revoke" allowedActions={server.allowedActions} onClick={() => setRevokeOpen(true)}>
-            {t('settings.revoke')} <span className="font-mono text-[10.5px]">{t('settings.destructive')}</span>
+          <GatedButton
+            variant="secondary"
+            className="border-crit text-crit"
+            perm="servers.revoke"
+            action="revoke"
+            allowedActions={server.allowedActions}
+            onClick={() => setRevokeOpen(true)}
+          >
+            {t('settings.revoke')}{' '}
+            <span className="font-mono text-[10.5px]">{t('settings.destructive')}</span>
           </GatedButton>
         </div>
       </Card>

@@ -1,11 +1,11 @@
 # /etc/ppanel-agent/config.yaml  (YAML or JSON; unknown keys are rejected)
-centerUrl: https://center.example.com:4000   # used by `enroll` only
-stateDir: /var/lib/ppanel-agent               # 0700, holds agent.key (0600), certs, job cache
-logLevel: info                                # debug|info|warn|error
-heartbeatIntervalSec: 15                      # Center may override
-pollWaitSec: 25                               # long-poll wait (max 25)
-maxBufferedResults: 100                       # results held in memory while Center is unreachable
-dockerSocket: /var/run/docker.sock            # read-only GETs only
+centerUrl: https://center.example.com:4000 # used by `enroll` only
+stateDir: /var/lib/ppanel-agent # 0700, holds agent.key (0600), certs, job cache
+logLevel: info # debug|info|warn|error
+heartbeatIntervalSec: 15 # Center may override
+pollWaitSec: 25 # long-poll wait (max 25)
+maxBufferedResults: 100 # results held in memory while Center is unreachable
+dockerSocket: /var/run/docker.sock # read-only GETs only
 phpFpmPoolGlob: /etc/php/*/fpm/pool.d/*.conf
 # service.restart may ONLY act on units listed here and/or in ownedUnitsFile
 ownedUnits: []

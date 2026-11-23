@@ -24,7 +24,10 @@ const envSchema = z.object({
   PPANEL_MASTER_KEY: z
     .string()
     .min(1, 'PPANEL_MASTER_KEY is required (openssl rand -base64 32)')
-    .refine((v) => Buffer.from(v, 'base64').length === 32, 'PPANEL_MASTER_KEY must be 32 bytes base64'),
+    .refine(
+      (v) => Buffer.from(v, 'base64').length === 32,
+      'PPANEL_MASTER_KEY must be 32 bytes base64',
+    ),
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   PPANEL_SETUP_TOKEN: z.string().optional(),
   WEB_ORIGIN: z.string().default('http://localhost:3100'),

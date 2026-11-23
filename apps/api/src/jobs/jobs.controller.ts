@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, ParseUUIDPipe, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { type CreateJobInput, createJobSchema, STEP_UP_HEADER } from '@ppanel/shared-contracts';
 import type { Request, Response } from 'express';
 import { CurrentUser, RequirePermission } from '../common/decorators';
@@ -31,20 +42,36 @@ export class JobsController {
 
   @Get()
   @RequirePermission('fleet.read')
-  list(@CurrentUser() user: AuthUser, @Param('serverId', uuid) serverId: string, @Req() req: Request) {
-    return this.jobs.list(user, serverId, parseQuery(req.originalUrl, { sortable: ['createdAt', 'updatedAt', 'status'] }));
+  list(
+    @CurrentUser() user: AuthUser,
+    @Param('serverId', uuid) serverId: string,
+    @Req() req: Request,
+  ) {
+    return this.jobs.list(
+      user,
+      serverId,
+      parseQuery(req.originalUrl, { sortable: ['createdAt', 'updatedAt', 'status'] }),
+    );
   }
 
   @Get(':jobId')
   @RequirePermission('fleet.read')
-  get(@CurrentUser() user: AuthUser, @Param('serverId', uuid) serverId: string, @Param('jobId', uuid) jobId: string) {
+  get(
+    @CurrentUser() user: AuthUser,
+    @Param('serverId', uuid) serverId: string,
+    @Param('jobId', uuid) jobId: string,
+  ) {
     return this.jobs.get(user, serverId, jobId);
   }
 
   @Post(':jobId/cancel')
   @HttpCode(200)
   @RequirePermission('servers.operate')
-  cancel(@CurrentUser() user: AuthUser, @Param('serverId', uuid) serverId: string, @Param('jobId', uuid) jobId: string) {
+  cancel(
+    @CurrentUser() user: AuthUser,
+    @Param('serverId', uuid) serverId: string,
+    @Param('jobId', uuid) jobId: string,
+  ) {
     return this.jobs.cancel(user, serverId, jobId);
   }
 }

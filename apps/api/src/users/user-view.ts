@@ -1,7 +1,15 @@
 import type { UserPublic } from '@ppanel/shared-contracts';
 
 export function toUserPublic(
-  u: { id: string; email: string; displayName: string; status: string; lastLoginAt: Date | null; createdAt: Date; updatedAt: Date },
+  u: {
+    id: string;
+    email: string;
+    displayName: string;
+    status: string;
+    lastLoginAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
   mfaEnabled: boolean,
 ): UserPublic {
   return {

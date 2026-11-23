@@ -40,7 +40,11 @@ export class AuthController {
   }
 
   private respond(res: Response, issued: IssuedSession) {
-    if (issued.refreshToken) res.cookie(REFRESH_COOKIE_NAME, issued.refreshToken, { ...this.cookieOpts(), maxAge: REFRESH_TTL_MS });
+    if (issued.refreshToken)
+      res.cookie(REFRESH_COOKIE_NAME, issued.refreshToken, {
+        ...this.cookieOpts(),
+        maxAge: REFRESH_TTL_MS,
+      });
     return issued.body;
   }
 
@@ -59,7 +63,8 @@ export class AuthController {
   @Post('mfa/verify')
   @HttpCode(200)
   async verifyMfa(
-    @Body(new ZodPipe(mfaVerifySchema)) body: { mfaToken: string; code?: string; recoveryCode?: string },
+    @Body(new ZodPipe(mfaVerifySchema))
+    body: { mfaToken: string; code?: string; recoveryCode?: string },
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
@@ -70,11 +75,15 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(200)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    if (req.header('x-csrf') !== '1') throw AppError.forbidden('Missing X-CSRF header', ERROR_CODES.CSRF_REQUIRED);
+    if (req.header('x-csrf') !== '1')
+      throw AppError.forbidden('Missing X-CSRF header', ERROR_CODES.CSRF_REQUIRED);
     const raw = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE_NAME];
     try {
       const r = await this.auth.refresh(raw, client(req));
-      res.cookie(REFRESH_COOKIE_NAME, r.refreshToken, { ...this.cookieOpts(), maxAge: REFRESH_TTL_MS });
+      res.cookie(REFRESH_COOKIE_NAME, r.refreshToken, {
+        ...this.cookieOpts(),
+        maxAge: REFRESH_TTL_MS,
+      });
       return { accessToken: r.accessToken, expiresIn: r.expiresIn };
     } catch (e) {
       res.clearCookie(REFRESH_COOKIE_NAME, this.cookieOpts());
@@ -92,7 +101,9 @@ export class AuthController {
     const m = /^Bearer\s+(\S+)$/i.exec(req.header('authorization') ?? '');
     if (m) {
       try {
-        const c = this.tokens.verify<AccessClaims>('access', m[1]!, () => AppError.unauthenticated());
+        const c = this.tokens.verify<AccessClaims>('access', m[1]!, () =>
+          AppError.unauthenticated(),
+        );
         sid = c.sid;
         sub = c.sub;
       } catch {
@@ -116,7 +127,10 @@ export class AuthController {
 
   @Post('mfa/totp/confirm')
   @HttpCode(200)
-  confirmTotp(@CurrentUser() user: AuthUser, @Body(new ZodPipe(totpCodeSchema)) body: { code: string }) {
+  confirmTotp(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(totpCodeSchema)) body: { code: string },
+  ) {
     return this.mfa.confirm(user.id, body.code);
   }
 

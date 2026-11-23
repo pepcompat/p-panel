@@ -1,4 +1,10 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 
 export function sha256Hex(input: string | Buffer): string {
   return createHash('sha256').update(input).digest('hex');
@@ -25,12 +31,18 @@ export function encryptSecret(key: Buffer, plaintext: Buffer | string, aad: stri
   cipher.setAAD(Buffer.from(aad));
   const ct = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [VERSION, iv.toString('base64url'), tag.toString('base64url'), ct.toString('base64url')].join('.');
+  return [
+    VERSION,
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    ct.toString('base64url'),
+  ].join('.');
 }
 
 export function decryptSecret(key: Buffer, envelope: string, aad: string): Buffer {
   const [v, ivB, tagB, ctB] = envelope.split('.');
-  if (v !== VERSION || !ivB || !tagB || ctB === undefined) throw new Error('unsupported secret envelope');
+  if (v !== VERSION || !ivB || !tagB || ctB === undefined)
+    throw new Error('unsupported secret envelope');
   const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivB, 'base64url'));
   decipher.setAAD(Buffer.from(aad));
   decipher.setAuthTag(Buffer.from(tagB, 'base64url'));

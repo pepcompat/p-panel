@@ -23,7 +23,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (status !== 'authenticated') {
     return (
-      <div role="status" aria-busy="true" aria-label={t('common.loading')} className="grid min-h-screen lg:grid-cols-[228px_minmax(0,1fr)]">
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label={t('common.loading')}
+        className="grid min-h-screen lg:grid-cols-[228px_minmax(0,1fr)]"
+      >
         <div className="hidden bg-sidebar lg:block" />
         <div className="flex flex-col gap-4 p-6">
           <Skeleton className="h-6 w-60" />
@@ -36,7 +41,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <PageEnvProvider>
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-surface focus:px-3 focus:py-2">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-surface focus:px-3 focus:py-2"
+      >
         {t('app.skipToContent')}
       </a>
       <div className="grid min-h-screen text-[14px] leading-normal lg:grid-cols-[228px_minmax(0,1fr)]">
@@ -46,9 +54,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <D.Root open={drawer} onOpenChange={setDrawer}>
           <D.Portal>
             <D.Overlay className="fixed inset-0 z-40 bg-overlay lg:hidden" />
-            <D.Content className="fixed inset-y-0 left-0 z-50 w-[260px] max-w-[85vw] lg:hidden" aria-describedby={undefined}>
+            <D.Content
+              className="fixed inset-y-0 left-0 z-50 w-[260px] max-w-[85vw] lg:hidden"
+              aria-describedby={undefined}
+            >
               <D.Title className="sr-only">{t('nav.label')}</D.Title>
-              <D.Close aria-label={t('nav.close')} className="absolute top-3 right-3 z-10 h-8 w-8 rounded border-0 bg-transparent text-sidebar-fg">
+              <D.Close
+                aria-label={t('nav.close')}
+                className="absolute top-3 right-3 z-10 h-8 w-8 rounded border-0 bg-transparent text-sidebar-fg"
+              >
                 ✕
               </D.Close>
               <Sidebar onNavigate={() => setDrawer(false)} />

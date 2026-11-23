@@ -15,7 +15,8 @@ export function makeQueryClient() {
       queries: {
         staleTime: 10_000,
         // never retry client errors (401/403/404/409/422); retry transient ones twice
-        retry: (count, err) => !(isApiError(err) && err.status >= 400 && err.status < 500) && count < 2,
+        retry: (count, err) =>
+          !(isApiError(err) && err.status >= 400 && err.status < 500) && count < 2,
         refetchOnWindowFocus: true,
       },
       mutations: { retry: false },

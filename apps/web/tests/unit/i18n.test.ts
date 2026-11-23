@@ -17,12 +17,15 @@ describe('i18n', () => {
 
   it('reports missing th keys (fails if any key is untranslated)', () => {
     const missing = missingKeys(th);
-    if (missing.length) console.warn(`[i18n] th is missing ${missing.length} key(s):\n  ${missing.join('\n  ')}`);
+    if (missing.length)
+      console.warn(`[i18n] th is missing ${missing.length} key(s):\n  ${missing.join('\n  ')}`);
     expect(missing).toEqual([]);
   });
 
   it('missingKeys detects gaps', () => {
-    expect(missingKeys({ 'login.title': 'x' }, { 'login.title': 'a', 'login.email': 'b' })).toEqual(['login.email']);
+    expect(missingKeys({ 'login.title': 'x' }, { 'login.title': 'a', 'login.email': 'b' })).toEqual(
+      ['login.email'],
+    );
   });
 
   it('th has no keys that English does not define', () => {
@@ -31,7 +34,9 @@ describe('i18n', () => {
 
   it('keeps placeholders consistent between en and th', () => {
     const ph = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join(',');
-    const mismatched = (Object.keys(en) as Array<keyof typeof en>).filter((k) => th[k] && ph(en[k]) !== ph(th[k]!));
+    const mismatched = (Object.keys(en) as Array<keyof typeof en>).filter(
+      (k) => th[k] && ph(en[k]) !== ph(th[k]!),
+    );
     expect(mismatched).toEqual([]);
   });
 });

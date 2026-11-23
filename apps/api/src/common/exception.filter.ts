@@ -22,25 +22,55 @@ export function zodDetails(err: ZodError): Array<{ path: string; message: string
 }
 
 /** Converts any thrown value into `{ status, body }` using the standard error envelope. */
-export function toErrorResponse(err: unknown): { status: number; body: ErrorEnvelope; headers?: Record<string, string> } {
+export function toErrorResponse(err: unknown): {
+  status: number;
+  body: ErrorEnvelope;
+  headers?: Record<string, string>;
+} {
   const meta = { requestId: currentRequestId() ?? '' };
   if (err instanceof AppError) {
     return {
       status: err.status,
       headers: err.headers,
-      body: { error: { code: err.code, message: err.message, ...(err.details !== undefined ? { details: err.details } : {}) }, meta },
+      body: {
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.details !== undefined ? { details: err.details } : {}),
+        },
+        meta,
+      },
     };
   }
   if (err instanceof ZodError) {
     return {
       status: 422,
-      body: { error: { code: ERROR_CODES.VALIDATION_FAILED, message: 'Validation failed', details: zodDetails(err) }, meta },
+      body: {
+        error: {
+          code: ERROR_CODES.VALIDATION_FAILED,
+          message: 'Validation failed',
+          details: zodDetails(err),
+        },
+        meta,
+      },
     };
   }
   if (err instanceof HttpException) {
     const status = err.getStatus();
-    const message = status === 404 ? 'Route not found' : status >= 500 ? 'Internal server error' : err.message;
-    return { status, body: { error: { code: STATUS_CODES[status] ?? (status >= 500 ? ERROR_CODES.INTERNAL_ERROR : ERROR_CODES.BAD_REQUEST), message }, meta } };
+    const message =
+      status === 404 ? 'Route not found' : status >= 500 ? 'Internal server error' : err.message;
+    return {
+      status,
+      body: {
+        error: {
+          code:
+            STATUS_CODES[status] ??
+            (status >= 500 ? ERROR_CODES.INTERNAL_ERROR : ERROR_CODES.BAD_REQUEST),
+          message,
+        },
+        meta,
+      },
+    };
   }
   // body-parser / express errors carry `status` + `type`
   const e = err as { status?: number; statusCode?: number; type?: string; expose?: boolean };
@@ -53,11 +83,18 @@ export function toErrorResponse(err: unknown): { status: number; body: ErrorEnve
           ? ERROR_CODES.BAD_REQUEST
           : (STATUS_CODES[status] ?? ERROR_CODES.BAD_REQUEST);
     const message =
-      code === ERROR_CODES.PAYLOAD_TOO_LARGE ? 'Request body too large' : code === ERROR_CODES.BAD_REQUEST ? 'Malformed request body' : 'Bad request';
+      code === ERROR_CODES.PAYLOAD_TOO_LARGE
+        ? 'Request body too large'
+        : code === ERROR_CODES.BAD_REQUEST
+          ? 'Malformed request body'
+          : 'Bad request';
     return { status, body: { error: { code, message }, meta } };
   }
   logger.emit('error', 'unhandled error', { err });
-  return { status: 500, body: { error: { code: ERROR_CODES.INTERNAL_ERROR, message: 'Internal server error' }, meta } };
+  return {
+    status: 500,
+    body: { error: { code: ERROR_CODES.INTERNAL_ERROR, message: 'Internal server error' }, meta },
+  };
 }
 
 @Catch()
@@ -67,7 +104,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();
     const { status, body, headers } = toErrorResponse(exception);
-    if (status >= 500) logger.emit('error', 'request failed', { path: req.path, method: req.method, status, err: exception });
+    if (status >= 500)
+      logger.emit('error', 'request failed', {
+        path: req.path,
+        method: req.method,
+        status,
+        err: exception,
+      });
     if (res.headersSent) return;
     if (headers) for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
     res.status(status).json(body);

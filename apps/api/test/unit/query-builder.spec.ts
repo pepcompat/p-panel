@@ -13,11 +13,25 @@ const opts = { sortable: ['createdAt', 'action'] };
 describe('query builder', () => {
   it('defaults', () => {
     const q = parseQuery('/x', opts);
-    expect(q).toMatchObject({ page: 1, limit: 20, skip: 0, sort: 'createdAt', order: 'desc', filters: [] });
+    expect(q).toMatchObject({
+      page: 1,
+      limit: 20,
+      skip: 0,
+      sort: 'createdAt',
+      order: 'desc',
+      filters: [],
+    });
   });
   it('parses control params and snake_case sort', () => {
     const q = parseQuery('/x?page=3&limit=10&sort=created_at&order=asc&q=login', opts);
-    expect(q).toMatchObject({ page: 3, limit: 10, skip: 20, sort: 'createdAt', order: 'asc', q: 'login' });
+    expect(q).toMatchObject({
+      page: 3,
+      limit: 10,
+      skip: 20,
+      sort: 'createdAt',
+      order: 'asc',
+      q: 'login',
+    });
   });
   it('rejects out-of-range limit / bad sort / bad order', () => {
     expect(() => parseQuery('/x?limit=101', opts)).toThrow(AppError);
@@ -43,12 +57,16 @@ describe('query builder', () => {
   });
   it('supports or[i][field] groups', () => {
     const q = parseQuery('/x?or[0][action]=a&or[0][actor_id]=u', opts);
-    expect(buildWhere(q, fields)).toEqual({ AND: [{ OR: [{ action: { equals: 'a' } }, { actorId: { equals: 'u' } }] }] });
+    expect(buildWhere(q, fields)).toEqual({
+      AND: [{ OR: [{ action: { equals: 'a' } }, { actorId: { equals: 'u' } }] }],
+    });
   });
   it('rejects unknown fields, operators and bad values', () => {
     expect(() => buildWhere(parseQuery('/x?password=1', opts), fields)).toThrow(AppError);
     expect(() => buildWhere(parseQuery('/x?action[regex]=1', opts), fields)).toThrow(AppError);
-    expect(() => buildWhere(parseQuery('/x?created_at[gte]=yesterday', opts), fields)).toThrow(AppError);
+    expect(() => buildWhere(parseQuery('/x?created_at[gte]=yesterday', opts), fields)).toThrow(
+      AppError,
+    );
     expect(() => buildWhere(parseQuery('/x?attempt[contains]=1', opts), fields)).toThrow(AppError);
     expect(() => parseQuery('/x?a[b][c]=1', opts)).toThrow(AppError);
   });

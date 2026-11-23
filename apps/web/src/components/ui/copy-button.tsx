@@ -13,7 +13,14 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function CopyButton({ text, label, ariaLabel, variant = 'chip', size = 'xs', ...rest }: { text: string; label?: string; ariaLabel?: string } & ButtonProps) {
+export function CopyButton({
+  text,
+  label,
+  ariaLabel,
+  variant = 'chip',
+  size = 'xs',
+  ...rest
+}: { text: string; label?: string; ariaLabel?: string } & ButtonProps) {
   const t = useT();
   const [state, setState] = useState<'idle' | 'ok' | 'fail'>('idle');
   return (
@@ -28,7 +35,13 @@ export function CopyButton({ text, label, ariaLabel, variant = 'chip', size = 'x
       }}
       {...rest}
     >
-      <span aria-live="polite">{state === 'ok' ? t('common.copied') : state === 'fail' ? t('common.copyFailed') : (label ?? t('common.copy'))}</span>
+      <span aria-live="polite">
+        {state === 'ok'
+          ? t('common.copied')
+          : state === 'fail'
+            ? t('common.copyFailed')
+            : (label ?? t('common.copy'))}
+      </span>
     </Button>
   );
 }

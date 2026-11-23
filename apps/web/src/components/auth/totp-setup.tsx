@@ -15,7 +15,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AuthCard } from './auth-card';
 import { OtpInput } from './otp-input';
 
-type Stage = { s: 'intro' } | { s: 'scan'; setup: TotpSetup; qr: string } | { s: 'codes'; codes: string[] };
+type Stage =
+  { s: 'intro' } | { s: 'scan'; setup: TotpSetup; qr: string } | { s: 'codes'; codes: string[] };
 
 export function TotpSetupFlow() {
   const t = useT();
@@ -34,7 +35,12 @@ export function TotpSetupFlow() {
   if (status !== 'authenticated') {
     return (
       <AuthCard wide>
-        <div role="status" aria-busy="true" aria-label={t('common.loading')} className="flex flex-col gap-3">
+        <div
+          role="status"
+          aria-busy="true"
+          aria-label={t('common.loading')}
+          className="flex flex-col gap-3"
+        >
           <Skeleton className="h-6 w-48" />
           <Skeleton className="h-40 w-full" />
         </div>
@@ -45,7 +51,11 @@ export function TotpSetupFlow() {
   const errorBox = error && (
     <div role="alert" className="rounded-md border border-crit bg-crit-bg px-3 py-2 text-[13px]">
       {error.message}
-      {error.requestId && <div className="font-mono text-[11.5px] text-fg-muted">{t('common.requestId')}: {error.requestId}</div>}
+      {error.requestId && (
+        <div className="font-mono text-[11.5px] text-fg-muted">
+          {t('common.requestId')}: {error.requestId}
+        </div>
+      )}
     </div>
   );
 
@@ -56,16 +66,29 @@ export function TotpSetupFlow() {
         <Notice tone="warn" glyph="▲" role="alert">
           {t('setup2fa.recoveryBody')}
         </Notice>
-        <ol aria-label={t('setup2fa.recoveryTitle')} className="m-0 grid list-none grid-cols-2 gap-1.5 rounded-md bg-terminal p-3 font-mono text-[13px] text-terminal-fg">
+        <ol
+          aria-label={t('setup2fa.recoveryTitle')}
+          className="m-0 grid list-none grid-cols-2 gap-1.5 rounded-md bg-terminal p-3 font-mono text-[13px] text-terminal-fg"
+        >
           {stage.codes.map((c) => (
             <li key={c} className="select-all">
               {c}
             </li>
           ))}
         </ol>
-        <CopyButton text={stage.codes.join('\n')} label={t('setup2fa.copyCodes')} variant="secondary" size="md" />
+        <CopyButton
+          text={stage.codes.join('\n')}
+          label={t('setup2fa.copyCodes')}
+          variant="secondary"
+          size="md"
+        />
         <label className="flex cursor-pointer items-start gap-2.5 text-[13px]">
-          <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 h-[18px] w-[18px]" />
+          <input
+            type="checkbox"
+            checked={ack}
+            onChange={(e) => setAck(e.target.checked)}
+            className="mt-0.5 h-[18px] w-[18px]"
+          />
           {t('setup2fa.ack')}
         </label>
         <Button
@@ -121,12 +144,31 @@ export function TotpSetupFlow() {
           <h1 className="m-0 text-[20px] font-semibold">{t('setup2fa.title')}</h1>
           <b className="text-[13.5px]">{t('setup2fa.scan')}</b>
           {/* eslint-disable-next-line @next/next/no-img-element -- generated data URL */}
-          <img src={stage.qr} width={200} height={200} alt={t('setup2fa.qrAlt')} className="self-center rounded-md border border-line bg-white p-2" />
-          <span className="font-mono text-[12px] break-all text-fg-muted">{t('setup2fa.secret', { secret: stage.setup.secretMasked })}</span>
+          <img
+            src={stage.qr}
+            width={200}
+            height={200}
+            alt={t('setup2fa.qrAlt')}
+            className="self-center rounded-md border border-line bg-white p-2"
+          />
+          <span className="font-mono text-[12px] break-all text-fg-muted">
+            {t('setup2fa.secret', { secret: stage.setup.secretMasked })}
+          </span>
           <b className="text-[13.5px]">{t('setup2fa.enter')}</b>
-          <OtpInput value={code} onChange={setCode} autoFocus invalid={!!error} groupLabel={t('mfa.code')} />
+          <OtpInput
+            value={code}
+            onChange={setCode}
+            autoFocus
+            invalid={!!error}
+            groupLabel={t('mfa.code')}
+          />
           {errorBox}
-          <Button type="submit" variant="primary" size="lg" disabled={busy || !/^\d{6}$/.test(code)}>
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            disabled={busy || !/^\d{6}$/.test(code)}
+          >
             {busy ? t('common.saving') : t('setup2fa.confirm')}
           </Button>
         </form>
@@ -148,7 +190,11 @@ export function TotpSetupFlow() {
           setError(null);
           try {
             const setup = await authApi.totpSetup();
-            const qr = await QRCode.toDataURL(setup.otpauthUrl, { margin: 1, width: 200, errorCorrectionLevel: 'M' });
+            const qr = await QRCode.toDataURL(setup.otpauthUrl, {
+              margin: 1,
+              width: 200,
+              errorCorrectionLevel: 'M',
+            });
             setStage({ s: 'scan', setup, qr });
           } catch (err) {
             setError(toApiError(err));

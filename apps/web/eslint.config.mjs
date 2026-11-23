@@ -5,11 +5,23 @@ import { FlatCompat } from '@eslint/eslintrc';
 const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) });
 
 const config = [
-  { ignores: ['.next/**', 'node_modules/**', 'test-results/**', 'playwright-report/**', 'next-env.d.ts', 'scripts/**'] },
+  {
+    ignores: [
+      '.next/**',
+      'node_modules/**',
+      'test-results/**',
+      'playwright-report/**',
+      'next-env.d.ts',
+      'scripts/**',
+    ],
+  },
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
   {
     rules: {
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },

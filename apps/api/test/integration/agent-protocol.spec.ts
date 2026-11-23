@@ -2,7 +2,18 @@
 import { createPublicKey, X509Certificate } from 'node:crypto';
 import https from 'node:https';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { agentCall, bearer, bootApp, enrollAgent, type EnrolledAgent, heartbeatBody, login, newAgentKey, resetDb, type TestApp } from './helpers';
+import {
+  agentCall,
+  bearer,
+  bootApp,
+  enrollAgent,
+  type EnrolledAgent,
+  heartbeatBody,
+  login,
+  newAgentKey,
+  resetDb,
+  type TestApp,
+} from './helpers';
 
 let t: TestApp;
 let port: number;
@@ -10,7 +21,10 @@ let owner: string;
 let agent: EnrolledAgent;
 
 beforeAll(async () => {
-  t = await bootApp({ PPANEL_GATEWAY_HOSTNAMES: 'localhost,host.docker.internal', PPANEL_PUBLIC_GATEWAY_URL: 'https://host.docker.internal:4443' });
+  t = await bootApp({
+    PPANEL_GATEWAY_HOSTNAMES: 'localhost,host.docker.internal',
+    PPANEL_PUBLIC_GATEWAY_URL: 'https://host.docker.internal:4443',
+  });
   port = await t.gateway.start(0, '127.0.0.1');
 });
 afterAll(async () => {
@@ -24,7 +38,8 @@ beforeEach(async () => {
   agent = await enrollAgent(t, owner);
 });
 
-const createJob = (body: Record<string, unknown>) => t.http.post(`/api/v1/servers/${agent.serverId}/jobs`).set(bearer(owner)).send(body);
+const createJob = (body: Record<string, unknown>) =>
+  t.http.post(`/api/v1/servers/${agent.serverId}/jobs`).set(bearer(owner)).send(body);
 const poll = () => agentCall(port, agent.creds, 'GET', '/agent/v1/tasks?waitSec=0');
 
 describe('results without ack (rejections / cached replays)', () => {
@@ -54,7 +69,12 @@ describe('results without ack (rejections / cached replays)', () => {
     expect(row.startedAt).toBeNull(); // never acked
     expect(row.error).toEqual({ code, message: 'nope', details: { reason: 'test' } });
     // replay of the same result is idempotent
-    const again = await agentCall(port, agent.creds, 'POST', `/agent/v1/tasks/${g.jobId}/result`, { leaseToken: g.leaseToken, status: 'rejected', output: null, error: { code } });
+    const again = await agentCall(port, agent.creds, 'POST', `/agent/v1/tasks/${g.jobId}/result`, {
+      leaseToken: g.leaseToken,
+      status: 'rejected',
+      output: null,
+      error: { code },
+    });
     expect(again.status).toBe(200);
   });
 
@@ -67,8 +87,13 @@ describe('results without ack (rejections / cached replays)', () => {
       output: { truncated: true, originalBytes: 20480 },
     });
     expect(r.status).toBe(200);
-    const job = await t.http.get(`/api/v1/servers/${agent.serverId}/jobs/${g.jobId}`).set(bearer(owner));
-    expect(job.body.data).toMatchObject({ status: 'succeeded', result: { truncated: true, originalBytes: 20480 } });
+    const job = await t.http
+      .get(`/api/v1/servers/${agent.serverId}/jobs/${g.jobId}`)
+      .set(bearer(owner));
+    expect(job.body.data).toMatchObject({
+      status: 'succeeded',
+      result: { truncated: true, originalBytes: 20480 },
+    });
   });
 });
 
@@ -81,7 +106,15 @@ describe('heartbeat shape', () => {
       '/agent/v1/heartbeat',
       heartbeatBody(1, {
         metrics: { cpuPct: 5 },
-        addresses: [{ family: 'ipv4', scope: 'private', address: '10.0.0.5', interface: 'eth1', source: 'detected' }],
+        addresses: [
+          {
+            family: 'ipv4',
+            scope: 'private',
+            address: '10.0.0.5',
+            interface: 'eth1',
+            source: 'detected',
+          },
+        ],
         capabilities: ['docker', 'php-fpm'],
       }),
       { 'X-Request-ID': 'agent-req-0001', 'X-Client-Version': '0.1.0' },
@@ -90,30 +123,55 @@ describe('heartbeat shape', () => {
     expect(r.body.meta.requestId).toBe('agent-req-0001');
     expect(Date.parse(r.body.data.serverTime)).not.toBeNaN();
     const s = (await t.http.get(`/api/v1/servers/${agent.serverId}`).set(bearer(owner))).body.data;
-    expect(s.metrics).toMatchObject({ cpuPct: 5, memPct: null, diskPct: null, load1: null, uptimeSec: null, stale: false });
-    expect(s.addresses).toEqual([expect.objectContaining({ address: '10.0.0.5', source: 'detected', scope: 'private' })]);
+    expect(s.metrics).toMatchObject({
+      cpuPct: 5,
+      memPct: null,
+      diskPct: null,
+      load1: null,
+      uptimeSec: null,
+      stale: false,
+    });
+    expect(s.addresses).toEqual([
+      expect.objectContaining({ address: '10.0.0.5', source: 'detected', scope: 'private' }),
+    ]);
     expect(s.capabilities).toEqual(['docker', 'php-fpm']);
-    const hb = await t.prisma.agentHeartbeat.findFirstOrThrow({ where: { serverId: agent.serverId } });
+    const hb = await t.prisma.agentHeartbeat.findFirstOrThrow({
+      where: { serverId: agent.serverId },
+    });
     expect(hb.metrics).toMatchObject({ cpuPct: 5, memPct: null, diskPct: null });
   });
 
   it('heartbeat with no metrics object at all is accepted', async () => {
     const body = heartbeatBody(1) as Record<string, unknown>;
     delete body.metrics;
-    expect((await agentCall(port, agent.creds, 'POST', '/agent/v1/heartbeat', body)).status).toBe(200);
+    expect((await agentCall(port, agent.creds, 'POST', '/agent/v1/heartbeat', body)).status).toBe(
+      200,
+    );
   });
 });
 
 describe('enrollment response', () => {
   it('accepts facts.os.name; cert chains to caPem, EKU clientAuth, matches CSR key; gatewayUrl https from config', async () => {
-    const en = await t.http.post('/api/v1/enrollments').set(bearer(owner)).send({ name: 'lab-a', environment: 'development' });
+    const en = await t.http
+      .post('/api/v1/enrollments')
+      .set(bearer(owner))
+      .send({ name: 'lab-a', environment: 'development' });
     expect(en.body.data.token).toMatch(/^ppe_[A-Za-z0-9_-]{16,128}$/);
     const key = await newAgentKey();
     const r = await t.http.post('/api/v1/agent/enroll').send({
       token: en.body.data.token,
       csrPem: key.csrPem,
       hostname: 'lab-a',
-      facts: { os: { id: 'ubuntu', version: '24.04', arch: 'arm64', kernel: '6.8', name: 'Ubuntu 24.04.1 LTS' }, agentVersion: '0.1.0' },
+      facts: {
+        os: {
+          id: 'ubuntu',
+          version: '24.04',
+          arch: 'arm64',
+          kernel: '6.8',
+          name: 'Ubuntu 24.04.1 LTS',
+        },
+        agentVersion: '0.1.0',
+      },
     });
     expect(r.status).toBe(201);
     expect(r.body.data.gatewayUrl).toBe('https://host.docker.internal:4443');
@@ -126,7 +184,9 @@ describe('enrollment response', () => {
   });
 
   it('malformed token format → same uniform 401 as any other bad token', async () => {
-    const r = await t.http.post('/api/v1/agent/enroll').send({ token: 'garbage', csrPem: (await newAgentKey()).csrPem, hostname: 'x' });
+    const r = await t.http
+      .post('/api/v1/agent/enroll')
+      .send({ token: 'garbage', csrPem: (await newAgentKey()).csrPem, hostname: 'x' });
     expect(r.status).toBe(401);
     expect(r.body.error.code).toBe('ENROLLMENT_TOKEN_INVALID');
   });

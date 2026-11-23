@@ -1,4 +1,9 @@
-import { Inject, Injectable, type OnApplicationBootstrap, type OnApplicationShutdown } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  type OnApplicationBootstrap,
+  type OnApplicationShutdown,
+} from '@nestjs/common';
 import { logger } from '../common/logger';
 import { PrismaService } from '../common/prisma.service';
 import { APP_CONFIG, type AppConfig } from '../config/config';

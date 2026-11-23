@@ -20,7 +20,8 @@ type Step = { kind: 'login' } | { kind: 'mfa'; mfaToken: string };
 
 /** Only allow same-app relative redirects (no open redirect via ?next=). */
 function safeNext(next: string | null): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/login')) return '/overview';
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/login'))
+    return '/overview';
   return next;
 }
 
@@ -30,7 +31,11 @@ function ApiErrorLine({ error }: { error: ApiError | null }) {
   return (
     <div role="alert" className="rounded-md border border-crit bg-crit-bg px-3 py-2 text-[13px]">
       {error.kind === 'network' ? t('state.error.network') : error.message}
-      {error.requestId && <div className="font-mono text-[11.5px] text-fg-muted">{t('common.requestId')}: {error.requestId}</div>}
+      {error.requestId && (
+        <div className="font-mono text-[11.5px] text-fg-muted">
+          {t('common.requestId')}: {error.requestId}
+        </div>
+      )}
     </div>
   );
 }
@@ -53,7 +58,12 @@ export function LoginFlow() {
   if (setup.isPending) {
     return (
       <AuthCard>
-        <div role="status" aria-busy="true" aria-label={t('bootstrap.checking')} className="flex flex-col gap-3">
+        <div
+          role="status"
+          aria-busy="true"
+          aria-label={t('bootstrap.checking')}
+          className="flex flex-col gap-3"
+        >
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-full" />
@@ -73,7 +83,15 @@ export function LoginFlow() {
   }
   return (
     <SignIn
-      notice={bootstrapDone ? t('bootstrap.done') : reason === 'expired' ? t('login.sessionExpired') : reason === 'signedout' ? t('login.signedOut') : null}
+      notice={
+        bootstrapDone
+          ? t('bootstrap.done')
+          : reason === 'expired'
+            ? t('login.sessionExpired')
+            : reason === 'signedout'
+              ? t('login.signedOut')
+              : null
+      }
       onSuccess={async (res) => {
         await completeLogin(res);
         router.replace(next);
@@ -82,7 +100,13 @@ export function LoginFlow() {
   );
 }
 
-function SignIn({ notice, onSuccess }: { notice: string | null; onSuccess: (res: LoginSuccess) => Promise<void> }) {
+function SignIn({
+  notice,
+  onSuccess,
+}: {
+  notice: string | null;
+  onSuccess: (res: LoginSuccess) => Promise<void>;
+}) {
   const t = useT();
   const [step, setStep] = useState<Step>({ kind: 'login' });
   const [email, setEmail] = useState('');
@@ -119,7 +143,9 @@ function SignIn({ notice, onSuccess }: { notice: string | null; onSuccess: (res:
     setError(null);
     try {
       const res = await authApi.verifyMfa(
-        useRecovery ? { mfaToken: step.mfaToken, recoveryCode: recovery.trim() } : { mfaToken: step.mfaToken, code },
+        useRecovery
+          ? { mfaToken: step.mfaToken, recoveryCode: recovery.trim() }
+          : { mfaToken: step.mfaToken, code },
       );
       await onSuccess(res);
     } catch (err) {
@@ -140,12 +166,28 @@ function SignIn({ notice, onSuccess }: { notice: string | null; onSuccess: (res:
           <h1 className="m-0 text-[20px] font-semibold">{t('mfa.title')}</h1>
           {useRecovery ? (
             <Field label={t('mfa.recoveryLabel')} hint={t('mfa.recoveryHint')}>
-              {(p) => <Input {...p} autoFocus value={recovery} onChange={(e) => setRecovery(e.target.value)} autoComplete="off" className="font-mono" placeholder="xxxx-xxxx" />}
+              {(p) => (
+                <Input
+                  {...p}
+                  autoFocus
+                  value={recovery}
+                  onChange={(e) => setRecovery(e.target.value)}
+                  autoComplete="off"
+                  className="font-mono"
+                  placeholder="xxxx-xxxx"
+                />
+              )}
             </Field>
           ) : (
             <>
               <div className="text-[13px] text-fg-3">{t('mfa.hint')}</div>
-              <OtpInput value={code} onChange={setCode} autoFocus invalid={!!error} groupLabel={t('mfa.code')} />
+              <OtpInput
+                value={code}
+                onChange={setCode}
+                autoFocus
+                invalid={!!error}
+                groupLabel={t('mfa.code')}
+              />
             </>
           )}
           <ApiErrorLine error={error} />
@@ -162,7 +204,11 @@ function SignIn({ notice, onSuccess }: { notice: string | null; onSuccess: (res:
           >
             {useRecovery ? t('mfa.useCode') : t('mfa.useRecovery')}
           </Button>
-          <Button variant="link" className="self-start text-[13px]" onClick={() => setStep({ kind: 'login' })}>
+          <Button
+            variant="link"
+            className="self-start text-[13px]"
+            onClick={() => setStep({ kind: 'login' })}
+          >
             {t('mfa.backToLogin')}
           </Button>
         </form>
@@ -180,10 +226,30 @@ function SignIn({ notice, onSuccess }: { notice: string | null; onSuccess: (res:
         )}
         <h1 className="m-0 text-[20px] font-semibold">{t('login.title')}</h1>
         <Field label={t('login.email')}>
-          {(p) => <Input {...p} type="text" inputMode="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} required />}
+          {(p) => (
+            <Input
+              {...p}
+              type="text"
+              inputMode="email"
+              autoComplete="username"
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          )}
         </Field>
         <Field label={t('login.password')}>
-          {(p) => <Input {...p} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />}
+          {(p) => (
+            <Input
+              {...p}
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          )}
         </Field>
         <ApiErrorLine error={error} />
         <Button type="submit" variant="primary" size="lg" disabled={busy || !email || !password}>
@@ -201,7 +267,8 @@ function BootstrapForm({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const fe = error?.fieldErrors ?? {};
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
   return (
     <AuthCard wide>
       <form
@@ -212,7 +279,12 @@ function BootstrapForm({ onDone }: { onDone: () => void }) {
           setBusy(true);
           setError(null);
           try {
-            await authApi.bootstrap({ ...form, email: form.email.trim(), displayName: form.displayName.trim(), setupToken: form.setupToken.trim() });
+            await authApi.bootstrap({
+              ...form,
+              email: form.email.trim(),
+              displayName: form.displayName.trim(),
+              setupToken: form.setupToken.trim(),
+            });
             onDone();
           } catch (err) {
             setError(toApiError(err));
@@ -224,19 +296,60 @@ function BootstrapForm({ onDone }: { onDone: () => void }) {
         <h1 className="m-0 text-[20px] font-semibold">{t('bootstrap.title')}</h1>
         <p className="m-0 text-[13px] text-fg-3">{t('bootstrap.body')}</p>
         <Field label={t('login.email')} error={fe.email}>
-          {(p) => <Input {...p} type="email" autoComplete="username" value={form.email} onChange={set('email')} />}
+          {(p) => (
+            <Input
+              {...p}
+              type="email"
+              autoComplete="username"
+              value={form.email}
+              onChange={set('email')}
+            />
+          )}
         </Field>
         <Field label={t('bootstrap.displayName')} error={fe.displayName}>
-          {(p) => <Input {...p} value={form.displayName} onChange={set('displayName')} autoComplete="name" />}
+          {(p) => (
+            <Input
+              {...p}
+              value={form.displayName}
+              onChange={set('displayName')}
+              autoComplete="name"
+            />
+          )}
         </Field>
         <Field label={t('login.password')} hint={t('bootstrap.passwordHint')} error={fe.password}>
-          {(p) => <Input {...p} type="password" autoComplete="new-password" value={form.password} onChange={set('password')} />}
+          {(p) => (
+            <Input
+              {...p}
+              type="password"
+              autoComplete="new-password"
+              value={form.password}
+              onChange={set('password')}
+            />
+          )}
         </Field>
-        <Field label={t('bootstrap.setupToken')} hint={t('bootstrap.setupTokenHint')} error={fe.setupToken}>
-          {(p) => <Input {...p} type="password" autoComplete="off" className="font-mono" value={form.setupToken} onChange={set('setupToken')} />}
+        <Field
+          label={t('bootstrap.setupToken')}
+          hint={t('bootstrap.setupTokenHint')}
+          error={fe.setupToken}
+        >
+          {(p) => (
+            <Input
+              {...p}
+              type="password"
+              autoComplete="off"
+              className="font-mono"
+              value={form.setupToken}
+              onChange={set('setupToken')}
+            />
+          )}
         </Field>
         <ApiErrorLine error={error && Object.keys(fe).length === 0 ? error : null} />
-        <Button type="submit" variant="primary" size="lg" disabled={busy || !form.email || !form.password || !form.setupToken || !form.displayName}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          disabled={busy || !form.email || !form.password || !form.setupToken || !form.displayName}
+        >
           {busy ? t('common.saving') : t('bootstrap.submit')}
         </Button>
       </form>

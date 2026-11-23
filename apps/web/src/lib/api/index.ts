@@ -7,7 +7,8 @@ export function setAuthFailureHandler(fn: () => void) {
 }
 
 /** In mock mode requests are served by an in-process adapter that returns contract-shaped envelopes. */
-const mockFetch: typeof fetch = (input, init) => import('@/mocks/adapter').then((m) => m.mockFetch(input, init));
+const mockFetch: typeof fetch = (input, init) =>
+  import('@/mocks/adapter').then((m) => m.mockFetch(input, init));
 
 export const api = createApiClient({
   baseUrl: API_BASE,

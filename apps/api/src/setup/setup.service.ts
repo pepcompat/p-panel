@@ -31,7 +31,10 @@ export class SetupService implements OnApplicationBootstrap {
     process.stderr.write(
       `\n[pPanel] No users exist yet. One-time setup token (valid until this process exits):\n  ${this.setupToken}\n\n`,
     );
-    logger.emit('warn', 'setup token generated and printed to stderr once; set PPANEL_SETUP_TOKEN to control it');
+    logger.emit(
+      'warn',
+      'setup token generated and printed to stderr once; set PPANEL_SETUP_TOKEN to control it',
+    );
   }
 
   async isBootstrapped(): Promise<boolean> {
@@ -46,11 +49,25 @@ export class SetupService implements OnApplicationBootstrap {
     const passwordHash = await hashPassword(input.password);
     const user = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('ppanel_bootstrap'))`;
-      if ((await tx.user.count()) > 0) throw AppError.conflict('Setup already completed', ERROR_CODES.ALREADY_BOOTSTRAPPED);
+      if ((await tx.user.count()) > 0)
+        throw AppError.conflict('Setup already completed', ERROR_CODES.ALREADY_BOOTSTRAPPED);
       const id = uuidv7();
-      const u = await tx.user.create({ data: { id, email: input.email, displayName: input.displayName, passwordHash } });
-      await tx.roleBinding.create({ data: { id: uuidv7(), userId: id, roleKey: 'platform_owner', scopeType: 'global' } });
-      await this.audit.record({ actorId: id, action: 'setup.bootstrap', targetType: 'user', targetId: id, result: 'success' }, tx);
+      const u = await tx.user.create({
+        data: { id, email: input.email, displayName: input.displayName, passwordHash },
+      });
+      await tx.roleBinding.create({
+        data: { id: uuidv7(), userId: id, roleKey: 'platform_owner', scopeType: 'global' },
+      });
+      await this.audit.record(
+        {
+          actorId: id,
+          action: 'setup.bootstrap',
+          targetType: 'user',
+          targetId: id,
+          result: 'success',
+        },
+        tx,
+      );
       return u;
     });
     return { user: toUserPublic(user, false) };

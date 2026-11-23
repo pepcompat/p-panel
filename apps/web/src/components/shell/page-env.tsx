@@ -4,7 +4,10 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import type { Environment } from '@ppanel/shared-contracts';
 
 /** Lets a page (e.g. server detail) tell the top bar which environment is in view. */
-const Ctx = createContext<{ env: Environment | null; setEnv: (e: Environment | null) => void }>({ env: null, setEnv: () => {} });
+const Ctx = createContext<{ env: Environment | null; setEnv: (e: Environment | null) => void }>({
+  env: null,
+  setEnv: () => {},
+});
 
 export function PageEnvProvider({ children }: { children: ReactNode }) {
   const [env, setEnv] = useState<Environment | null>(null);

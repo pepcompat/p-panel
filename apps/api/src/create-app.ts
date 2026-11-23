@@ -33,7 +33,9 @@ export async function createApp(config: AppConfig): Promise<NestExpressApplicati
     next();
   });
   app.use(cookieParser());
-  app.use(express.json({ limit: config.BODY_LIMIT, type: ['application/json', 'application/*+json'] }));
+  app.use(
+    express.json({ limit: config.BODY_LIMIT, type: ['application/json', 'application/*+json'] }),
+  );
   // body-parser errors (too large / malformed JSON) → standard error envelope
   app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (!err) return next();
@@ -44,7 +46,17 @@ export async function createApp(config: AppConfig): Promise<NestExpressApplicati
     origin: config.webOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'X-Request-ID', 'X-Client-Version', 'X-CSRF', 'X-Step-Up', 'If-Match', 'Idempotency-Key'],
+    allowedHeaders: [
+      'Content-Type',
+      'Accept',
+      'Authorization',
+      'X-Request-ID',
+      'X-Client-Version',
+      'X-CSRF',
+      'X-Step-Up',
+      'If-Match',
+      'Idempotency-Key',
+    ],
     exposedHeaders: ['X-Request-ID', 'ETag', 'Retry-After'],
     maxAge: 600,
   });

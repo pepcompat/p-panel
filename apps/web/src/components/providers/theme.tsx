@@ -11,7 +11,9 @@ const ThemeContext = createContext<{ pref: ThemePref; setPref: (p: ThemePref) =>
 });
 
 function apply(pref: ThemePref) {
-  const dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const dark =
+    pref === 'dark' ||
+    (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
 }
 

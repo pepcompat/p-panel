@@ -42,7 +42,13 @@ export interface ApiClientOptions {
 }
 
 /** Endpoints whose 401 means "bad credentials", not "expired access token". */
-const NO_REFRESH_PATHS = ['/auth/login', '/auth/refresh', '/auth/mfa/verify', '/auth/logout', '/setup/'];
+const NO_REFRESH_PATHS = [
+  '/auth/login',
+  '/auth/refresh',
+  '/auth/mfa/verify',
+  '/auth/logout',
+  '/setup/',
+];
 
 function buildQuery(query?: Query): string {
   if (!query) return '';
@@ -113,7 +119,12 @@ export function createApiClient(opts: ApiClientOptions) {
     return refreshInFlight;
   }
 
-  async function send(method: string, path: string, o: RequestOptions, requestId: string): Promise<Response> {
+  async function send(
+    method: string,
+    path: string,
+    o: RequestOptions,
+    requestId: string,
+  ): Promise<Response> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Request-ID': requestId,
@@ -140,13 +151,18 @@ export function createApiClient(opts: ApiClientOptions) {
       throw new ApiError({
         status: 0,
         code: 'NETWORK_ERROR',
-        message: 'Cannot reach the pPanel API. Check your connection or that the Center is running.',
+        message:
+          'Cannot reach the pPanel API. Check your connection or that the Center is running.',
         requestId,
       });
     }
   }
 
-  async function request<T>(method: string, path: string, o: RequestOptions = {}): Promise<ApiResult<T>> {
+  async function request<T>(
+    method: string,
+    path: string,
+    o: RequestOptions = {},
+  ): Promise<ApiResult<T>> {
     const requestId = o.requestId ?? uuid();
     let res = await send(method, path, o, requestId);
 
@@ -167,7 +183,11 @@ export function createApiClient(opts: ApiClientOptions) {
     const echoedId = meta?.requestId ?? res.headers.get('X-Request-ID') ?? requestId;
 
     if (!res.ok) {
-      const err = (json?.error ?? null) as { code?: string; message?: string; details?: unknown } | null;
+      const err = (json?.error ?? null) as {
+        code?: string;
+        message?: string;
+        details?: unknown;
+      } | null;
       throw new ApiError({
         status: res.status,
         code: err?.code ?? `HTTP_${res.status}`,
@@ -178,7 +198,13 @@ export function createApiClient(opts: ApiClientOptions) {
     }
 
     if (res.status === 204 || json === undefined) {
-      return { data: undefined as T, meta, status: res.status, requestId: echoedId, headers: res.headers };
+      return {
+        data: undefined as T,
+        meta,
+        status: res.status,
+        requestId: echoedId,
+        headers: res.headers,
+      };
     }
     if (json.success !== true || !('data' in json)) {
       throw new ApiError({
@@ -208,10 +234,12 @@ export function createApiClient(opts: ApiClientOptions) {
         paginate: r.paginate ?? { page: 1, limit: r.data.length, total: r.data.length },
         requestId: r.requestId,
       })),
-    post: <T>(path: string, body?: unknown, o?: RequestOptions) => request<T>('POST', path, { ...o, body }).then((r) => r.data),
+    post: <T>(path: string, body?: unknown, o?: RequestOptions) =>
+      request<T>('POST', path, { ...o, body }).then((r) => r.data),
     patch: <T>(path: string, body?: unknown, o?: RequestOptions) =>
       request<T>('PATCH', path, { ...o, body }).then((r) => r.data),
-    del: <T = void>(path: string, o?: RequestOptions) => request<T>('DELETE', path, o).then((r) => r.data),
+    del: <T = void>(path: string, o?: RequestOptions) =>
+      request<T>('DELETE', path, o).then((r) => r.data),
   };
 }
 

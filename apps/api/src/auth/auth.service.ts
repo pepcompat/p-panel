@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { ERROR_CODES, type LoginResponse, type MeResponse, type StepUpResponse } from '@ppanel/shared-contracts';
+import {
+  ERROR_CODES,
+  type LoginResponse,
+  type MeResponse,
+  type StepUpResponse,
+} from '@ppanel/shared-contracts';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import { randomToken, sha256Hex } from '../common/crypto';
@@ -25,7 +30,8 @@ export interface IssuedSession {
   refreshToken?: string;
 }
 
-const invalidCredentials = () => AppError.unauthenticated('Invalid email or password', ERROR_CODES.INVALID_CREDENTIALS);
+const invalidCredentials = () =>
+  AppError.unauthenticated('Invalid email or password', ERROR_CODES.INVALID_CREDENTIALS);
 
 @Injectable()
 export class AuthService {
@@ -54,7 +60,13 @@ export class AuthService {
     }
     if (await this.mfa.isEnabled(user.id)) {
       const { token } = this.tokens.sign('mfa', { sub: user.id });
-      await this.audit.record({ actorId: user.id, action: 'auth.login.mfa_challenge', targetType: 'user', targetId: user.id, result: 'success' });
+      await this.audit.record({
+        actorId: user.id,
+        action: 'auth.login.mfa_challenge',
+        targetType: 'user',
+        targetId: user.id,
+        result: 'success',
+      });
       return { body: { mfaRequired: true, mfaToken: token } };
     }
     return this.issueSession(user.id, ['pwd'], client, 'auth.login');
@@ -64,22 +76,39 @@ export class AuthService {
     input: { mfaToken: string; code?: string; recoveryCode?: string },
     client: ClientInfo,
   ): Promise<IssuedSession> {
-    const invalid = () => AppError.unauthenticated('Invalid or expired MFA challenge', ERROR_CODES.MFA_INVALID);
+    const invalid = () =>
+      AppError.unauthenticated('Invalid or expired MFA challenge', ERROR_CODES.MFA_INVALID);
     const claims = this.tokens.verify<MfaClaims>('mfa', input.mfaToken, invalid);
     this.limiter.hit(`mfa:${claims.sub}`, 5, 60_000);
     const ok = input.code
       ? await this.mfa.checkTotp(claims.sub, input.code)
       : await this.mfa.useRecoveryCode(claims.sub, input.recoveryCode ?? '');
     if (!ok) {
-      await this.audit.record({ actorId: claims.sub, action: 'auth.mfa.verify', targetType: 'user', targetId: claims.sub, result: 'failure' });
+      await this.audit.record({
+        actorId: claims.sub,
+        action: 'auth.mfa.verify',
+        targetType: 'user',
+        targetId: claims.sub,
+        result: 'failure',
+      });
       throw invalid();
     }
     const user = await this.prisma.user.findUnique({ where: { id: claims.sub } });
     if (!user || user.status !== 'active') throw invalid();
-    return this.issueSession(user.id, ['pwd', 'mfa', ...(input.recoveryCode ? ['recovery'] : [])], client, 'auth.mfa.verify');
+    return this.issueSession(
+      user.id,
+      ['pwd', 'mfa', ...(input.recoveryCode ? ['recovery'] : [])],
+      client,
+      'auth.mfa.verify',
+    );
   }
 
-  private async issueSession(userId: string, amr: string[], client: ClientInfo, action: string): Promise<IssuedSession> {
+  private async issueSession(
+    userId: string,
+    amr: string[],
+    client: ClientInfo,
+    action: string,
+  ): Promise<IssuedSession> {
     const refreshToken = randomToken(32);
     const sessionId = uuidv7();
     const user = await this.prisma.$transaction(async (tx) => {
@@ -96,22 +125,38 @@ export class AuthService {
         },
       });
       const u = await tx.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
-      await this.audit.record({ actorId: userId, action, targetType: 'session', targetId: sessionId, result: 'success' }, tx);
+      await this.audit.record(
+        { actorId: userId, action, targetType: 'session', targetId: sessionId, result: 'success' },
+        tx,
+      );
       return u;
     });
     const access = this.tokens.sign('access', { sub: userId, sid: sessionId, amr });
     return {
       refreshToken,
-      body: { accessToken: access.token, expiresIn: access.expiresIn, user: toUserPublic(user, await this.mfa.isEnabled(userId)) },
+      body: {
+        accessToken: access.token,
+        expiresIn: access.expiresIn,
+        user: toUserPublic(user, await this.mfa.isEnabled(userId)),
+      },
     };
   }
 
   /** Rotating refresh. Presenting an already-rotated token revokes the whole family (reuse detection). */
-  async refresh(rawToken: string | undefined, client: ClientInfo): Promise<{ accessToken: string; expiresIn: number; refreshToken: string }> {
+  async refresh(
+    rawToken: string | undefined,
+    client: ClientInfo,
+  ): Promise<{ accessToken: string; expiresIn: number; refreshToken: string }> {
     this.limiter.hit(`refresh:${client.ip ?? '-'}`, 60, 60_000);
-    const invalid = () => AppError.unauthenticated('Session expired, please sign in again', ERROR_CODES.REFRESH_INVALID);
+    const invalid = () =>
+      AppError.unauthenticated(
+        'Session expired, please sign in again',
+        ERROR_CODES.REFRESH_INVALID,
+      );
     if (!rawToken) throw invalid();
-    const current = await this.prisma.session.findUnique({ where: { refreshTokenHash: sha256Hex(rawToken) } });
+    const current = await this.prisma.session.findUnique({
+      where: { refreshTokenHash: sha256Hex(rawToken) },
+    });
     if (!current || current.revokedAt || current.expiresAt <= new Date()) throw invalid();
     if (current.rotatedAt) {
       await this.revokeFamily(current.familyId, 'refresh_reuse');
@@ -153,29 +198,49 @@ export class AuthService {
       await this.revokeFamily(current.familyId, 'refresh_race');
       throw AppError.unauthenticated('Session revoked', ERROR_CODES.REFRESH_REUSED);
     }
-    const access = this.tokens.sign('access', { sub: current.userId, sid: nextId, amr: current.amr });
+    const access = this.tokens.sign('access', {
+      sub: current.userId,
+      sid: nextId,
+      amr: current.amr,
+    });
     return { accessToken: access.token, expiresIn: access.expiresIn, refreshToken: next };
   }
 
-  async logout(rawRefresh: string | undefined, sessionId: string | undefined, actorId: string | undefined): Promise<void> {
+  async logout(
+    rawRefresh: string | undefined,
+    sessionId: string | undefined,
+    actorId: string | undefined,
+  ): Promise<void> {
     let familyId: string | undefined;
     let userId = actorId;
     if (rawRefresh) {
-      const s = await this.prisma.session.findUnique({ where: { refreshTokenHash: sha256Hex(rawRefresh) } });
+      const s = await this.prisma.session.findUnique({
+        where: { refreshTokenHash: sha256Hex(rawRefresh) },
+      });
       if (s) {
         familyId = s.familyId;
         userId ??= s.userId;
       }
     }
-    if (!familyId && sessionId) familyId = (await this.prisma.session.findUnique({ where: { id: sessionId } }))?.familyId;
+    if (!familyId && sessionId)
+      familyId = (await this.prisma.session.findUnique({ where: { id: sessionId } }))?.familyId;
     if (familyId) {
       await this.revokeFamily(familyId, 'logout');
-      await this.audit.record({ actorId: userId ?? null, action: 'auth.logout', targetType: 'session_family', targetId: familyId, result: 'success' });
+      await this.audit.record({
+        actorId: userId ?? null,
+        action: 'auth.logout',
+        targetType: 'session_family',
+        targetId: familyId,
+        result: 'success',
+      });
     }
   }
 
   async revokeFamily(familyId: string, reason: string): Promise<void> {
-    await this.prisma.session.updateMany({ where: { familyId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } });
+    await this.prisma.session.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: reason },
+    });
   }
 
   async me(principal: AuthUser): Promise<MeResponse> {
@@ -192,20 +257,39 @@ export class AuthService {
   async stepUp(principal: AuthUser, code: string): Promise<StepUpResponse> {
     this.limiter.hit(`stepup:${principal.id}`, 5, 60_000);
     if (!(await this.mfa.isEnabled(principal.id))) {
-      throw AppError.forbidden('Enable MFA before performing privileged actions', ERROR_CODES.MFA_REQUIRED);
+      throw AppError.forbidden(
+        'Enable MFA before performing privileged actions',
+        ERROR_CODES.MFA_REQUIRED,
+      );
     }
     if (!(await this.mfa.checkTotp(principal.id, code))) {
-      await this.audit.record({ actorId: principal.id, action: 'auth.step_up', targetType: 'user', targetId: principal.id, result: 'failure' });
+      await this.audit.record({
+        actorId: principal.id,
+        action: 'auth.step_up',
+        targetType: 'user',
+        targetId: principal.id,
+        result: 'failure',
+      });
       throw AppError.unauthenticated('Invalid code', ERROR_CODES.MFA_INVALID);
     }
     const t = this.tokens.sign('step_up', { sub: principal.id, sid: principal.sessionId });
-    await this.audit.record({ actorId: principal.id, action: 'auth.step_up', targetType: 'user', targetId: principal.id, result: 'success' });
+    await this.audit.record({
+      actorId: principal.id,
+      action: 'auth.step_up',
+      targetType: 'user',
+      targetId: principal.id,
+      result: 'success',
+    });
     return { stepUpToken: t.token, expiresAt: t.expiresAt.toISOString() };
   }
 
   /** Throws 403 STEP_UP_REQUIRED unless `header` holds a valid step-up token for this session. */
   assertStepUp(principal: AuthUser, header: string | undefined): void {
-    const fail = () => AppError.forbidden('Step-up authentication required for this action', ERROR_CODES.STEP_UP_REQUIRED);
+    const fail = () =>
+      AppError.forbidden(
+        'Step-up authentication required for this action',
+        ERROR_CODES.STEP_UP_REQUIRED,
+      );
     if (!header) throw fail();
     const c = this.tokens.verify<StepUpClaims>('step_up', header, fail);
     if (c.sub !== principal.id || c.sid !== principal.sessionId) throw fail();

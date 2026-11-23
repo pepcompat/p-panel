@@ -43,9 +43,11 @@ export const th: Partial<Record<MessageKey, string>> = {
   'state.stale.title': 'แสดงข้อมูลล่าสุดที่ทราบ',
   'state.stale.body': 'ข้อมูลบางส่วนเก่ากว่าที่ควร ค่าที่แสดงเป็นค่าล่าสุดที่ทราบ ไม่ใช่ค่าสด',
   'state.proposed.title': 'Backend ยังไม่พร้อมใช้งาน (PROPOSED)',
-  'state.proposed.body': 'หน้านี้แสดงเฉพาะเลย์เอาต์ตามดีไซน์ ปุ่มการกระทำถูกปิด และไม่มีการส่งคำสั่งไปยัง server จนกว่า Center API จะรองรับ',
+  'state.proposed.body':
+    'หน้านี้แสดงเฉพาะเลย์เอาต์ตามดีไซน์ ปุ่มการกระทำถูกปิด และไม่มีการส่งคำสั่งไปยัง server จนกว่า Center API จะรองรับ',
   'state.preview.title': 'ตัวอย่าง — ข้อมูลจำลอง, backend PROPOSED',
-  'state.preview.body': 'เลย์เอาต์จากต้นแบบดีไซน์พร้อมข้อมูลตัวอย่าง ไม่ได้สะท้อน fleet ของคุณ และการกระทำใดๆ ไม่มีผล',
+  'state.preview.body':
+    'เลย์เอาต์จากต้นแบบดีไซน์พร้อมข้อมูลตัวอย่าง ไม่ได้สะท้อน fleet ของคุณ และการกระทำใดๆ ไม่มีผล',
 
   'nav.label': 'เมนูหลัก',
   'nav.section.operate': 'ปฏิบัติการ',
@@ -102,7 +104,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'env.badge.uat': 'UAT',
   'env.badge.development': 'DEVELOPMENT',
   'env.badge.all': 'ทุก ENVIRONMENT',
-  'env.note': 'กลุ่ม Environment เป็นป้ายกำกับที่ผู้ใช้กำหนดเพื่อจัดกลุ่มและนโยบายการอนุมัติ ไม่ใช่ขอบเขตความเชื่อถือของเครือข่ายหรือ firewall',
+  'env.note':
+    'กลุ่ม Environment เป็นป้ายกำกับที่ผู้ใช้กำหนดเพื่อจัดกลุ่มและนโยบายการอนุมัติ ไม่ใช่ขอบเขตความเชื่อถือของเครือข่ายหรือ firewall',
 
   'status.online': 'ออนไลน์',
   'status.degraded': 'มีปัญหา',
@@ -126,11 +129,15 @@ export const th: Partial<Record<MessageKey, string>> = {
   'policy.private_only': 'ภายในเท่านั้น',
   'policy.public_preferred': 'เน้นสาธารณะ',
   'policy.public_only': 'สาธารณะเท่านั้น',
-  'policy.explain.auto': 'Center เลือกที่อยู่ภายในเมื่อยืนยันแล้ว มิฉะนั้นใช้ที่อยู่สาธารณะ ทุกการสลับเส้นทางจะแสดงเหตุผล',
-  'policy.explain.private_preferred': 'ใช้ที่อยู่ภายใน (VPC) และสลับไปสาธารณะเฉพาะเมื่อภายในเข้าถึงไม่ได้ พร้อมบันทึกเหตุผล',
-  'policy.explain.private_only': 'Fail-closed: หากเส้นทางภายในเข้าถึงไม่ได้ pPanel จะไม่สลับไปใช้ endpoint สาธารณะ การจัดการจะหยุดจนกว่าการเชื่อมต่อภายในกลับมาหรือมีการเปลี่ยนนโยบาย (บันทึก audit)',
+  'policy.explain.auto':
+    'Center เลือกที่อยู่ภายในเมื่อยืนยันแล้ว มิฉะนั้นใช้ที่อยู่สาธารณะ ทุกการสลับเส้นทางจะแสดงเหตุผล',
+  'policy.explain.private_preferred':
+    'ใช้ที่อยู่ภายใน (VPC) และสลับไปสาธารณะเฉพาะเมื่อภายในเข้าถึงไม่ได้ พร้อมบันทึกเหตุผล',
+  'policy.explain.private_only':
+    'Fail-closed: หากเส้นทางภายในเข้าถึงไม่ได้ pPanel จะไม่สลับไปใช้ endpoint สาธารณะ การจัดการจะหยุดจนกว่าการเชื่อมต่อภายในกลับมาหรือมีการเปลี่ยนนโยบาย (บันทึก audit)',
   'policy.explain.public_preferred': 'ใช้ที่อยู่สาธารณะ และใช้ภายในเฉพาะเมื่อสาธารณะเข้าถึงไม่ได้',
-  'policy.explain.public_only': 'ทราฟฟิกการจัดการผ่าน endpoint สาธารณะเสมอ ใช้เมื่อ server ไม่มี interface ภายในเท่านั้น',
+  'policy.explain.public_only':
+    'ทราฟฟิกการจัดการผ่าน endpoint สาธารณะเสมอ ใช้เมื่อ server ไม่มี interface ภายในเท่านั้น',
 
   'time.justNow': 'เมื่อสักครู่',
   'time.secondsAgo': '{n} วิ ที่แล้ว',
@@ -145,7 +152,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'metric.disk': 'Disk',
 
   'perm.missing': 'ต้องมีสิทธิ์: {perm}',
-  'perm.actionNotAllowed': 'ไม่อนุญาตสำหรับ server นี้ ({action}) Center ไม่ได้ให้สิทธิ์การกระทำนี้ เช่น agent ออฟไลน์หรือ server อยู่นอก scope ของคุณ',
+  'perm.actionNotAllowed':
+    'ไม่อนุญาตสำหรับ server นี้ ({action}) Center ไม่ได้ให้สิทธิ์การกระทำนี้ เช่น agent ออฟไลน์หรือ server อยู่นอก scope ของคุณ',
   'perm.offline': 'ปิดใช้งานขณะ agent ออฟไลน์หรือข้อมูลเก่า',
   'perm.proposed': 'Backend ยังไม่พร้อมใช้งาน (PROPOSED)',
 
@@ -156,7 +164,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'login.signingIn': 'กำลังเข้าสู่ระบบ…',
   'login.sessionExpired': 'session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง',
   'login.signedOut': 'ออกจากระบบแล้ว',
-  'login.mockHint': 'โหมดจำลอง · บัญชี dev / superadmin / admin / user1 · รหัสผ่าน “password” · superadmin ใช้ 2FA (ตัวเลข 6 หลักใดก็ได้ ยกเว้น 000000)',
+  'login.mockHint':
+    'โหมดจำลอง · บัญชี dev / superadmin / admin / user1 · รหัสผ่าน “password” · superadmin ใช้ 2FA (ตัวเลข 6 หลักใดก็ได้ ยกเว้น 000000)',
   'mfa.title': 'ยืนยันตัวตนสองขั้นตอน',
   'mfa.hint': 'กรอกรหัส 6 หลักจากแอป Authenticator',
   'mfa.code': 'รหัส 2FA',
@@ -168,17 +177,20 @@ export const th: Partial<Record<MessageKey, string>> = {
   'mfa.verify': 'ยืนยัน',
   'mfa.backToLogin': '← กลับไปหน้าเข้าสู่ระบบ',
   'bootstrap.title': 'สร้างผู้ดูแลระบบคนแรก',
-  'bootstrap.body': 'ยังไม่มีผู้ใช้ในระบบ บัญชีแรกจะเป็น Platform Owner ต้องใช้ setup token แบบใช้ครั้งเดียวที่ Center แสดงตอนเริ่มทำงานครั้งแรก',
+  'bootstrap.body':
+    'ยังไม่มีผู้ใช้ในระบบ บัญชีแรกจะเป็น Platform Owner ต้องใช้ setup token แบบใช้ครั้งเดียวที่ Center แสดงตอนเริ่มทำงานครั้งแรก',
   'bootstrap.displayName': 'ชื่อที่แสดง',
   'bootstrap.setupToken': 'Setup token',
-  'bootstrap.setupTokenHint': 'จาก PPANEL_SETUP_TOKEN หรือ log ของ Center ตอนเริ่มครั้งแรก โหมดจำลอง: dev-setup-token',
+  'bootstrap.setupTokenHint':
+    'จาก PPANEL_SETUP_TOKEN หรือ log ของ Center ตอนเริ่มครั้งแรก โหมดจำลอง: dev-setup-token',
   'bootstrap.passwordHint': 'อย่างน้อย 12 ตัวอักษร',
   'bootstrap.submit': 'สร้างผู้ดูแลระบบ',
   'bootstrap.done': 'สร้างผู้ดูแลระบบแล้ว เข้าสู่ระบบเพื่อดำเนินการต่อ',
   'bootstrap.checking': 'กำลังตรวจสอบสถานะการติดตั้ง…',
 
   'setup2fa.title': 'ตั้งค่ายืนยันตัวตนสองขั้นตอน',
-  'setup2fa.intro': 'การกระทำบน production การอนุมัติ และการเพิกถอน ต้องใช้ปัจจัยที่สอง ใช้แอป TOTP Authenticator ใดก็ได้',
+  'setup2fa.intro':
+    'การกระทำบน production การอนุมัติ และการเพิกถอน ต้องใช้ปัจจัยที่สอง ใช้แอป TOTP Authenticator ใดก็ได้',
   'setup2fa.start': 'สร้าง QR code',
   'setup2fa.scan': '1 · สแกน QR code นี้ด้วยแอป Authenticator',
   'setup2fa.qrAlt': 'QR code สำหรับแอป Authenticator',
@@ -187,7 +199,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'setup2fa.confirm': 'ยืนยันและเปิดใช้งาน',
   'setup2fa.already': 'บัญชีของคุณเปิดใช้การยืนยันตัวตนสองขั้นตอนแล้ว',
   'setup2fa.recoveryTitle': 'บันทึกรหัสกู้คืน',
-  'setup2fa.recoveryBody': 'ใช้รหัสแต่ละรหัสได้ครั้งเดียวหากทำแอป Authenticator หาย แสดงเพียงครั้งนี้และจะไม่แสดงอีก',
+  'setup2fa.recoveryBody':
+    'ใช้รหัสแต่ละรหัสได้ครั้งเดียวหากทำแอป Authenticator หาย แสดงเพียงครั้งนี้และจะไม่แสดงอีก',
   'setup2fa.copyCodes': 'คัดลอกรหัส',
   'setup2fa.ack': 'ฉันเก็บรหัสเหล่านี้ไว้ในที่ปลอดภัยแล้ว',
   'setup2fa.done': 'ไปที่ pPanel',
@@ -257,7 +270,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'card.revokedWhy': 'Agent ถูกเพิกถอน · ลงทะเบียนใหม่เพื่อจัดการ server นี้',
 
   'enroll.title': 'ลงทะเบียน Server',
-  'enroll.pageSubtitle': 'สร้าง token แบบใช้ครั้งเดียว agent เชื่อมต่อออกไปหา Center ผ่าน mTLS ไม่มีการเปิดพอร์ตบน host',
+  'enroll.pageSubtitle':
+    'สร้าง token แบบใช้ครั้งเดียว agent เชื่อมต่อออกไปหา Center ผ่าน mTLS ไม่มีการเปิดพอร์ตบน host',
   'enroll.name': 'ชื่อ server',
   'enroll.nameHint': 'ตัวพิมพ์เล็ก ตัวเลข และขีด (สูงสุด 63)',
   'enroll.environment': 'Environment',
@@ -324,7 +338,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'sd.action.granted': 'อนุญาต',
   'sd.action.notGranted': 'Center ไม่ได้อนุญาต',
 
-  'net.note': 'ⓘ การแก้ข้อมูล endpoint ใน pPanel ไม่ได้แก้ netplan, network interface, route ของ Ubuntu และไม่เปลี่ยน Public IP',
+  'net.note':
+    'ⓘ การแก้ข้อมูล endpoint ใน pPanel ไม่ได้แก้ netplan, network interface, route ของ Ubuntu และไม่เปลี่ยน Public IP',
   'net.addresses': 'ที่อยู่ IP',
   'net.verified': 'ยืนยันเมื่อ {ago}',
   'net.unverified': 'ยังไม่ยืนยัน',
@@ -333,7 +348,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'net.appEndpoint': 'Endpoint backend ของแอป',
   'net.appEndpointProposed': 'Endpoint backend รายแอปจะมาพร้อมโมดูล Applications (PROPOSED)',
   'net.policy': 'การเชื่อมต่อสำหรับจัดการที่ต้องการ',
-  'net.policyHelp': 'ทุกการเปลี่ยนแปลงถูกบันทึก audit และมีเวอร์ชัน การบันทึกใช้ If-Match เพื่อไม่ให้เขียนทับการแก้ไขพร้อมกันโดยไม่รู้ตัว',
+  'net.policyHelp':
+    'ทุกการเปลี่ยนแปลงถูกบันทึก audit และมีเวอร์ชัน การบันทึกใช้ If-Match เพื่อไม่ให้เขียนทับการแก้ไขพร้อมกันโดยไม่รู้ตัว',
   'net.save': 'บันทึกนโยบายการเชื่อมต่อ',
   'net.saved': 'บันทึกนโยบายการเชื่อมต่อแล้ว',
   'net.conflict': 'มีผู้อื่นแก้ไข server นี้ โหลดใหม่เพื่อดูค่าล่าสุดก่อนบันทึกอีกครั้ง',
@@ -352,7 +368,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'net.field.provider': 'ผู้ให้บริการ',
   'net.detected': 'ตรวจพบ',
   'net.override': 'กำหนดเอง',
-  'net.privateOnlyNoPrivate': 'server นี้ยังไม่มีที่อยู่ภายในที่ยืนยันแล้ว เมื่อใช้ ภายในเท่านั้น การจัดการจะถูกบล็อก (fail-closed) จนกว่าจะยืนยันเส้นทางภายใน',
+  'net.privateOnlyNoPrivate':
+    'server นี้ยังไม่มีที่อยู่ภายในที่ยืนยันแล้ว เมื่อใช้ ภายในเท่านั้น การจัดการจะถูกบล็อก (fail-closed) จนกว่าจะยืนยันเส้นทางภายใน',
 
   'settings.identity': 'ข้อมูลและป้ายกำกับ',
   'settings.name': 'ชื่อ',
@@ -366,7 +383,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'settings.privileged': 'privileged',
   'settings.destructive': 'destructive',
   'revoke.title': 'เพิกถอน agent บน {name}?',
-  'revoke.body': 'ใบรับรอง agent จะถูกเพิกถอนทันที และ agent จะถูกปฏิเสธในการเรียกครั้งถัดไป workload บน host ยังทำงานต่อ ต้องลงทะเบียน server ใหม่เพื่อจัดการอีกครั้ง',
+  'revoke.body':
+    'ใบรับรอง agent จะถูกเพิกถอนทันที และ agent จะถูกปฏิเสธในการเรียกครั้งถัดไป workload บน host ยังทำงานต่อ ต้องลงทะเบียน server ใหม่เพื่อจัดการอีกครั้ง',
   'revoke.typeName': 'พิมพ์ {name} เพื่อยืนยัน',
   'revoke.stepUp': 'ยืนยันรหัส 2FA (production)',
   'revoke.stepUpHint': 'การเพิกถอนบน production ต้องยืนยันปัจจัยที่สองใหม่ (step-up มีอายุ 5 นาที)',
@@ -375,9 +393,12 @@ export const th: Partial<Record<MessageKey, string>> = {
   'revoke.done': 'เพิกถอน agent แล้ว · บันทึกใน audit',
   'revoke.target': 'เป้าหมาย: {target} · บันทึกใน audit',
 
-  'proposed.applications': 'แอปที่ค้นพบหรือ deploy บน server นี้ พร้อมระดับการดูแล (Discover / Observe / Adopt / Managed)',
-  'proposed.terminal': 'เทอร์มินัลผ่าน SSH gateway ของ Center: ตรวจ host key, ยืนยัน MFA ซ้ำ และอนุมัติแบบ just-in-time สำหรับ production',
-  'proposed.firewall': 'กฎ firewall ของ host (nftables/ufw) และ DigitalOcean Cloud Firewall เทียบค่าที่ต้องการกับที่สังเกตได้ พร้อมตรวจ drift',
+  'proposed.applications':
+    'แอปที่ค้นพบหรือ deploy บน server นี้ พร้อมระดับการดูแล (Discover / Observe / Adopt / Managed)',
+  'proposed.terminal':
+    'เทอร์มินัลผ่าน SSH gateway ของ Center: ตรวจ host key, ยืนยัน MFA ซ้ำ และอนุมัติแบบ just-in-time สำหรับ production',
+  'proposed.firewall':
+    'กฎ firewall ของ host (nftables/ufw) และ DigitalOcean Cloud Firewall เทียบค่าที่ต้องการกับที่สังเกตได้ พร้อมตรวจ drift',
   'proposed.software': 'ปลั๊กอินและแพ็กเกจจาก catalog ที่ลงนามแล้ว พร้อมสถานะ drift และการตรวจสอบ',
   'proposed.runtimes': 'รันไทม์ PHP / Node.js / Python / Docker — ระดับ host เทียบกับระดับแอป',
   'proposed.databases': 'Database engine บน host นี้ ที่อยู่ bind และสถานะสำรองข้อมูล',
@@ -387,7 +408,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'proposed.events': 'Heartbeat, job และเหตุการณ์ audit ของ server นี้',
 
   'users.title': 'ผู้ใช้และบทบาท',
-  'users.subtitle': 'role binding มี scope: global ⊇ environment ⊇ server Center เป็นผู้บังคับใช้สิทธิ์ หน้านี้จัดการเฉพาะ binding',
+  'users.subtitle':
+    'role binding มี scope: global ⊇ environment ⊇ server Center เป็นผู้บังคับใช้สิทธิ์ หน้านี้จัดการเฉพาะ binding',
   'users.col.user': 'ผู้ใช้',
   'users.col.bindings': 'Role binding',
   'users.col.mfa': '2FA',
@@ -397,7 +419,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'users.addBinding': '+ Role binding',
   'users.bindingsUnknown': 'API ไม่ได้ส่งข้อมูลนี้',
   'users.empty': 'ไม่พบผู้ใช้',
-  'users.policyNote': 'Production: การแก้ Nginx และ restore ต้องอนุมัติจาก Platform Owner · action แบบ privileged ต้องยืนยัน 2FA ซ้ำ',
+  'users.policyNote':
+    'Production: การแก้ Nginx และ restore ต้องอนุมัติจาก Platform Owner · action แบบ privileged ต้องยืนยัน 2FA ซ้ำ',
   'binding.title': 'เพิ่ม role binding ให้ {user}',
   'binding.role': 'บทบาท',
   'binding.scope': 'Scope',
@@ -430,7 +453,8 @@ export const th: Partial<Record<MessageKey, string>> = {
   'security.sessions': 'Session และนโยบาย',
 
   'audit.title': 'Audit log',
-  'audit.subtitle': 'ทุกคำขอที่เปลี่ยนแปลงข้อมูลจะบันทึก audit event พร้อมผู้กระทำ การกระทำ เป้าหมาย ผลลัพธ์ และ request ID',
+  'audit.subtitle':
+    'ทุกคำขอที่เปลี่ยนแปลงข้อมูลจะบันทึก audit event พร้อมผู้กระทำ การกระทำ เป้าหมาย ผลลัพธ์ และ request ID',
   'audit.filter.action': 'การกระทำขึ้นต้นด้วย',
   'audit.filter.actor': 'Actor ID',
   'audit.filter.target': 'Target ID',
@@ -450,35 +474,46 @@ export const th: Partial<Record<MessageKey, string>> = {
   'audit.result.failure': 'ล้มเหลว',
 
   'preview.applications.title': 'แอปพลิเคชัน',
-  'preview.applications.subtitle': 'แสดง 6 จาก 34 แอปใน scope ของคุณ · แสดงระดับการดูแลตามจริง ไม่ยกระดับอัตโนมัติ',
+  'preview.applications.subtitle':
+    'แสดง 6 จาก 34 แอปใน scope ของคุณ · แสดงระดับการดูแลตามจริง ไม่ยกระดับอัตโนมัติ',
   'preview.deployments.title': 'Deploy แอปใหม่',
   'preview.deployments.crumb': 'การ Deploy / ใหม่',
   'preview.imports.crumb': 'ค้นหาและนำเข้า / scan-0142',
   'preview.imports.title': 'web-legacy-02 · ผลการสแกน Nginx',
-  'preview.imports.subtitle': 'สแกนแบบอ่านอย่างเดียว เสร็จ 14:05 ICT · checksum config ก่อน/หลังตรงกัน · nginx uptime ไม่เปลี่ยน',
+  'preview.imports.subtitle':
+    'สแกนแบบอ่านอย่างเดียว เสร็จ 14:05 ICT · checksum config ก่อน/หลังตรงกัน · nginx uptime ไม่เปลี่ยน',
   'preview.monitoring.title': 'การมอนิเตอร์ · CPU',
   'preview.monitoring.subtitle': 'Prometheus · retention 15 วัน · ข้อมูลที่ขาดหายแสดงเป็นช่องว่าง ไม่ใช่ 0',
   'preview.logs.title': 'Log',
-  'preview.logs.subtitle': 'Loki · retention 30 วัน (ข้อมูลก่อน 18 ต.ค. หมดอายุ) · ค้นได้เฉพาะ server/app ใน scope ของคุณ · secret ถูก redact',
+  'preview.logs.subtitle':
+    'Loki · retention 30 วัน (ข้อมูลก่อน 18 ต.ค. หมดอายุ) · ค้นได้เฉพาะ server/app ใน scope ของคุณ · secret ถูก redact',
   'preview.backups.crumb': 'สำรองข้อมูล / policy: shop-prod-daily',
   'preview.backups.title': 'Snapshots · shop-db (PostgreSQL 16)',
-  'preview.backups.subtitle': 'ทุกวัน 02:00 ICT · เก็บ 14 รายวัน + 8 รายสัปดาห์ · Restic เข้ารหัส · offsite: s3-bkk-archive',
+  'preview.backups.subtitle':
+    'ทุกวัน 02:00 ICT · เก็บ 14 รายวัน + 8 รายสัปดาห์ · Restic เข้ารหัส · offsite: s3-bkk-archive',
   'preview.alerts.title': 'การแจ้งเตือน',
   'preview.network.title': 'เครือข่าย',
-  'preview.network.subtitle': 'Control plane, Gateway (ไม่บังคับ) และเส้นทาง VPC · DigitalOcean sgp1 · ยืนยันสมาชิก VPC ผ่าน DO API (อ่านอย่างเดียว) ไม่อนุมานจาก ping',
+  'preview.network.subtitle':
+    'Control plane, Gateway (ไม่บังคับ) และเส้นทาง VPC · DigitalOcean sgp1 · ยืนยันสมาชิก VPC ผ่าน DO API (อ่านอย่างเดียว) ไม่อนุมานจาก ping',
   'preview.ssh.title': 'SSH และข้อมูลรับรอง',
   'preview.ssh.subtitle': 'SSH ของผู้ใช้ผ่าน SSH gateway ของ Center · private key ไม่ถูกส่งถึงเบราว์เซอร์',
   'preview.firewall.title': 'นโยบาย Firewall',
-  'preview.firewall.subtitle': 'จัดการ firewall ทุกเครื่องจาก Center · agent แปลง rule เป็น nftables หรือ ufw ตามที่เครื่องรองรับ · มีระบบกันล็อกตัวเองออก',
+  'preview.firewall.subtitle':
+    'จัดการ firewall ทุกเครื่องจาก Center · agent แปลง rule เป็น nftables หรือ ufw ตามที่เครื่องรองรับ · มีระบบกันล็อกตัวเองออก',
   'preview.plugins.title': 'ปลั๊กอินและซอฟต์แวร์',
-  'preview.plugins.subtitle': 'เฉพาะ manifest ที่ลงนามและอยู่ใน allowlist — ไม่มี shell script ที่ดาวน์โหลดมา · ติดตั้งได้เฉพาะ adapter ที่ยืนยันแล้ว',
+  'preview.plugins.subtitle':
+    'เฉพาะ manifest ที่ลงนามและอยู่ใน allowlist — ไม่มี shell script ที่ดาวน์โหลดมา · ติดตั้งได้เฉพาะ adapter ที่ยืนยันแล้ว',
   'preview.runtimes.title': 'รันไทม์',
-  'preview.runtimes.subtitle': 'PHP / Node.js / Python / Docker ราย server · การเปลี่ยนระดับ host มีผลกับทุกแอปบน server ส่วนระดับแอปไม่มีผล',
+  'preview.runtimes.subtitle':
+    'PHP / Node.js / Python / Docker ราย server · การเปลี่ยนระดับ host มีผลกับทุกแอปบน server ส่วนระดับแอปไม่มีผล',
   'preview.databases.title': 'ฐานข้อมูล',
-  'preview.databases.subtitle': 'Credential เป็น secret reference · bind กับ interface ภายในเป็นค่าเริ่มต้น · ไม่มีพอร์ต DB สาธารณะ',
+  'preview.databases.subtitle':
+    'Credential เป็น secret reference · bind กับ interface ภายในเป็นค่าเริ่มต้น · ไม่มีพอร์ต DB สาธารณะ',
   'preview.ai.title': 'AI และ MCP',
-  'preview.ai.subtitle': 'MCP เป็น adapter บนบริการเดียวกับ UI นี้ · AI เสนอและขอได้ มีเพียง Center ที่อนุญาต ดำเนินการ และตรวจสอบ · ไม่มี shell tool',
+  'preview.ai.subtitle':
+    'MCP เป็น adapter บนบริการเดียวกับ UI นี้ · AI เสนอและขอได้ มีเพียง Center ที่อนุญาต ดำเนินการ และตรวจสอบ · ไม่มี shell tool',
   'preview.approvals.title': 'การอนุมัติ',
-  'preview.approvals.subtitle': 'การอนุมัติใช้ครั้งเดียว มีเวลาจำกัด ผูกกับผู้กระทำ การกระทำ เป้าหมาย digest และ plan hash · ผู้ขอไม่สามารถอนุมัติคำขอของตนเอง',
+  'preview.approvals.subtitle':
+    'การอนุมัติใช้ครั้งเดียว มีเวลาจำกัด ผูกกับผู้กระทำ การกระทำ เป้าหมาย digest และ plan hash · ผู้ขอไม่สามารถอนุมัติคำขอของตนเอง',
   'preview.disabledAction': 'ตัวอย่างเท่านั้น — ไม่มี backend',
 };

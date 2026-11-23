@@ -20,14 +20,24 @@ describe('ServerCard stale/offline rendering', () => {
     expect(within(card).getByText('◐ 17%')).toBeInTheDocument();
     expect(within(card).getByText('◐ 52%')).toBeInTheDocument();
     expect(within(card).getByText('◐ 58%')).toBeInTheDocument();
-    expect(within(card).getByTestId('stale-marker')).toHaveTextContent(/last known · sampled 6 min ago/);
+    expect(within(card).getByTestId('stale-marker')).toHaveTextContent(
+      /last known · sampled 6 min ago/,
+    );
     expect(card.textContent).not.toMatch(/(^|[^0-9])0%/);
     expect(within(card).getByText('Stale')).toBeInTheDocument();
     expect(within(card).getByText(/Heartbeat stale/)).toBeInTheDocument();
   });
 
   it('shows "No data" (not 0%) when an offline server never reported metrics', () => {
-    const server = makeServer({ name: 'worker-uat-01', environment: 'uat', status: 'offline', lastHeartbeatAt: ago(1080), metrics: null, connectionPolicy: 'private_only', allowedActions: [] });
+    const server = makeServer({
+      name: 'worker-uat-01',
+      environment: 'uat',
+      status: 'offline',
+      lastHeartbeatAt: ago(1080),
+      metrics: null,
+      connectionPolicy: 'private_only',
+      allowedActions: [],
+    });
     renderWith(<ServerCard server={server} now={Date.now()} />);
     const card = screen.getByTestId('server-card');
     expect(within(card).getAllByText('No data')).toHaveLength(3);
@@ -37,7 +47,11 @@ describe('ServerCard stale/offline rendering', () => {
   });
 
   it('keeps offline-but-known metrics as last-known values', () => {
-    const server = makeServer({ status: 'offline', lastHeartbeatAt: ago(900), metrics: { cpuPct: 0.4, memPct: 33, diskPct: 91, sampledAt: ago(900), stale: true } });
+    const server = makeServer({
+      status: 'offline',
+      lastHeartbeatAt: ago(900),
+      metrics: { cpuPct: 0.4, memPct: 33, diskPct: 91, sampledAt: ago(900), stale: true },
+    });
     renderWith(<ServerCard server={server} now={Date.now()} />);
     // 0.4 % rounds to "0%" — a real reading, so it is shown with the stale marker, not hidden
     expect(screen.getByText('◐ 0%')).toBeInTheDocument();
@@ -57,7 +71,9 @@ describe('ServerCard stale/offline rendering', () => {
     renderWith(<ServerCard server={server} now={Date.now()} />);
     const terminal = screen.getByRole('button', { name: '>_ Terminal' });
     expect(terminal).toBeDisabled();
-    expect(screen.getAllByText('Disabled while the agent is offline or stale').length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText('Disabled while the agent is offline or stale').length,
+    ).toBeGreaterThan(0);
   });
 });
 

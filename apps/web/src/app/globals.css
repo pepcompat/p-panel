@@ -22,7 +22,7 @@
   --line: #e2e2de;
   --line-strong: #d6d6d1;
   --line-subtle: #f0f0ec;
-  --line-soft: #ececE8;
+  --line-soft: #ecece8;
 
   --fg: #1c1d1f;
   --fg-2: #3a3c40;
@@ -62,7 +62,7 @@
   --info-fg: oklch(0.45 0.13 255);
   --info-bg: oklch(0.95 0.025 255);
   --off-fg: #4d4f54;
-  --off-bg: #ececE8;
+  --off-bg: #ecece8;
   --notice-line: oklch(0.85 0.07 80);
   --notice-bg: oklch(0.97 0.035 85);
 

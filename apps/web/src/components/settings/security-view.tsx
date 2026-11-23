@@ -17,9 +17,14 @@ export function SecurityView() {
         <ToneBadge tone={me?.mfaEnabled ? 'ok' : 'warn'} className="self-start">
           {me?.mfaEnabled ? t('account.mfaOn') : t('account.mfaOff')}
         </ToneBadge>
-        <p className="m-0 text-[13px] text-fg-3">{me?.mfaEnabled ? t('security.mfaOn') : t('security.mfaOff')}</p>
+        <p className="m-0 text-[13px] text-fg-3">
+          {me?.mfaEnabled ? t('security.mfaOn') : t('security.mfaOff')}
+        </p>
         {!me?.mfaEnabled && (
-          <Link href="/setup/2fa" className="self-start rounded-md bg-accent-strong px-3.5 py-2 text-[13.5px] text-on-accent no-underline hover:text-on-accent hover:no-underline">
+          <Link
+            href="/setup/2fa"
+            className="self-start rounded-md bg-accent-strong px-3.5 py-2 text-[13.5px] text-on-accent no-underline hover:text-on-accent hover:no-underline"
+          >
             {t('security.setup')}
           </Link>
         )}

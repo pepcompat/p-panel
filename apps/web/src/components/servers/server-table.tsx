@@ -14,7 +14,9 @@ function metricsCell(s: Server, noData: string) {
   return (
     <span className={stale ? 'text-stale' : undefined}>
       {stale ? '◐ ' : ''}
-      {[s.metrics.cpuPct, s.metrics.memPct, s.metrics.diskPct].map((n) => (n === null ? '—' : `${Math.round(n)}%`)).join(' / ')}
+      {[s.metrics.cpuPct, s.metrics.memPct, s.metrics.diskPct]
+        .map((n) => (n === null ? '—' : `${Math.round(n)}%`))
+        .join(' / ')}
     </span>
   );
 }
@@ -28,14 +30,30 @@ export function ServerTable({ servers, now }: { servers: Server[]; now: number }
       <table className="w-full min-w-[980px] border-collapse text-[13px]">
         <thead>
           <tr className="bg-surface-2 text-left text-[12px] text-fg-muted">
-            <th scope="col" className={`${th} pl-4`}>{t('servers.col.server')}</th>
-            <th scope="col" className={th}>{t('servers.col.env')}</th>
-            <th scope="col" className={th}>{t('servers.col.status')}</th>
-            <th scope="col" className={th}>{t('servers.col.public')}</th>
-            <th scope="col" className={th}>{t('servers.col.private')}</th>
-            <th scope="col" className={th}>{t('servers.col.path')}</th>
-            <th scope="col" className={th}>{t('servers.col.metrics')}</th>
-            <th scope="col" className={`${th} pr-4`}>{t('servers.col.heartbeat')}</th>
+            <th scope="col" className={`${th} pl-4`}>
+              {t('servers.col.server')}
+            </th>
+            <th scope="col" className={th}>
+              {t('servers.col.env')}
+            </th>
+            <th scope="col" className={th}>
+              {t('servers.col.status')}
+            </th>
+            <th scope="col" className={th}>
+              {t('servers.col.public')}
+            </th>
+            <th scope="col" className={th}>
+              {t('servers.col.private')}
+            </th>
+            <th scope="col" className={th}>
+              {t('servers.col.path')}
+            </th>
+            <th scope="col" className={th}>
+              {t('servers.col.metrics')}
+            </th>
+            <th scope="col" className={`${th} pr-4`}>
+              {t('servers.col.heartbeat')}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -46,7 +64,11 @@ export function ServerTable({ servers, now }: { servers: Server[]; now: number }
               className="cursor-pointer border-t border-line-subtle hover:bg-surface-hover"
             >
               <td className="py-[9px] pr-2 pl-4 font-mono text-[12.5px]">
-                <Link href={`/servers/${s.id}/overview`} className="text-accent-text" onClick={(e) => e.stopPropagation()}>
+                <Link
+                  href={`/servers/${s.id}/overview`}
+                  className="text-accent-text"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {s.name}
                 </Link>
               </td>
@@ -55,12 +77,16 @@ export function ServerTable({ servers, now }: { servers: Server[]; now: number }
                 <StatusBadge status={s.status} />
               </td>
               <td className="px-2 font-mono text-[12px]">{address(s, 'public')?.address ?? '—'}</td>
-              <td className="px-2 font-mono text-[12px]">{address(s, 'private')?.address ?? '—'}</td>
+              <td className="px-2 font-mono text-[12px]">
+                {address(s, 'private')?.address ?? '—'}
+              </td>
               <td className="px-2">
                 <PathBadge server={s} className="text-[11.5px]" />
               </td>
               <td className="px-2 font-mono text-[12px]">{metricsCell(s, t('common.noData'))}</td>
-              <td className="py-[9px] pr-4 pl-2 text-[12px]">{relativeTime(s.lastHeartbeatAt, t, now)}</td>
+              <td className="py-[9px] pr-4 pl-2 text-[12px]">
+                {relativeTime(s.lastHeartbeatAt, t, now)}
+              </td>
             </tr>
           ))}
         </tbody>

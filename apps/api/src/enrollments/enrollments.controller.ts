@@ -14,12 +14,18 @@ export class EnrollmentsController {
 
   @Post()
   @HttpCode(201)
-  create(@CurrentUser() user: AuthUser, @Body(new ZodPipe(createEnrollmentSchema)) body: CreateEnrollmentInput) {
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(createEnrollmentSchema)) body: CreateEnrollmentInput,
+  ) {
     return this.enrollments.create(user, body);
   }
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Req() req: Request) {
-    return this.enrollments.list(user, parseQuery(req.originalUrl, { sortable: ['createdAt', 'expiresAt', 'name'] }));
+    return this.enrollments.list(
+      user,
+      parseQuery(req.originalUrl, { sortable: ['createdAt', 'expiresAt', 'name'] }),
+    );
   }
 }

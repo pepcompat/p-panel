@@ -29,27 +29,58 @@ export interface ParsedQuery {
   raw: URLSearchParams;
 }
 
-const CONTROL = new Set(['page', 'limit', 'sort', 'order', 'q', 'searchBy', 'searchType', 'fields', 'include', 'waitSec']);
+const CONTROL = new Set([
+  'page',
+  'limit',
+  'sort',
+  'order',
+  'q',
+  'searchBy',
+  'searchType',
+  'fields',
+  'include',
+  'waitSec',
+]);
 const FILTER_RE = /^([a-z][a-z0-9_]*)(?:\[([a-z]+)\])?$/;
 const OR_RE = /^or\[(\d{1,2})\]\[([a-z][a-z0-9_]*)\](?:\[([a-z]+)\])?$/;
-const OPS = new Set(['eq', 'ne', 'in', 'nin', 'gt', 'gte', 'lt', 'lte', 'between', 'bt', 'contains', 'like', 'prefix', 'isnull']);
+const OPS = new Set([
+  'eq',
+  'ne',
+  'in',
+  'nin',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'between',
+  'bt',
+  'contains',
+  'like',
+  'prefix',
+  'isnull',
+]);
 
 function snakeToCamel(s: string): string {
   return s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-export function parseQuery(originalUrl: string, opts: { sortable: string[]; defaultSort?: string } ): ParsedQuery {
+export function parseQuery(
+  originalUrl: string,
+  opts: { sortable: string[]; defaultSort?: string },
+): ParsedQuery {
   const qs = originalUrl.includes('?') ? originalUrl.slice(originalUrl.indexOf('?') + 1) : '';
   const raw = new URLSearchParams(qs);
   const page = intParam(raw.get('page'), DEFAULT_PAGE, 1, 1_000_000, 'page');
   const limit = intParam(raw.get('limit'), DEFAULT_LIMIT, 1, MAX_LIMIT, 'limit');
   const orderRaw = (raw.get('order') ?? 'desc').toLowerCase();
-  if (orderRaw !== 'asc' && orderRaw !== 'desc') throw AppError.badRequest('order must be asc or desc');
+  if (orderRaw !== 'asc' && orderRaw !== 'desc')
+    throw AppError.badRequest('order must be asc or desc');
   const defaultSort = opts.defaultSort ?? 'createdAt';
   // accept camelCase or snake_case sort names
   const sortRaw = raw.get('sort');
   const sort = sortRaw ? snakeToCamel(sortRaw) : defaultSort;
-  if (!opts.sortable.includes(sort)) throw AppError.badRequest(`sort must be one of: ${opts.sortable.join(', ')}`);
+  if (!opts.sortable.includes(sort))
+    throw AppError.badRequest(`sort must be one of: ${opts.sortable.join(', ')}`);
   const q = raw.get('q')?.trim() || undefined;
   if (q && q.length > 200) throw AppError.badRequest('q too long');
 
@@ -85,7 +116,8 @@ export function parseQuery(originalUrl: string, opts: { sortable: string[]; defa
 function intParam(v: string | null, def: number, min: number, max: number, name: string): number {
   if (v === null || v === '') return def;
   const n = Number(v);
-  if (!Number.isInteger(n) || n < min || n > max) throw AppError.badRequest(`${name} must be an integer between ${min} and ${max}`);
+  if (!Number.isInteger(n) || n < min || n > max)
+    throw AppError.badRequest(`${name} must be an integer between ${min} and ${max}`);
   return n;
 }
 
@@ -115,7 +147,10 @@ function coerce(def: FieldDef, field: string, v: string): unknown {
 
 function filterToWhere(f: Filter, fields: FieldMap): Record<string, unknown> {
   const def = fields[f.field];
-  if (!def) throw AppError.badRequest(`Unsupported filter field: ${f.field}`, { allowed: Object.keys(fields) });
+  if (!def)
+    throw AppError.badRequest(`Unsupported filter field: ${f.field}`, {
+      allowed: Object.keys(fields),
+    });
   if (!OPS.has(f.op)) throw AppError.badRequest(`Unsupported operator: ${f.op}`);
   const list = () => f.value.split(',').map((x) => coerce(def, f.field, x.trim()));
   let cond: unknown;
@@ -141,7 +176,8 @@ function filterToWhere(f: Filter, fields: FieldMap): Record<string, unknown> {
     case 'between':
     case 'bt': {
       const [a, b] = list();
-      if (a === undefined || b === undefined) throw AppError.badRequest(`${f.field}[${f.op}] expects "from,to"`);
+      if (a === undefined || b === undefined)
+        throw AppError.badRequest(`${f.field}[${f.op}] expects "from,to"`);
       cond = { gte: a, lte: b };
       break;
     }
@@ -161,8 +197,14 @@ function filterToWhere(f: Filter, fields: FieldMap): Record<string, unknown> {
 }
 
 /** Builds a Prisma `where` (AND of filters, plus OR groups). */
-export function buildWhere(pq: ParsedQuery, fields: FieldMap, skip: string[] = []): Record<string, unknown> {
-  const and: Record<string, unknown>[] = pq.filters.filter((f) => !skip.includes(f.field)).map((f) => filterToWhere(f, fields));
+export function buildWhere(
+  pq: ParsedQuery,
+  fields: FieldMap,
+  skip: string[] = [],
+): Record<string, unknown> {
+  const and: Record<string, unknown>[] = pq.filters
+    .filter((f) => !skip.includes(f.field))
+    .map((f) => filterToWhere(f, fields));
   for (const group of pq.or) and.push({ OR: group.map((f) => filterToWhere(f, fields)) });
   return and.length ? { AND: and } : {};
 }

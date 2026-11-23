@@ -39,14 +39,19 @@ export function Dialog({
           {badge}
           <div className="flex items-start gap-2">
             <D.Title className="m-0 flex-1 text-[17px] font-semibold">{title}</D.Title>
-            <D.Close aria-label={closeLabel} className="-mt-1 -mr-1 h-8 w-8 rounded border-0 bg-transparent text-[16px]">
+            <D.Close
+              aria-label={closeLabel}
+              className="-mt-1 -mr-1 h-8 w-8 rounded border-0 bg-transparent text-[16px]"
+            >
               ✕
             </D.Close>
           </div>
           {description ? (
             <D.Description className="m-0 text-[13.5px] text-fg-2">{description}</D.Description>
           ) : (
-            <D.Description className="sr-only">{typeof title === 'string' ? title : ''}</D.Description>
+            <D.Description className="sr-only">
+              {typeof title === 'string' ? title : ''}
+            </D.Description>
           )}
           {children}
           {footer && <div className="flex justify-end gap-2">{footer}</div>}

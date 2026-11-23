@@ -27,11 +27,15 @@ export function NetworkTab({ server, now }: { server: Server; now: number }) {
 
   const priv = address(server, 'private');
   const pub = address(server, 'public');
-  const verifiedLabel = (iso: string | null) => (iso ? t('net.verified', { ago: relativeTime(iso, t, now) }) : t('net.unverified'));
+  const verifiedLabel = (iso: string | null) =>
+    iso ? t('net.verified', { ago: relativeTime(iso, t, now) }) : t('net.unverified');
 
   // Effective management endpoint per the *saved* policy (preview of a draft would be misleading).
   const path = connectionPath(server);
-  const usesPrivate = path.key === 'path.private' || path.key === 'path.privateStale' || path.key === 'path.privateOnlyUnreachable';
+  const usesPrivate =
+    path.key === 'path.private' ||
+    path.key === 'path.privateStale' ||
+    path.key === 'path.privateOnlyUnreachable';
   const mgmt = usesPrivate ? priv : path.key === 'path.blocked' ? undefined : (pub ?? priv);
   const dirty = policy !== server.connectionPolicy;
   const conflict = patch.error?.status === 409;
@@ -49,10 +53,19 @@ export function NetworkTab({ server, now }: { server: Server; now: number }) {
           ) : (
             <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
               {server.addresses.map((a) => (
-                <li key={`${a.scope}-${a.family}-${a.address}`} className="flex flex-col gap-0.5 border-b border-line-subtle pb-2 last:border-0 last:pb-0">
+                <li
+                  key={`${a.scope}-${a.family}-${a.address}`}
+                  className="flex flex-col gap-0.5 border-b border-line-subtle pb-2 last:border-0 last:pb-0"
+                >
                   <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-fg-muted">
-                    <span className="min-w-[110px]">{t(`net.field.${a.scope}${a.family === 'ipv4' ? 'Ipv4' : 'Ipv6'}` as MessageKey)}</span>
-                    <OutlineTag>{a.source === 'override' ? t('net.override') : t('net.detected')}</OutlineTag>
+                    <span className="min-w-[110px]">
+                      {t(
+                        `net.field.${a.scope}${a.family === 'ipv4' ? 'Ipv4' : 'Ipv6'}` as MessageKey,
+                      )}
+                    </span>
+                    <OutlineTag>
+                      {a.source === 'override' ? t('net.override') : t('net.detected')}
+                    </OutlineTag>
                     {a.interface && <OutlineTag>{a.interface}</OutlineTag>}
                     <ToneBadge tone={a.verifiedAt ? 'ok' : 'warn'} size="sm">
                       {verifiedLabel(a.verifiedAt)}
@@ -69,14 +82,19 @@ export function NetworkTab({ server, now }: { server: Server; now: number }) {
           <div className="flex flex-col gap-1 rounded-md border border-line px-3 py-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <b className="flex-1 text-[13.5px]">{t('net.mgmt')}</b>
-              {mgmt && <OutlineTag>{mgmt.source === 'override' ? t('net.override') : t('net.detected')}</OutlineTag>}
+              {mgmt && (
+                <OutlineTag>
+                  {mgmt.source === 'override' ? t('net.override') : t('net.detected')}
+                </OutlineTag>
+              )}
               <ToneBadge tone={path.tone} size="sm">
                 {t(path.key)}
               </ToneBadge>
             </div>
             <span className="font-mono text-[13px]">{mgmt?.address ?? '—'}</span>
             <span className="text-[12px] text-fg-muted">
-              {t(`policy.${server.connectionPolicy}`)} · {mgmt ? verifiedLabel(mgmt.verifiedAt) : t('net.unverified')}
+              {t(`policy.${server.connectionPolicy}`)} ·{' '}
+              {mgmt ? verifiedLabel(mgmt.verifiedAt) : t('net.unverified')}
             </span>
           </div>
           <div className="flex flex-col gap-1 rounded-md border border-dashed border-line-strong px-3 py-2.5">
@@ -98,9 +116,22 @@ export function NetworkTab({ server, now }: { server: Server; now: number }) {
           className="self-start"
           options={CONNECTION_POLICIES.map((p) => ({ value: p, label: t(`policy.${p}`) }))}
         />
-        <Notice tone={policy === 'private_only' ? 'warn' : policy === 'public_only' || policy === 'public_preferred' ? 'warn' : 'info'} glyph={policy === 'private_only' ? '▲' : '◆'} title={t(`policy.${policy}`)} role="status">
+        <Notice
+          tone={
+            policy === 'private_only'
+              ? 'warn'
+              : policy === 'public_only' || policy === 'public_preferred'
+                ? 'warn'
+                : 'info'
+          }
+          glyph={policy === 'private_only' ? '▲' : '◆'}
+          title={t(`policy.${policy}`)}
+          role="status"
+        >
           <span className="text-fg-2">{t(`policy.explain.${policy}`)}</span>
-          {policy === 'private_only' && !priv?.verifiedAt && <div className="mt-1 font-medium text-crit">{t('net.privateOnlyNoPrivate')}</div>}
+          {policy === 'private_only' && !priv?.verifiedAt && (
+            <div className="mt-1 font-medium text-crit">{t('net.privateOnlyNoPrivate')}</div>
+          )}
         </Notice>
         <p className="m-0 text-[12px] text-fg-muted">{t('net.policyHelp')}</p>
         {conflict && (
@@ -120,7 +151,8 @@ export function NetworkTab({ server, now }: { server: Server; now: number }) {
               </Button>
             }
           >
-            {t('net.conflict')} <span className="font-mono text-[11.5px] text-fg-muted">{patch.error?.requestId}</span>
+            {t('net.conflict')}{' '}
+            <span className="font-mono text-[11.5px] text-fg-muted">{patch.error?.requestId}</span>
           </Notice>
         )}
         {patch.error && !conflict && <ErrorState error={patch.error} />}
@@ -157,7 +189,12 @@ export function NetworkTab({ server, now }: { server: Server; now: number }) {
             </ToneBadge>
           </div>
           <ProposedBanner />
-          <GatedButton size="sm" className="self-start" perm="fleet.read" blockedReason={isLive(server) ? { key: 'perm.proposed' } : { key: 'perm.offline' }}>
+          <GatedButton
+            size="sm"
+            className="self-start"
+            perm="fleet.read"
+            blockedReason={isLive(server) ? { key: 'perm.proposed' } : { key: 'perm.offline' }}
+          >
             {t('net.runDiag')}
           </GatedButton>
         </Card>

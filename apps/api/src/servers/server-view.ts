@@ -18,7 +18,11 @@ export const serverInclude = {
 export type ServerRow = Prisma.ServerGetPayload<{ include: typeof serverInclude }>;
 
 /** Status is derived on read from the last heartbeat; stored status is never overwritten by staleness. */
-export function deriveStatus(stored: string, lastHeartbeatAt: Date | null, now = Date.now()): ServerStatus {
+export function deriveStatus(
+  stored: string,
+  lastHeartbeatAt: Date | null,
+  now = Date.now(),
+): ServerStatus {
   if (stored === 'revoked' || stored === 'enrolling') return stored;
   if (!lastHeartbeatAt) return 'offline';
   const ageSec = (now - lastHeartbeatAt.getTime()) / 1000;
@@ -36,7 +40,10 @@ export function statusWhere(status: string, now = Date.now()): Prisma.ServerWher
     case 'degraded':
       return { status, lastHeartbeatAt: { gte: staleCut } };
     case 'stale':
-      return { status: { in: ['online', 'degraded'] }, lastHeartbeatAt: { lt: staleCut, gte: offCut } };
+      return {
+        status: { in: ['online', 'degraded'] },
+        lastHeartbeatAt: { lt: staleCut, gte: offCut },
+      };
     case 'offline':
       return {
         status: { in: ['online', 'degraded', 'offline', 'stale'] },
@@ -49,7 +56,13 @@ export function statusWhere(status: string, now = Date.now()): Prisma.ServerWher
 
 export function toServer(row: ServerRow, allowedActions: string[], now = Date.now()): Server {
   const status = deriveStatus(row.status, row.lastHeartbeatAt, now);
-  const m = row.metrics as { cpuPct?: number | null; memPct?: number | null; diskPct?: number | null; load1?: number | null; uptimeSec?: number | null } | null;
+  const m = row.metrics as {
+    cpuPct?: number | null;
+    memPct?: number | null;
+    diskPct?: number | null;
+    load1?: number | null;
+    uptimeSec?: number | null;
+  } | null;
   const cert = row.certificates[0];
   return {
     id: row.id,
@@ -63,16 +76,14 @@ export function toServer(row: ServerRow, allowedActions: string[], now = Date.no
     agentVersion: row.agentVersion,
     os: (row.os as Server['os']) ?? null,
     provider: (row.provider as Server['provider']) ?? null,
-    addresses: row.addresses.map(
-      (a): ServerAddress => ({
-        family: a.family as ServerAddress['family'],
-        scope: a.scope as ServerAddress['scope'],
-        address: a.address,
-        ...(a.interface ? { interface: a.interface } : {}),
-        source: a.source as ServerAddress['source'],
-        verifiedAt: a.verifiedAt?.toISOString() ?? null,
-      }),
-    ),
+    addresses: row.addresses.map((a): ServerAddress => ({
+      family: a.family as ServerAddress['family'],
+      scope: a.scope as ServerAddress['scope'],
+      address: a.address,
+      ...(a.interface ? { interface: a.interface } : {}),
+      source: a.source as ServerAddress['source'],
+      verifiedAt: a.verifiedAt?.toISOString() ?? null,
+    })),
     connectionPolicy: row.connectionPolicy as ConnectionPolicy,
     // Metrics are never zeroed: stale/offline servers keep last values flagged stale.
     metrics:

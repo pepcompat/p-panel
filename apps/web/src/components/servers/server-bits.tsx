@@ -13,7 +13,13 @@ export function StatusBadge({ status }: { status: Server['status'] }) {
   return <ToneBadge tone={STATUS_TONE[status]}>{t(statusKey(status))}</ToneBadge>;
 }
 
-export function PathBadge({ server, className }: { server: Pick<Server, 'status' | 'connectionPolicy' | 'addresses'>; className?: string }) {
+export function PathBadge({
+  server,
+  className,
+}: {
+  server: Pick<Server, 'status' | 'connectionPolicy' | 'addresses'>;
+  className?: string;
+}) {
   const t = useT();
   const p = connectionPath(server);
   return (
@@ -27,15 +33,41 @@ export function PathBadge({ server, className }: { server: Pick<Server, 'status'
  * CPU/RAM/Disk meters. Stale/offline servers keep their last-known values with a stale marker;
  * a server that never reported shows "No data" — metrics are never rendered as 0.
  */
-export function ServerMeters({ server, size = 'sm', now }: { server: Pick<Server, 'metrics' | 'status'>; size?: 'sm' | 'md'; now: number }) {
+export function ServerMeters({
+  server,
+  size = 'sm',
+  now,
+}: {
+  server: Pick<Server, 'metrics' | 'status'>;
+  size?: 'sm' | 'md';
+  now: number;
+}) {
   const t = useT();
   const m = server.metrics;
   const stale = !!m && (m.stale || !isLive(server));
   return (
     <div className="flex flex-col gap-1.5">
-      <ResourceMeter size={size} label={t('metric.cpu')} value={m ? m.cpuPct : null} stale={stale} noDataLabel={t('common.noData')} />
-      <ResourceMeter size={size} label={t('metric.ram')} value={m ? m.memPct : null} stale={stale} noDataLabel={t('common.noData')} />
-      <ResourceMeter size={size} label={t('metric.disk')} value={m ? m.diskPct : null} stale={stale} noDataLabel={t('common.noData')} />
+      <ResourceMeter
+        size={size}
+        label={t('metric.cpu')}
+        value={m ? m.cpuPct : null}
+        stale={stale}
+        noDataLabel={t('common.noData')}
+      />
+      <ResourceMeter
+        size={size}
+        label={t('metric.ram')}
+        value={m ? m.memPct : null}
+        stale={stale}
+        noDataLabel={t('common.noData')}
+      />
+      <ResourceMeter
+        size={size}
+        label={t('metric.disk')}
+        value={m ? m.diskPct : null}
+        stale={stale}
+        noDataLabel={t('common.noData')}
+      />
       {m && stale && (
         <span data-testid="stale-marker" className="text-[11.5px] text-stale">
           {t('card.staleMarker', { ago: relativeTime(m.sampledAt, t, now) })}

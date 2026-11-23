@@ -6,7 +6,13 @@ describe('heartbeatSchema (Go agent interop)', () => {
   const base = { seq: 1, sentAt: '2026-11-17T10:43:02.378691383Z', agentVersion: '0.1.0' };
 
   it('accepts null slices from Go and normalises them to []', () => {
-    const r = heartbeatSchema.parse({ ...base, metrics: {}, addresses: null, capabilities: null, runningJobIds: null });
+    const r = heartbeatSchema.parse({
+      ...base,
+      metrics: {},
+      addresses: null,
+      capabilities: null,
+      runningJobIds: null,
+    });
     expect(r.addresses).toEqual([]);
     expect(r.capabilities).toEqual([]);
     expect(r.runningJobIds).toEqual([]);

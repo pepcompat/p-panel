@@ -20,7 +20,10 @@ const DAY = 24 * 3600 * 1000;
 
 /** Normalised serial: lowercase hex, no separators, no leading zeros (matches Node's getPeerCertificate()). */
 export function normalizeSerial(serial: string): string {
-  const s = serial.replace(/[^0-9a-f]/gi, '').toLowerCase().replace(/^0+/, '');
+  const s = serial
+    .replace(/[^0-9a-f]/gi, '')
+    .toLowerCase()
+    .replace(/^0+/, '');
   return s || '0';
 }
 
@@ -31,7 +34,10 @@ function newSerial(): string {
 }
 
 function toPem(der: ArrayBuffer, label: string): string {
-  const b64 = Buffer.from(der).toString('base64').replace(/(.{64})/g, '$1\n').trim();
+  const b64 = Buffer.from(der)
+    .toString('base64')
+    .replace(/(.{64})/g, '$1\n')
+    .trim();
   return `-----BEGIN ${label}-----\n${b64}\n-----END ${label}-----\n`;
 }
 
@@ -71,7 +77,10 @@ export class CaService implements OnModuleInit {
 
   async ensureCa(): Promise<void> {
     if (this.ca) return;
-    let row = await this.prisma.caKey.findFirst({ where: { purpose: CA_PURPOSE, active: true }, orderBy: { createdAt: 'desc' } });
+    let row = await this.prisma.caKey.findFirst({
+      where: { purpose: CA_PURPOSE, active: true },
+      orderBy: { createdAt: 'desc' },
+    });
     if (!row) {
       row = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('ppanel_ca_bootstrap'))`;
@@ -82,7 +91,12 @@ export class CaService implements OnModuleInit {
     }
     const pkcs8 = decryptSecret(this.config.masterKey, row.privateKeyEnc, `ca_key:${row.id}`);
     const privateKey = await subtle.importKey('pkcs8', pkcs8, EC_ALG, false, ['sign']);
-    this.ca = { id: row.id, cert: new x509.X509Certificate(row.certPem), certPem: row.certPem, privateKey };
+    this.ca = {
+      id: row.id,
+      cert: new x509.X509Certificate(row.certPem),
+      certPem: row.certPem,
+      privateKey,
+    };
   }
 
   private async generateCa(tx: Tx) {
@@ -99,7 +113,10 @@ export class CaService implements OnModuleInit {
       signingAlgorithm: SIGN_ALG,
       extensions: [
         new x509.BasicConstraintsExtension(true, 0, true),
-        new x509.KeyUsagesExtension(x509.KeyUsageFlags.keyCertSign | x509.KeyUsageFlags.cRLSign, true),
+        new x509.KeyUsagesExtension(
+          x509.KeyUsageFlags.keyCertSign | x509.KeyUsageFlags.cRLSign,
+          true,
+        ),
         await x509.SubjectKeyIdentifierExtension.create(keys.publicKey),
       ],
     });
@@ -120,7 +137,8 @@ export class CaService implements OnModuleInit {
 
   /** Validates an agent CSR (ECDSA P-256, valid self-signature). Subject is ignored. */
   async parseCsr(csrPem: string): Promise<x509.Pkcs10CertificateRequest> {
-    const invalid = () => new AppError(422, ERROR_CODES.CSR_INVALID, 'CSR must be a valid ECDSA P-256 PKCS#10 request');
+    const invalid = () =>
+      new AppError(422, ERROR_CODES.CSR_INVALID, 'CSR must be a valid ECDSA P-256 PKCS#10 request');
     let csr: x509.Pkcs10CertificateRequest;
     try {
       csr = new x509.Pkcs10CertificateRequest(csrPem.trim());
@@ -158,7 +176,9 @@ export class CaService implements OnModuleInit {
         new x509.BasicConstraintsExtension(false, undefined, true),
         new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
         new x509.ExtendedKeyUsageExtension([x509.ExtendedKeyUsage.clientAuth]),
-        new x509.SubjectAlternativeNameExtension([{ type: 'url', value: `ppanel://agent/${serverId}` }]),
+        new x509.SubjectAlternativeNameExtension([
+          { type: 'url', value: `ppanel://agent/${serverId}` },
+        ]),
         await x509.AuthorityKeyIdentifierExtension.create(ca.cert),
         await x509.SubjectKeyIdentifierExtension.create(publicKey),
       ],
@@ -167,12 +187,16 @@ export class CaService implements OnModuleInit {
   }
 
   /** Gateway TLS server certificate (fresh key per process start, never persisted). */
-  async issueGatewayCert(hostnames: string[]): Promise<{ keyPem: string; certPem: string; caPem: string }> {
+  async issueGatewayCert(
+    hostnames: string[],
+  ): Promise<{ keyPem: string; certPem: string; caPem: string }> {
     await this.ensureCa();
     const ca = this.ca!;
     const keys = (await subtle.generateKey(EC_ALG, true, ['sign', 'verify'])) as CryptoKeyPair;
     const names = new Set(['localhost', '127.0.0.1', '::1', ...hostnames]);
-    const san = [...names].map((n) => (isIP(n) ? { type: 'ip' as const, value: n } : { type: 'dns' as const, value: n }));
+    const san = [...names].map((n) =>
+      isIP(n) ? { type: 'ip' as const, value: n } : { type: 'dns' as const, value: n },
+    );
     const cert = await x509.X509CertificateGenerator.create({
       serialNumber: newSerial(),
       subject: 'CN=ppanel-agent-gateway',

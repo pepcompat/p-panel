@@ -2,7 +2,11 @@ import type { MessageKey } from '@/i18n/en';
 
 type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
-export function relativeTime(iso: string | null | undefined, t: TFn, now: number = Date.now()): string {
+export function relativeTime(
+  iso: string | null | undefined,
+  t: TFn,
+  now: number = Date.now(),
+): string {
   if (!iso) return t('time.never');
   const sec = Math.round((now - new Date(iso).getTime()) / 1000);
   if (!Number.isFinite(sec)) return t('common.unknown');

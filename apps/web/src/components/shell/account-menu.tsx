@@ -28,23 +28,34 @@ export function AccountMenu() {
         {initials}
       </DM.Trigger>
       <DM.Portal>
-        <DM.Content align="end" sideOffset={6} className="z-50 min-w-[240px] rounded-lg border border-line bg-surface p-1.5 text-fg shadow-xl">
+        <DM.Content
+          align="end"
+          sideOffset={6}
+          className="z-50 min-w-[240px] rounded-lg border border-line bg-surface p-1.5 text-fg shadow-xl"
+        >
           <div className="px-2.5 py-2">
             <div className="text-[13.5px] font-semibold">{me?.user.displayName}</div>
             <div className="text-[12px] text-fg-muted">{me?.user.email}</div>
             <div className="mt-1 text-[12px]">
-              <span className={me?.mfaEnabled ? 'text-ok' : 'text-warn'}>{me?.mfaEnabled ? '●' : '▲'}</span>{' '}
+              <span className={me?.mfaEnabled ? 'text-ok' : 'text-warn'}>
+                {me?.mfaEnabled ? '●' : '▲'}
+              </span>{' '}
               {me?.mfaEnabled ? t('account.mfaOn') : t('account.mfaOff')}
             </div>
           </div>
           <DM.Separator className="my-1 h-px bg-line" />
           <DM.Item asChild className={item}>
-            <Link href={me?.mfaEnabled ? '/settings/security' : '/setup/2fa'} className="text-fg no-underline hover:no-underline">
+            <Link
+              href={me?.mfaEnabled ? '/settings/security' : '/setup/2fa'}
+              className="text-fg no-underline hover:no-underline"
+            >
               {me?.mfaEnabled ? t('account.security') : t('account.enableMfa')}
             </Link>
           </DM.Item>
           <DM.Separator className="my-1 h-px bg-line" />
-          <DM.Label className="px-2.5 pt-1 text-[11px] tracking-[.06em] text-fg-muted uppercase">{t('account.theme')}</DM.Label>
+          <DM.Label className="px-2.5 pt-1 text-[11px] tracking-[.06em] text-fg-muted uppercase">
+            {t('account.theme')}
+          </DM.Label>
           <DM.RadioGroup value={pref} onValueChange={(v) => setPref(v as ThemePref)}>
             {(['light', 'dark', 'system'] as const).map((p) => (
               <DM.RadioItem key={p} value={p} className={item}>

@@ -14,10 +14,15 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
-const totpCode = z.string().trim().regex(/^\d{6}$/);
+const totpCode = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/);
 export const mfaVerifySchema = z.union([
   z.object({ mfaToken: z.string().min(10), code: totpCode }).strict(),
-  z.object({ mfaToken: z.string().min(10), recoveryCode: z.string().trim().min(8).max(32) }).strict(),
+  z
+    .object({ mfaToken: z.string().min(10), recoveryCode: z.string().trim().min(8).max(32) })
+    .strict(),
 ]);
 export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;
 

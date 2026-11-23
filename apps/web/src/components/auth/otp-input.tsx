@@ -5,7 +5,19 @@ import { useT } from '@/i18n/provider';
 import { cn } from '@/lib/utils';
 
 /** Six single-digit boxes (design: login 2FA). Supports paste of the full code and autofill. */
-export function OtpInput({ value, onChange, autoFocus, invalid, groupLabel }: { value: string; onChange: (v: string) => void; autoFocus?: boolean; invalid?: boolean; groupLabel: string }) {
+export function OtpInput({
+  value,
+  onChange,
+  autoFocus,
+  invalid,
+  groupLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  autoFocus?: boolean;
+  invalid?: boolean;
+  groupLabel: string;
+}) {
   const t = useT();
   const refs = useRef<Array<HTMLInputElement | null>>([]);
   const digits = Array.from({ length: 6 }, (_, i) => value[i] ?? '');

@@ -1,0 +1,18 @@
+# Prometheus scrapes ONLY the Center (ADR-0008): agents ship metrics in the heartbeat and the Center
+# exports the latest fresh sample per server/container at GET /internal/metrics (not under /api/v1).
+# Labels on those series come from Center records (honor_labels keeps them; job/instance are added).
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ppanel-center
+    metrics_path: /internal/metrics
+    scheme: http
+    honor_labels: true
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/scrape-token
+    static_configs:
+      - targets: ['host.docker.internal:4000']

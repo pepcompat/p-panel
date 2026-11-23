@@ -12,11 +12,14 @@ import { formatClock } from '@/lib/time';
 import { useDesignData, type DesignTone } from '@/mocks/use-design-data';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, Page, PageHeader } from '@/components/ui/card';
-import { ToneBadge, toneText, TONE_GLYPH } from '@/components/ui/badge';
+import { ToneBadge } from '@/components/ui/badge';
 import { ResourceMeter } from '@/components/ui/meter';
 import { Skeleton, TableSkeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/states';
 import { StatusBadge } from '@/components/servers/server-bits';
+import { ActiveIncidentsCard } from '@/components/p5/active-incidents-card';
+import { AlertFiringBadge, firingForServer } from '@/components/p5/bits';
+import { useActiveIncidents } from '@/lib/p5-queries';
 import { cn } from '@/lib/utils';
 
 const SEVERITY: Record<Server['status'], number> = {
@@ -71,6 +74,7 @@ export function OverviewView() {
   const appCount = (id: string) =>
     apps.data ? appItems.filter((a) => a.serverId === id).length : null;
   const driftApps = appItems.filter((a) => a.flags.driftDetected).length;
+  const { active: activeIncidents } = useActiveIncidents(!forbidden);
   const top = [...servers].sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status]).slice(0, 8);
 
   return (
@@ -219,7 +223,10 @@ export function OverviewView() {
                           </div>
                         </td>
                         <td className="px-2">
-                          <StatusBadge status={s.status} />
+                          <span className="inline-flex flex-wrap items-center gap-1">
+                            <StatusBadge status={s.status} />
+                            <AlertFiringBadge count={firingForServer(s.id, activeIncidents)} />
+                          </span>
                         </td>
                         <td className="px-2 font-mono text-[12px]">
                           {appCount(s.id) === null ? (
@@ -269,26 +276,7 @@ export function OverviewView() {
         </Card>
 
         <div className="flex flex-col gap-4">
-          <Card>
-            <CardHeader title={t('overview.incidents')} actions={<PreviewTag />} />
-            {d.INC.map((i) => (
-              <div
-                key={i.id}
-                className="flex items-start gap-3 border-t border-line-subtle px-4 py-2.5 first:border-0"
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn('w-3.5 font-bold', toneText[i.t as DesignTone])}
-                >
-                  {TONE_GLYPH[i.t as DesignTone]}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px]">{i.title}</div>
-                  <div className="text-[12px] text-fg-subtle">{i.meta}</div>
-                </div>
-              </div>
-            ))}
-          </Card>
+          <ActiveIncidentsCard />
           <Card>
             <CardHeader
               title={t('overview.deployments')}

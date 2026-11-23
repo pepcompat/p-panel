@@ -21,6 +21,7 @@ All versions are pinned exactly in `package.json` (validated 2026-11-17, Node 24
 | supertest                                                  | 7.3.2                      | HTTP integration tests                                                                                              |
 | eslint 9.39.5, @eslint/js 9.39.5, typescript-eslint 8.73.0 |                            | lint (bans `child_process` and `docker.sock` in src)                                                                |
 | tsx                                                        | 4.23.15                    | runs the dev seeder                                                                                                 |
+| nodemailer (+ @types/nodemailer 8.0.2)                     | 10.3.1                     | P5 email notification channel (SMTP from `PPANEL_SMTP_URL`; lab: Mailpit)                                           |
 
 Not used yet: Redis/BullMQ (jobs are Postgres-backed with row locks + durable leases; rate limiter is in-memory — move to Redis for multi-instance).
 

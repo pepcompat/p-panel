@@ -30,8 +30,10 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/handlers"
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
+	"github.com/ppanel/ppanel/apps/agent/internal/logship"
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/nginxops"
+	"github.com/ppanel/ppanel/apps/agent/internal/redact"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
@@ -79,21 +81,43 @@ func run(args []string, stdout, stderr io.Writer) int {
 func NewLogger(w io.Writer, level string) *slog.Logger {
 	var lv slog.Level
 	_ = lv.UnmarshalText([]byte(level))
-	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lv, ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-		if len(groups) > 0 {
-			return a
-		}
-		switch a.Key {
-		case slog.TimeKey:
-			a.Key = "timestamp"
-			a.Value = slog.StringValue(a.Value.Time().UTC().Format(time.RFC3339Nano))
-		case slog.MessageKey:
-			a.Key = "message"
-		case slog.LevelKey:
-			a.Value = slog.StringValue(strings.ToLower(a.Value.String()))
-		}
+	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lv, ReplaceAttr: replaceAttr}))
+}
+
+func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	if len(groups) > 0 {
 		return a
-	}}))
+	}
+	switch a.Key {
+	case slog.TimeKey:
+		a.Key = "timestamp"
+		a.Value = slog.StringValue(a.Value.Time().UTC().Format(time.RFC3339Nano))
+	case slog.MessageKey:
+		a.Key = "message"
+	case slog.LevelKey:
+		a.Value = slog.StringValue(strings.ToLower(a.Value.String()))
+	}
+	return a
+}
+
+// secretValues lists the values of a job secrets payload (for redaction).
+func secretValues(s *transport.JobSecrets) []string {
+	var out []string
+	for _, v := range s.Env {
+		out = append(out, v)
+	}
+	if s.RegistryAuth != nil {
+		out = append(out, s.RegistryAuth.Password)
+	}
+	if s.GitAuth != nil {
+		out = append(out, s.GitAuth.Header)
+		if _, cred, ok := strings.Cut(s.GitAuth.Header, " "); ok {
+			if _, tok, ok := strings.Cut(strings.TrimSpace(cred), " "); ok {
+				out = append(out, tok)
+			}
+		}
+	}
+	return out
 }
 
 func cmdEnroll(args []string, stdout, stderr io.Writer) int {
@@ -197,6 +221,35 @@ func cmdRun(args []string, stderr io.Writer) int {
 		return 1
 	}
 	log := NewLogger(stderr, cfg.LogLevel)
+	// P5: redaction registry (job secret values) and the log pipeline. The
+	// agent's own log is tee'd (≥ info) into the pipeline when enabled.
+	red := redact.New()
+	var pipe *logship.Pipeline
+	if cfg.Logs.Enabled {
+		sink := logship.NewAgentSink()
+		log = slog.New(logship.NewTee(log.Handler(), sink, &slog.HandlerOptions{ReplaceAttr: replaceAttr}))
+		var dcli *docker.Client
+		if cfg.Logs.HasLogSource(config.LogSourceContainer) {
+			dcli = docker.New(cfg.DockerSocket)
+		}
+		p, err := logship.New(logship.Options{Logs: cfg.Logs, StateDir: cfg.LogStateDir(), Docker: dcli, Redactor: red, Sink: sink,
+			Log: log.With("component", "logship")})
+		if err != nil {
+			log.Error("log pipeline init failed; log shipping disabled", "error", err.Error())
+		} else {
+			pipe = p
+			log.Info("log shipping enabled", "sources", len(cfg.Logs.Sources), "bufferCapBytes", cfg.Logs.BufferCapBytes)
+		}
+	}
+	// secrets fetched for a job are registered for redaction (values stay in memory only)
+	fetchSecrets := func(ctx context.Context, a *agent.Agent) (*transport.JobSecrets, error) {
+		s, err := a.FetchJobSecrets(ctx)
+		if err == nil && s != nil {
+			release := red.Register(secretValues(s)...)
+			go func() { <-ctx.Done(); release() }()
+		}
+		return s, err
+	}
 	if _, err := cfg.OwnedUnitSet(); err != nil {
 		log.Error("owned units invalid", "error", err.Error())
 		return 1
@@ -217,7 +270,7 @@ func cmdRun(args []string, stderr io.Writer) int {
 	// channel is wired once the agent (mTLS gateway client) exists.
 	var a *agent.Agent
 	ctr := containerops.New(containerops.Options{Engine: docker.NewEngine(cfg.DockerSocket), Log: log.With("component", "containers"),
-		Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return a.FetchJobSecrets(ctx) }})
+		Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return fetchSecrets(ctx, a) }})
 	deps := &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx, Containers: ctr}
 	// image.build / source.inspect: only when the operator enabled builds in the LOCAL
 	// config. Only then does the agent hold an Engine that may call /build and push.
@@ -225,11 +278,16 @@ func cmdRun(args []string, stderr io.Writer) int {
 		deps.Builds = buildops.New(buildops.Options{Engine: docker.NewBuildEngine(cfg.DockerSocket), Exec: execx.System{},
 			GitBinary: gitBin, WorkDir: cfg.BuildWorkDir(), AllowedHosts: cfg.Build.GitHostsAllowlist,
 			Log:     log.With("component", "builds"),
-			Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return a.FetchJobSecrets(ctx) }})
+			Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return fetchSecrets(ctx, a) }})
 		log.Info("build node enabled", "gitHosts", cfg.Build.GitHostsAllowlist, "workDir", cfg.BuildWorkDir(), "git", gitBin != "")
 	}
 	handlers.RegisterAll(reg, deps)
-	a, err = agent.New(agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log})
+	opts := agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log,
+		Containers: &logship.Collector{Docker: docker.New(cfg.DockerSocket)}}
+	if pipe != nil {
+		opts.Logs = pipe
+	}
+	a, err = agent.New(opts)
 	if err != nil {
 		log.Error("agent init failed", "error", err.Error())
 		return 1

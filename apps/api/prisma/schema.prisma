@@ -136,16 +136,19 @@ model Server {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  group           ServerGroup?         @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  addresses       ServerAddress[]
-  certificates    AgentCertificate[]
-  heartbeats      AgentHeartbeat[]
-  capabilities    ServerCapability[]
-  jobs            Job[]
-  scans           DiscoveryScan[]
-  applications    Application[]
-  managedRouting  ManagedRouting?
-  portAllocations HostPortAllocation[]
+  group            ServerGroup?         @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  addresses        ServerAddress[]
+  certificates     AgentCertificate[]
+  heartbeats       AgentHeartbeat[]
+  capabilities     ServerCapability[]
+  jobs             Job[]
+  scans            DiscoveryScan[]
+  applications     Application[]
+  managedRouting   ManagedRouting?
+  portAllocations  HostPortAllocation[]
+  containerSamples ContainerSample[]
+  telemetry        ServerTelemetry?
+  incidents        Incident[]
 
   @@index([environment])
   @@index([lastHeartbeatAt])
@@ -805,4 +808,210 @@ model SourceInspection {
 
   @@index([applicationId, createdAt])
   @@map("source_inspections")
+}
+
+// ---------------------------------------------------------------------------
+// P5 — monitoring, central logs, alerts and incidents
+// ---------------------------------------------------------------------------
+
+/// Latest sample per pPanel-managed container from the heartbeat (the set is replaced on every heartbeat).
+model ContainerSample {
+  serverId      String   @map("server_id") @db.Uuid
+  name          String
+  /// `ppanel.app` label as reported by the agent
+  appName       String   @map("app_name")
+  /// resolved by the Center from (server, app name); null = not a managed app of this server
+  applicationId String?  @map("application_id") @db.Uuid
+  service       String?
+  deploymentId  String?  @map("deployment_id") @db.Uuid
+  state         String
+  health        String?
+  restartCount  Int?     @map("restart_count")
+  cpuPct        Float?   @map("cpu_pct")
+  memBytes      BigInt?  @map("mem_bytes")
+  memLimitBytes BigInt?  @map("mem_limit_bytes")
+  sampledAt     DateTime @map("sampled_at") @db.Timestamptz(3)
+
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@id([serverId, name])
+  @@index([applicationId])
+  @@map("container_samples")
+}
+
+/// Per-server telemetry bookkeeping: agent log-shipping state and dropped-entry counters.
+model ServerTelemetry {
+  serverId             String    @id @map("server_id") @db.Uuid
+  logShipping          Json?     @map("log_shipping")
+  /// first heartbeat that carried `containers` (app_down only trusts missing containers after this)
+  containersReportedAt DateTime? @map("containers_reported_at") @db.Timestamptz(3)
+  /// sum of `dropped.entries` reported in log batches (agent buffer overflow)
+  agentDroppedTotal    BigInt    @default(0) @map("agent_dropped_total")
+  /// entries the Center refused (label spoofing, unknown app, rejected by Loki)
+  centerDroppedTotal   BigInt    @default(0) @map("center_dropped_total")
+  acceptedTotal        BigInt    @default(0) @map("accepted_total")
+  lastDroppedAt        DateTime? @map("last_dropped_at") @db.Timestamptz(3)
+  lastBatchAt          DateTime? @map("last_batch_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@map("server_telemetry")
+}
+
+/// Log batch dedupe (24 h, pruned by the sweeper). status pending while the Loki push is in flight.
+model LogBatch {
+  serverId   String   @map("server_id") @db.Uuid
+  batchId    String   @map("batch_id") @db.Uuid
+  status     String   @default("pending")
+  accepted   Int      @default(0)
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@id([serverId, batchId])
+  @@index([receivedAt])
+  @@map("log_batches")
+}
+
+/// Single-use, 60 s, user + params bound token for the SSE live tail (EventSource cannot send headers).
+model LogTailToken {
+  id         String    @id @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  userId     String    @map("user_id") @db.Uuid
+  sessionId  String    @map("session_id") @db.Uuid
+  paramsHash String    @map("params_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt     DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("log_tail_tokens")
+}
+
+model AlertRule {
+  id         String   @id @db.Uuid
+  name       String
+  enabled    Boolean  @default(true)
+  scopeType  String   @map("scope_type") // global | environment | server | app
+  scopeId    String?  @map("scope_id")
+  kind       String
+  params     Json     @default("{}")
+  severity   String
+  forSec     Int      @default(60) @map("for_sec")
+  channelIds String[] @default([]) @map("channel_ids")
+  createdBy  String   @map("created_by") @db.Uuid
+  updatedBy  String?  @map("updated_by") @db.Uuid
+  version    Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  states    AlertState[]
+  incidents Incident[]
+
+  @@index([enabled])
+  @@map("alert_rules")
+}
+
+/// Durable evaluator state per (rule, target). Absent row = condition false (ok).
+model AlertState {
+  ruleId      String    @map("rule_id") @db.Uuid
+  targetType  String    @map("target_type") // server | app
+  targetId    String    @map("target_id") @db.Uuid
+  status      String // pending | firing
+  since       DateTime  @db.Timestamptz(3)
+  firedAt     DateTime? @map("fired_at") @db.Timestamptz(3)
+  lastValue   Float?    @map("last_value")
+  incidentId  String?   @map("incident_id") @db.Uuid
+  evaluatedAt DateTime  @map("evaluated_at") @db.Timestamptz(3)
+
+  rule AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@id([ruleId, targetType, targetId])
+  @@map("alert_states")
+}
+
+model Incident {
+  id               String    @id @db.Uuid
+  ruleId           String?   @map("rule_id") @db.Uuid
+  ruleName         String    @map("rule_name")
+  kind             String
+  targetType       String    @map("target_type")
+  targetId         String    @map("target_id") @db.Uuid
+  targetName       String    @map("target_name")
+  serverId         String    @map("server_id") @db.Uuid
+  environment      String
+  severity         String
+  status           String    @default("firing")
+  startedAt        DateTime  @map("started_at") @db.Timestamptz(3)
+  acknowledgedAt   DateTime? @map("acknowledged_at") @db.Timestamptz(3)
+  acknowledgedById String?   @map("acknowledged_by_id") @db.Uuid
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(3)
+  lastValue        Float?    @map("last_value")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  rule   AlertRule?      @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  server Server          @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  events IncidentEvent[]
+
+  @@index([status, startedAt])
+  @@index([serverId, startedAt])
+  @@index([ruleId, targetType, targetId])
+  @@map("incidents")
+}
+
+/// Incident timeline (append-only).
+model IncidentEvent {
+  id         String   @id @db.Uuid
+  incidentId String   @map("incident_id") @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz(3)
+  type       String // fired | notified | notify_failed | acknowledged | resolved | comment
+  actorId    String?  @map("actor_id") @db.Uuid
+  detail     Json     @default("{}")
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, at])
+  @@map("incident_events")
+}
+
+/// Secret config fields (webhook URL + signing secret, Telegram bot token) are AES-256-GCM encrypted
+/// (AAD = "notification_channel:" + id) in config_encrypted; config_public holds display-safe fields.
+model NotificationChannel {
+  id              String   @id @db.Uuid
+  name            String
+  type            String // webhook | email | telegram
+  enabled         Boolean  @default(true)
+  configPublic    Json     @default("{}") @map("config_public")
+  configEncrypted String   @map("config_encrypted")
+  createdBy       String   @map("created_by") @db.Uuid
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  deliveries NotificationDelivery[]
+
+  @@map("notification_channels")
+}
+
+/// Notification outbox (durable, retried by the dispatcher). Never stores message bodies or secrets.
+model NotificationDelivery {
+  id             String    @id @db.Uuid
+  channelId      String    @map("channel_id") @db.Uuid
+  incidentId     String?   @map("incident_id") @db.Uuid
+  event          String // fired | resolved | test
+  status         String    @default("pending") // pending | sending | delivered | failed
+  attempts       Int       @default(0)
+  error          String?
+  responseStatus Int?      @map("response_status")
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  deliveredAt    DateTime? @map("delivered_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  channel NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([channelId, createdAt])
+  @@index([incidentId])
+  @@map("notification_deliveries")
 }

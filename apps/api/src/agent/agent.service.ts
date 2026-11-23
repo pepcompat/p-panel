@@ -17,6 +17,7 @@ import { RateLimiter } from '../common/rate-limiter';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { JobsService } from '../jobs/jobs.service';
 import { CaService, normalizeSerial } from '../pki/ca.service';
+import { TelemetryService } from '../observability/telemetry.service';
 
 export interface AgentIdentity {
   serverId: string;
@@ -36,6 +37,7 @@ export class AgentService {
     private readonly audit: AuditService,
     private readonly limiter: RateLimiter,
     private readonly jobs: JobsService,
+    private readonly telemetry: TelemetryService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -160,6 +162,13 @@ export class AgentService {
       diskPct: m.diskPct ?? null,
       load1: m.load1 ?? null,
       uptimeSec: m.uptimeSec ?? null,
+      // P5 extension (null = unknown)
+      memTotalBytes: m.memTotalBytes ?? null,
+      memAvailableBytes: m.memAvailableBytes ?? null,
+      diskTotalBytes: m.diskTotalBytes ?? null,
+      diskFreeBytes: m.diskFreeBytes ?? null,
+      netRxBytes: m.netRxBytes ?? null,
+      netTxBytes: m.netTxBytes ?? null,
     };
     const degraded = [m.cpuPct, m.memPct, m.diskPct].some(
       (v) => v !== undefined && v >= DEGRADED_PCT,
@@ -225,6 +234,7 @@ export class AgentService {
       }
     });
     await this.jobs.renewRunning(id.serverId, hb.runningJobIds);
+    await this.telemetry.recordHeartbeat(id.serverId, hb, now);
     const life = id.notAfter.getTime() - id.notBefore.getTime();
     return {
       serverTime: now.toISOString(),

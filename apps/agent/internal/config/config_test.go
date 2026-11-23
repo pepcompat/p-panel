@@ -123,3 +123,71 @@ func TestBuildSection(t *testing.T) {
 		}
 	}
 }
+
+func TestLogsDefaults(t *testing.T) {
+	c := Default()
+	c.StateDir = "/var/lib/ppanel-agent"
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	l := c.Logs
+	if !l.Enabled || l.BufferCapBytes != 64<<20 || l.ShipIntervalMs != 2000 || l.MaxBatchEntries != 1000 {
+		t.Fatalf("defaults: %+v", l)
+	}
+	if len(l.Sources) != 4 || l.Sources[0].Path != "/var/log/nginx/access.log" || l.Sources[1].Path != "/var/log/nginx/error.log" {
+		t.Fatalf("default sources: %+v", l.Sources)
+	}
+	if c.LogBufferDir() != "/var/lib/ppanel-agent/logs/buffer" {
+		t.Fatal(c.LogBufferDir())
+	}
+}
+
+func TestLogsParseAndValidate(t *testing.T) {
+	c := Default()
+	err := Parse([]byte(`
+stateDir: /var/lib/x
+logs:
+  enabled: false
+  bufferCapBytes: 2097152
+  shipIntervalMs: 500
+  maxBatchEntries: 5000
+  sources:
+    - source: nginx_access
+      path: /srv/logs/a.log
+    - source: agent
+`), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if c.Logs.Enabled || len(c.Logs.Sources) != 2 || c.Logs.BufferCapBytes != 2<<20 || !c.Logs.HasLogSource("agent") || c.Logs.HasLogSource("container") {
+		t.Fatalf("%+v", c.Logs)
+	}
+	bad := []string{
+		"logs: {bufferCapBytes: 1000}",
+		"logs: {maxBatchEntries: 5001}",
+		"logs: {shipIntervalMs: 10}",
+		"logs: {sources: [{source: journald}]}",
+		"logs: {sources: [{source: nginx_access}]}",
+		"logs: {sources: [{source: nginx_access, path: relative.log}]}",
+		"logs: {sources: [{source: nginx_access, path: /a/../b.log}]}",
+		"logs: {sources: [{source: container, path: /x}]}",
+		"logs: {sources: [{source: nginx_access, path: /a.log}, {source: nginx_error, path: /a.log}]}",
+		"logs: {sources: [{source: agent}, {source: agent}]}",
+	}
+	for _, y := range bad {
+		c := Default()
+		if err := Parse([]byte(y), c); err != nil {
+			continue // strict decode rejection is also fine
+		}
+		if err := c.Validate(); err == nil {
+			t.Errorf("expected invalid: %s", y)
+		}
+	}
+	// unknown key under logs is rejected (strict)
+	if err := Parse([]byte("logs: {paths: [/etc/shadow]}"), Default()); err == nil {
+		t.Error("unknown logs key accepted")
+	}
+}

@@ -33,6 +33,8 @@ import {
 import { GatedButton } from '@/components/ui/gated-button';
 import { BuildSettings, BuildsTab } from '@/components/p4/builds-tab';
 import { ComposeTab } from '@/components/p4/compose-tab';
+import { LogExplorer } from '@/components/p5/log-explorer';
+import { AppMetricsTab } from '@/components/p5/app-metrics-tab';
 import { useRouter } from 'next/navigation';
 import type { MessageKey } from '@/i18n/en';
 
@@ -60,9 +62,10 @@ export const REAL_CONTAINER_TABS: readonly AppTab[] = [
   'deployments',
   'env',
   'logs',
+  'metrics',
   'settings',
 ];
-/** Compose apps (P4b): compose tab instead of builds; logs stay per container (preview). */
+/** Compose apps (P4b): compose tab instead of builds; P5 central logs + metrics are real. */
 export const REAL_COMPOSE_TABS: readonly AppTab[] = [
   'overview',
   'nginx',
@@ -70,6 +73,8 @@ export const REAL_COMPOSE_TABS: readonly AppTab[] = [
   'deployments',
   'compose',
   'env',
+  'logs',
+  'metrics',
   'settings',
 ];
 export const realTabsFor = (app: Pick<Application, 'kind'>) =>
@@ -289,7 +294,13 @@ export function ApplicationDetail({ id, tab }: { id: string; tab: AppTab }) {
           )}
           {deployable && tab === 'deployments' && <AppDeploymentsTab app={app} />}
           {deployable && tab === 'env' && <EnvSecretsTab app={app} />}
-          {app.kind === 'container' && tab === 'logs' && <LogsTab app={app} />}
+          {deployable && tab === 'logs' && (
+            <div className="flex flex-col gap-4">
+              <LogExplorer fixed={{ appId: app.id }} />
+              {app.kind === 'container' && <LogsTab app={app} />}
+            </div>
+          )}
+          {deployable && tab === 'metrics' && <AppMetricsTab appId={app.id} />}
           {app.kind === 'container' && tab === 'builds' && <BuildsTab app={app} />}
           {app.kind === 'compose' && tab === 'compose' && <ComposeTab app={app} />}
           {app.kind === 'container' && tab === 'settings' && (

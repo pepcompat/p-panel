@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 )
 
 func TestVersionAndUsage(t *testing.T) {
@@ -52,5 +54,17 @@ func TestRunNotEnrolled(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "not enrolled") || !strings.Contains(errb.String(), `"message"`) || !strings.Contains(errb.String(), `"timestamp"`) {
 		t.Fatalf("expected structured log: %s", errb.String())
+	}
+}
+
+func TestSecretValuesForRedaction(t *testing.T) {
+	s := &transport.JobSecrets{Env: map[string]string{"DB_PASS": "db-pass-123"},
+		RegistryAuth: &transport.RegistryAuth{Username: "u", Password: "reg-pass-456"},
+		GitAuth:      &transport.GitAuth{Header: "Authorization: Basic Z2l0OnRva2Vu"}}
+	got := strings.Join(secretValues(s), "|")
+	for _, want := range []string{"db-pass-123", "reg-pass-456", "Authorization: Basic Z2l0OnRva2Vu", "Z2l0OnRva2Vu"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
 	}
 }

@@ -23,7 +23,14 @@ export const SERVER_TABS = [
   'settings',
 ] as const;
 export type ServerTab = (typeof SERVER_TABS)[number];
-export const REAL_TABS: readonly ServerTab[] = ['overview', 'applications', 'network', 'settings'];
+export const REAL_TABS: readonly ServerTab[] = [
+  'overview',
+  'applications',
+  'network',
+  'monitoring',
+  'logs',
+  'settings',
+];
 export const isServerTab = (v: string): v is ServerTab =>
   (SERVER_TABS as readonly string[]).includes(v);
 

@@ -26,6 +26,8 @@ import { Segmented } from '@/components/ui/segmented';
 import { CardSkeletonGrid, TableSkeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/states';
 import { ServerCard } from './server-card';
+import { firingForServer } from '@/components/p5/bits';
+import { useActiveIncidents } from '@/lib/p5-queries';
 import { ServerTable } from './server-table';
 import { EnrollWizard } from './enroll-wizard';
 
@@ -36,6 +38,7 @@ const VIEW_KEY = 'ppanel.servers.view';
 function EnvGroup({ env, servers, now }: { env: Environment; servers: Server[]; now: number }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(true);
+  const { active } = useActiveIncidents();
   const c = fleetCounts(servers);
   const panelId = `env-group-${env}`;
   if (servers.length === 0) return null;
@@ -65,7 +68,7 @@ function EnvGroup({ env, servers, now }: { env: Environment; servers: Server[]; 
         className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-3"
       >
         {servers.map((s) => (
-          <ServerCard key={s.id} server={s} now={now} />
+          <ServerCard key={s.id} server={s} now={now} firing={firingForServer(s.id, active)} />
         ))}
       </div>
     </section>

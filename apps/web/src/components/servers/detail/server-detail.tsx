@@ -28,6 +28,8 @@ import { NetworkTab } from './network-tab';
 import { SettingsTab } from './settings-tab';
 import { ProposedTab } from './proposed-tab';
 import { ServerAppsTab } from '@/components/p3/server-apps-tab';
+import { ServerMonitoringTab } from '@/components/p5/monitoring-view';
+import { LogExplorer } from '@/components/p5/log-explorer';
 import type { MessageKey } from '@/i18n/en';
 
 function Header({ server, now }: { server: Server; now: number }) {
@@ -181,10 +183,16 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
           {tab === 'network' && <NetworkTab server={server} now={now} />}
           {tab === 'settings' && <SettingsTab server={server} />}
           {tab === 'applications' && <ServerAppsTab server={server} />}
+          {tab === 'monitoring' && (
+            <ServerMonitoringTab serverId={server.id} status={server.status} />
+          )}
+          {tab === 'logs' && <LogExplorer fixed={{ serverId: server.id }} />}
           {tab !== 'overview' &&
             tab !== 'network' &&
             tab !== 'settings' &&
-            tab !== 'applications' && <ProposedTab server={server} tab={tab} now={now} />}
+            tab !== 'applications' &&
+            tab !== 'monitoring' &&
+            tab !== 'logs' && <ProposedTab server={server} tab={tab} now={now} />}
         </div>
       )}
     </div>

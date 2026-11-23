@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +30,8 @@ type APIError struct {
 	Code       string
 	Message    string
 	RequestID  string
+	// RetryAfter is the parsed Retry-After header (0 = absent).
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string {
@@ -79,21 +82,56 @@ func NewUUID() string {
 
 // Do sends method path with JSON body and decodes envelope.data into out.
 func (c *Client) Do(ctx context.Context, method, path string, body, out any) error {
-	var rdr io.Reader
+	var raw []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		rdr = bytes.NewReader(b)
+		raw = b
+	}
+	return c.send(ctx, method, path, raw, body != nil, "", out)
+}
+
+// PostGzip POSTs an already gzip-compressed JSON body (Content-Encoding: gzip).
+func (c *Client) PostGzip(ctx context.Context, path string, gz []byte, out any) error {
+	return c.send(ctx, http.MethodPost, path, gz, true, "gzip", out)
+}
+
+// ParseRetryAfter parses delay-seconds or an HTTP date; 0 when absent/invalid.
+func ParseRetryAfter(v string, now time.Time) time.Duration {
+	if v == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		if n < 0 {
+			return 0
+		}
+		return time.Duration(n) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+func (c *Client) send(ctx context.Context, method, path string, body []byte, hasBody bool, encoding string, out any) error {
+	var rdr io.Reader
+	if hasBody {
+		rdr = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	if body != nil {
+	if hasBody {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if encoding != "" {
+		req.Header.Set("Content-Encoding", encoding)
 	}
 	req.Header.Set("X-Request-ID", NewUUID())
 	req.Header.Set("X-Client-Version", version.Version)
@@ -114,7 +152,8 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	var env envelope
 	_ = json.Unmarshal(raw, &env)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		ae := &APIError{HTTPStatus: resp.StatusCode, RequestID: env.Meta.RequestID, Code: "HTTP_" + fmt.Sprint(resp.StatusCode)}
+		ae := &APIError{HTTPStatus: resp.StatusCode, RequestID: env.Meta.RequestID, Code: "HTTP_" + fmt.Sprint(resp.StatusCode),
+			RetryAfter: ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 		if env.Error != nil {
 			ae.Code, ae.Message = env.Error.Code, env.Error.Message
 		}

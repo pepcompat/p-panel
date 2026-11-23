@@ -64,6 +64,16 @@ export async function bootApp(overrides: Record<string, string> = {}): Promise<T
 }
 
 const TABLES = [
+  'notification_deliveries',
+  'notification_channels',
+  'incident_events',
+  'incidents',
+  'alert_states',
+  'alert_rules',
+  'log_tail_tokens',
+  'log_batches',
+  'server_telemetry',
+  'container_samples',
   'source_inspections',
   'compose_app_versions',
   'builds',

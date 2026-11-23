@@ -8,6 +8,7 @@ import { CopyButton } from '@/components/ui/copy-button';
 import { GatedButton } from '@/components/ui/gated-button';
 import { address, osLabel, providerLabel } from '@/lib/servers';
 import { relativeTime } from '@/lib/time';
+import { AlertFiringBadge } from '@/components/p5/bits';
 import { cn } from '@/lib/utils';
 import {
   PathBadge,
@@ -18,7 +19,16 @@ import {
   whyKey,
 } from './server-bits';
 
-export function ServerCard({ server, now }: { server: Server; now: number }) {
+export function ServerCard({
+  server,
+  now,
+  firing = 0,
+}: {
+  server: Server;
+  now: number;
+  /** P5: incidents currently firing for this server (alert badge). */
+  firing?: number;
+}) {
   const t = useT();
   const pub = address(server, 'public');
   const priv = address(server, 'private');
@@ -54,7 +64,10 @@ export function ServerCard({ server, now }: { server: Server; now: number }) {
           </h3>
           <div className="text-[12px] text-fg-subtle">{sub || '—'}</div>
         </div>
-        <StatusBadge status={server.status} />
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          <AlertFiringBadge count={firing} />
+          <StatusBadge status={server.status} />
+        </div>
       </div>
 
       <div className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-[3px] text-[12px]">

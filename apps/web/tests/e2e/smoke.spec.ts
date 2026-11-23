@@ -21,7 +21,14 @@ test('MFA login → servers cards grouped by environment', async ({ page }) => {
   await page.screenshot({ path: 'test-results/login-mfa.png' });
   await page.getByLabel('Digit 1 of 6').fill('123456');
   await page.getByRole('button', { name: 'Confirm' }).click();
-  await expect(page).toHaveURL(/\/overview/);
+  // Dev mode: the first client navigation to a not-yet-compiled /overview can be dropped by the
+  // dev server (same fallback as the p4/p4b/p5 signIn helpers); the session survives a reload.
+  try {
+    await expect(page).toHaveURL(/\/overview/, { timeout: 10_000 });
+  } catch {
+    await page.goto('/overview');
+    await expect(page).toHaveURL(/\/overview/, { timeout: 20_000 });
+  }
   await page.goto('/servers');
   await expect(page.getByTestId('server-card')).toHaveCount(8);
   await expect(page.getByText('PRODUCTION').nth(1)).toBeVisible();
@@ -46,10 +53,15 @@ test('server detail network tab, TH locale, preview banner', async ({ page }) =>
   await expect(page.getByText('Backend not implemented yet (PROPOSED)')).toBeVisible();
   await page.getByRole('radio', { name: 'TH' }).click();
   await expect(page.getByRole('link', { name: 'ภาพรวม' }).first()).toBeVisible();
+  // /logs is real since P5 (no preview banner); /backups is still a preview.
   await page.goto('/logs');
-  await expect(page.getByTestId('preview-banner')).toBeVisible();
+  await expect(page.getByTestId('log-explorer')).toBeVisible();
+  await expect(page.getByTestId('preview-banner')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ค้นหา' })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('ppanel.lang'))).toBe('th');
   await page.screenshot({ path: 'test-results/logs-th.png', fullPage: true });
+  await page.goto('/backups');
+  await expect(page.getByTestId('preview-banner')).toBeVisible();
 });
 
 test('enroll shows one-time token once', async ({ page }) => {
@@ -70,10 +82,7 @@ const PREVIEW_ROUTES = [
   '/plugins',
   '/runtimes',
   '/databases',
-  '/monitoring',
-  '/logs',
   '/backups',
-  '/alerts',
   '/ai-mcp',
 ];
 
@@ -90,6 +99,9 @@ test('every preview route renders with the preview banner and no page errors', a
   }
   for (const r of [
     '/overview',
+    '/monitoring',
+    '/logs',
+    '/alerts',
     '/applications',
     '/imports',
     '/settings/users',

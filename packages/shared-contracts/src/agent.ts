@@ -51,6 +51,47 @@ export const heartbeatAddressSchema = z
 const pct = z.number().min(0).max(100);
 /** Go encodes empty slices as null; treat null as an empty list. */
 const nullAsEmpty = (v: unknown) => (v === null ? undefined : v);
+const byteCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+export const CONTAINER_STATES = [
+  'running',
+  'exited',
+  'restarting',
+  'paused',
+  'created',
+  'dead',
+  'removing',
+] as const;
+export type ContainerState = (typeof CONTAINER_STATES)[number];
+export const CONTAINER_HEALTHS = ['healthy', 'unhealthy', 'starting', 'none'] as const;
+export type ContainerHealth = (typeof CONTAINER_HEALTHS)[number];
+
+/** P5 heartbeat `containers[]` entry (agent reports only containers carrying the ownership labels). */
+export const heartbeatContainerSchema = z
+  .object({
+    name: z.string().regex(/^ppanel-[a-z0-9][a-z0-9_.-]{0,120}$/),
+    app: z.string().min(1).max(64),
+    service: z.string().max(64).nullish(),
+    deploymentId: z.string().uuid().nullish(),
+    state: z.enum(CONTAINER_STATES),
+    health: z.enum(CONTAINER_HEALTHS).nullish(),
+    restartCount: z.number().int().nonnegative().max(1_000_000_000).nullish(),
+    cpuPct: z.number().nonnegative().max(100_000).nullish(),
+    memBytes: byteCount.nullish(),
+    memLimitBytes: byteCount.nullish(),
+  })
+  .strip();
+export type HeartbeatContainer = z.infer<typeof heartbeatContainerSchema>;
+
+export const heartbeatLogShippingSchema = z
+  .object({
+    bufferedBytes: byteCount.default(0),
+    bufferCapBytes: byteCount.nullish(),
+    droppedEntries: byteCount.default(0),
+    lastShippedAt: z.string().datetime({ offset: true }).nullish(),
+  })
+  .strip();
+export type HeartbeatLogShipping = z.infer<typeof heartbeatLogShippingSchema>;
 export const heartbeatSchema = z.object({
   seq: z.number().int().nonnegative(),
   sentAt: z.string().datetime({ offset: true }),
@@ -63,9 +104,23 @@ export const heartbeatSchema = z.object({
       diskPct: pct.optional(),
       load1: z.number().nonnegative().optional(),
       uptimeSec: z.number().nonnegative().transform(Math.floor).optional(),
+      // P5 extension (omitted when unknown, never 0-as-unknown)
+      memTotalBytes: byteCount.optional(),
+      memAvailableBytes: byteCount.optional(),
+      diskTotalBytes: byteCount.optional(),
+      diskFreeBytes: byteCount.optional(),
+      netRxBytes: byteCount.optional(),
+      netTxBytes: byteCount.optional(),
     })
     .strip()
     .default({}),
+  /** P5: latest sample of pPanel-managed containers only (≤ 50). */
+  // absent = agent does not report containers (pre-P5); null/[] = it reports none
+  containers: z
+    .preprocess((v) => (v === null ? [] : v), z.array(heartbeatContainerSchema).max(50))
+    .optional(),
+  /** P5: agent log shipping state. */
+  logShipping: heartbeatLogShippingSchema.optional(),
   addresses: z.preprocess(nullAsEmpty, z.array(heartbeatAddressSchema).max(64).default([])),
   capabilities: z.preprocess(
     nullAsEmpty,

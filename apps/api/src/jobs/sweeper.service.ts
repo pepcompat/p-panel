@@ -40,12 +40,32 @@ export class SweeperService implements OnApplicationBootstrap, OnApplicationShut
     try {
       await this.jobs.sweep();
       await this.hooks.reconcileAll();
-      if (this.ticks++ % 12 === 0) await this.pruneHeartbeats();
+      if (this.ticks++ % 12 === 0) {
+        await this.pruneHeartbeats();
+        await this.pruneTelemetry();
+      }
     } catch (err) {
       logger.emit('error', 'sweeper tick failed', { err });
     } finally {
       this.running = false;
     }
+  }
+
+  /** P5: log batch dedupe rows (24 h), used/expired tail tokens, finished notification deliveries (30 d). */
+  async pruneTelemetry(): Promise<void> {
+    const now = Date.now();
+    await this.prisma.logBatch.deleteMany({
+      where: { receivedAt: { lt: new Date(now - 24 * 3_600_000) } },
+    });
+    await this.prisma.logTailToken.deleteMany({
+      where: { expiresAt: { lt: new Date(now - 3_600_000) } },
+    });
+    await this.prisma.notificationDelivery.deleteMany({
+      where: {
+        status: { in: ['delivered', 'failed'] },
+        updatedAt: { lt: new Date(now - 30 * 86_400_000) },
+      },
+    });
   }
 
   /** Keep only the newest PPANEL_HEARTBEAT_KEEP heartbeats per server. */

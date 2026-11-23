@@ -93,5 +93,22 @@ export const ERROR_CODES = {
   /** agent result codes surfaced on builds / compose deployments (see BUILD_ERROR_CODES) */
   BUILD_FAILED: 'BUILD_FAILED',
   COMPOSE_SERVICE_UNHEALTHY: 'COMPOSE_SERVICE_UNHEALTHY',
+  // P5 monitoring / logs / alerts
+  /** Prometheus unreachable or answered with an error (503) */
+  METRICS_BACKEND_UNAVAILABLE: 'METRICS_BACKEND_UNAVAILABLE',
+  /** Loki unreachable (503); on log ingest the agent keeps the batch and retries */
+  LOGS_BACKEND_UNAVAILABLE: 'LOGS_BACKEND_UNAVAILABLE',
+  /** live-tail token unknown, used, expired or bound to other params/user (401) */
+  TAIL_TOKEN_INVALID: 'TAIL_TOKEN_INVALID',
+  /** more than LOG_TAIL_MAX_PER_USER concurrent tails (429) */
+  TAIL_LIMIT_REACHED: 'TAIL_LIMIT_REACHED',
+  /** webhook URL rejected by the scheme/SSRF policy (422) */
+  WEBHOOK_URL_NOT_ALLOWED: 'WEBHOOK_URL_NOT_ALLOWED',
+  /** an alert rule references a channel id that does not exist (422) */
+  CHANNEL_NOT_FOUND: 'CHANNEL_NOT_FOUND',
+  /** incident already acknowledged / resolved (409) */
+  INCIDENT_STATE_INVALID: 'INCIDENT_STATE_INVALID',
+  /** email channel used but PPANEL_SMTP_URL is not configured */
+  SMTP_NOT_CONFIGURED: 'SMTP_NOT_CONFIGURED',
 } as const;
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

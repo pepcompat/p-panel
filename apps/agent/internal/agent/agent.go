@@ -24,6 +24,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
+	"github.com/ppanel/ppanel/apps/agent/internal/logship"
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/netaddr"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
@@ -48,6 +49,10 @@ type Options struct {
 	MaxConcurrentJobs int
 	// Now overrides the clock (tests).
 	Now func() time.Time
+	// Containers reports managed containers in the heartbeat (P5); nil = omitted.
+	Containers *logship.Collector
+	// Logs is the P5 log pipeline (shipped over the gateway); nil = disabled.
+	Logs *logship.Pipeline
 }
 
 // Agent is a running agent instance.
@@ -178,7 +183,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	a.log.Info("agent starting", "serverId", a.id.ServerID, "gateway", a.id.GatewayURL, "version", version.Version,
 		"handlers", a.reg.Types())
 	var loops sync.WaitGroup
-	for _, f := range []func(context.Context){a.heartbeatLoop, a.pollLoop, a.resultLoop} {
+	loopsFns := []func(context.Context){a.heartbeatLoop, a.pollLoop, a.resultLoop}
+	if a.o.Logs != nil {
+		loopsFns = append(loopsFns, func(ctx context.Context) { a.o.Logs.Run(ctx, a.SendLogs) })
+	}
+	for _, f := range loopsFns {
 		loops.Add(1)
 		go func(f func(context.Context)) { defer loops.Done(); f(ctx) }(f)
 	}
@@ -227,6 +236,14 @@ type HeartbeatRequest struct {
 	Addresses     []netaddr.Address `json:"addresses"`
 	Capabilities  []string          `json:"capabilities"`
 	RunningJobIDs []string          `json:"runningJobIds"`
+	// P5 (omitted when unknown/disabled)
+	Containers  *[]logship.ContainerStat `json:"containers,omitempty"`
+	LogShipping *logship.ShippingStatus  `json:"logShipping,omitempty"`
+}
+
+// SendLogs POSTs one gzip batch to /agent/v1/logs over the mTLS gateway.
+func (a *Agent) SendLogs(ctx context.Context, gz []byte) error {
+	return a.client.PostGzip(ctx, "/agent/v1/logs", gz, nil)
 }
 
 // HeartbeatResponse is the heartbeat response data.
@@ -296,6 +313,12 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	}
 	if req.RunningJobIDs == nil {
 		req.RunningJobIDs = []string{}
+	}
+	if a.o.Containers != nil {
+		req.Containers = a.o.Containers.Collect(ctx)
+	}
+	if a.o.Logs != nil {
+		req.LogShipping = a.o.Logs.Status()
 	}
 	if u := req.Metrics.UptimeSec; u != nil {
 		v := math.Floor(*u)

@@ -4,9 +4,11 @@
  * Placeholders use {name}. Command output and host logs are never translated.
  */
 import { p4bEn } from './p4b';
+import { p5En } from './p5';
 
 export const en = {
   ...p4bEn,
+  ...p5En,
   'app.name': 'pPanel',
   'app.tagline': 'center v0.1',
   'app.skipToContent': 'Skip to content',

@@ -189,3 +189,68 @@ Health types: `http` (loopback for the route service, container IP on the app ne
 - `source.inspect` output: `{ commitSha, files, truncated }` (`truncated` always present).
 - Compose service containers are named `ppanel-<app>-<service>-<8hex>` (accepted by the ownership name check, verified against the `ppanel.service` label). An `unchanged` service reports `health: {status:"running", attempts:0, elapsedMs:0}`. On `COMPOSE_SERVICE_UNHEALTHY` the failed new container is **removed** and details carry `{ service, services, logTail, reason, attempts, elapsedMs, exitCode?, lastStatus?, removed, restored, previousName?, dependency? }`.
 - Known gaps: classic builder only (no BuildKit secrets/`--mount`), dangling build cache not pruned automatically, Docker Hub short refs with tag+digest (`postgres:16-alpine@sha256:…`) are not normalised by the Center yet — use `docker.io/library/postgres@sha256:…`.
+
+## Telemetry: metrics and logs (P5) — authoritative
+
+Decision: ADR-0008 — the agent is the telemetry adapter (no per-node Alloy in v1). One outbound mTLS channel; the Center enforces scope, redaction and labels before anything reaches Prometheus/Loki.
+
+### Metrics (heartbeat extension)
+
+Heartbeat gains optional fields (omitted, never zero, when unknown):
+
+```json
+"metrics": { "cpuPct": 12.1, "memPct": 40.2, "diskPct": 63.0, "load1": 0.4, "uptimeSec": 1234,
+             "memTotalBytes": 0, "memAvailableBytes": 0, "diskTotalBytes": 0, "diskFreeBytes": 0,
+             "netRxBytes": 0, "netTxBytes": 0 },
+"containers": [ { "name": "ppanel-web-1a2b3c4d", "app": "web", "service": "app|null", "deploymentId": "uuid|null",
+                  "state": "running|exited|restarting|paused|created|dead", "health": "healthy|unhealthy|starting|none",
+                  "restartCount": 0, "cpuPct": 1.2, "memBytes": 12345678, "memLimitBytes": 536870912 } ],
+"logShipping": { "bufferedBytes": 0, "bufferCapBytes": 67108864, "droppedEntries": 0, "lastShippedAt": "iso|null" }
+```
+
+Only **pPanel-managed** containers (ownership labels) are reported. Container stats via Docker Engine `GET /containers/{id}/stats?stream=false&one-shot=true` (GET only, existing read client), at most every heartbeat, bounded to 50 containers.
+
+### Logs (`POST /agent/v1/logs`, mTLS gateway)
+
+Request: `Content-Encoding: gzip`, JSON body ≤ 1 MiB compressed / 8 MiB decompressed (Center rejects bigger with 413):
+
+```json
+{
+  "batchId": "uuid",
+  "seq": 42,
+  "sentAt": "iso",
+  "entries": [
+    {
+      "ts": "iso (nanosecond precision allowed)",
+      "source": "nginx_access|nginx_error|container|agent",
+      "app": "web|null",
+      "service": "app|null",
+      "container": "ppanel-web-1a2b3c4d|null",
+      "file": "/var/log/nginx/access.log|null",
+      "stream": "stdout|stderr|null",
+      "level": "debug|info|warn|error|fatal|null",
+      "line": "≤ 16 KiB, UTF-8, already redacted"
+    }
+  ],
+  "dropped": { "entries": 0, "since": "iso|null" }
+}
+```
+
+Max 5000 entries per batch. Response `{ accepted: n, duplicate: bool }` (dedupe by `batchId` for 24 h). **429** with `Retry-After` = Center backpressure → the agent keeps the batch and retries later (never drops on 429 alone). 401/403 → stop shipping, back off at max.
+
+Agent rules:
+
+- Sources (config `logs.sources`, defaults): `nginx_access` `/var/log/nginx/access.log`, `nginx_error` `/var/log/nginx/error.log` (tail with inode/offset tracking, rotation-aware, positions persisted in `<stateDir>/logs/positions.json`), `container` for every managed container (Docker `GET /containers/{id}/logs?follow=1&stdout=1&stderr=1&timestamps=1&since=<last ts>` demuxed), `agent` (own structured log, level ≥ info). No other files, no journald in v1. Paths are config-only (never from the Center).
+- **Redaction before buffering** (shared pattern list in `packages/shared-contracts/src/redaction.ts`, mirrored in Go with golden tests): bearer tokens, `Authorization:` headers, `api[_-]?key|token|secret|passw(or)?d|client_secret` key/value pairs (`=`, `:`, JSON), JWTs, AWS access keys (`AKIA…`), GitHub tokens (`gh[pousr]_…`), Slack tokens, private key blocks, `ppe_` enrollment tokens, URL userinfo (`scheme://user:pass@`). Replacement `[REDACTED]`. Plus any in-memory secret values the agent holds for a running job.
+- **Bounded buffer**: append-only segment files under `<stateDir>/logs/buffer/` with total cap `logs.bufferCapBytes` (default 64 MiB, min 1 MiB) and memory cap (in-flight batch only). When full → **drop oldest segments**, count `droppedEntries` and report it in the next batch `dropped` and in heartbeat `logShipping`. Never block workloads; tailing pauses for a source if its reader falls behind (positions keep the place), so disk usage is bounded by the cap.
+- Lines > 16 KiB truncated with ` …[truncated]`. Level detection: nginx error log severity; JSON `level`/`severity` fields; stderr → `error` only if no better signal; else `null`.
+- Ship every 2 s or 1000 entries, whichever first; exponential backoff on failure (1 s → 60 s).
+
+### P5 implementation notes (as built, 2026-11-23)
+
+- Every log entry always carries all keys (`ts, source, app, service, container, file, stream, level, line`), with unknown values as JSON `null`.
+- The agent drops a batch only on 400/413/422 (counted in `droppedEntries`). The Center therefore returns 4xx only for genuinely invalid batches, and 503 for transient problems (for example Loki down).
+- Spoofed `app`/`container` entries are dropped **per entry** by the Center: the batch still returns 200, with a `rejected` count.
+- The Center computes log-drop totals from **deltas of the heartbeat's cumulative `logShipping.droppedEntries`**. The batch `dropped` field is informational only.
+- Delivery is at-least-once: up to ~1 s of lines can repeat after an agent crash.
+- `cpuPct` for containers appears from the second heartbeat onwards.

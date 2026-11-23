@@ -75,6 +75,15 @@ async function readJson(res: Response): Promise<unknown> {
   }
 }
 
+/** `Retry-After` as seconds (delta-seconds or HTTP-date); null when absent/invalid. */
+export function parseRetryAfter(v: string | null, now = Date.now()): number | null {
+  if (!v) return null;
+  const n = Number(v);
+  if (Number.isFinite(n)) return Math.max(0, Math.ceil(n));
+  const d = Date.parse(v);
+  return Number.isFinite(d) ? Math.max(0, Math.ceil((d - now) / 1000)) : null;
+}
+
 export function createApiClient(opts: ApiClientOptions) {
   const store = opts.tokenStore ?? defaultTokenStore;
   const doFetch: typeof fetch = (input, init) => (opts.fetch ?? globalThis.fetch)(input, init);
@@ -194,6 +203,7 @@ export function createApiClient(opts: ApiClientOptions) {
         message: err?.message ?? (res.statusText || `Request failed with status ${res.status}`),
         details: err?.details,
         requestId: echoedId,
+        retryAfterSec: parseRetryAfter(res.headers.get('Retry-After')),
       });
     }
 

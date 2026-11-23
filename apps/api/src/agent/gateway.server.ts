@@ -28,6 +28,7 @@ import { JobNotifier } from '../jobs/job-notifier';
 import { JobsService } from '../jobs/jobs.service';
 import { SecretsService } from '../deploy/secrets.service';
 import { CaService } from '../pki/ca.service';
+import { LogIngestService, readLogBody } from '../observability/log-ingest.service';
 import { type AgentIdentity, AgentService } from './agent.service';
 
 type AgentRequest = Request & { agent?: AgentIdentity };
@@ -48,6 +49,7 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     private readonly notifier: JobNotifier,
     private readonly ca: CaService,
     private readonly secrets: SecretsService,
+    private readonly logIngest: LogIngestService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -145,10 +147,16 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
       }
     });
 
-    app.use(express.json({ limit: this.config.BODY_LIMIT }));
-
     const ok = (res: Response, data: unknown, status = 200) =>
       res.status(status).json(successEnvelope(data));
+
+    /** P5 log batches: own body reader (gzip, ≤ 1 MiB compressed / 8 MiB decompressed → 413). */
+    app.post('/agent/v1/logs', async (req: AgentRequest, res: Response) => {
+      const body = await readLogBody(req);
+      ok(res, await this.logIngest.ingest(req.agent!.serverId, body));
+    });
+
+    app.use(express.json({ limit: this.config.BODY_LIMIT }));
     const jobIdParam = (req: Request): string => {
       const id = String(req.params.jobId);
       if (!UUID_RE.test(id))

@@ -1,7 +1,12 @@
-import { LogsPreview } from '@/components/preview/observe';
+import { Suspense } from 'react';
+import { LogsView } from '@/components/p5/logs-view';
 
 export const metadata = { title: 'Logs' };
 
 export default function Page() {
-  return <LogsPreview />;
+  return (
+    <Suspense fallback={null}>
+      <LogsView />
+    </Suspense>
+  );
 }

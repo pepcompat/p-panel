@@ -14,6 +14,8 @@ export class ApiError extends Error {
   readonly code: string;
   readonly details: unknown;
   readonly requestId: string | null;
+  /** Seconds from a 429 `Retry-After` header (or `details.retryAfterSec`), if any. */
+  readonly retryAfterSec: number | null;
 
   constructor(opts: {
     status: number;
@@ -21,6 +23,7 @@ export class ApiError extends Error {
     message: string;
     details?: unknown;
     requestId?: string | null;
+    retryAfterSec?: number | null;
   }) {
     super(opts.message);
     this.name = 'ApiError';
@@ -28,6 +31,10 @@ export class ApiError extends Error {
     this.code = opts.code;
     this.details = opts.details;
     this.requestId = opts.requestId ?? null;
+    const fromDetails = (opts.details as { retryAfterSec?: unknown } | null | undefined)
+      ?.retryAfterSec;
+    this.retryAfterSec =
+      opts.retryAfterSec ?? (typeof fromDetails === 'number' ? fromDetails : null);
   }
 
   get kind(): UiErrorKind {

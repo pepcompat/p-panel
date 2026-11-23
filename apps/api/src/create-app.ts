@@ -9,6 +9,7 @@ import { toErrorResponse } from './common/exception.filter';
 import { logger } from './common/logger';
 import { requestIdMiddleware } from './common/request-id.middleware';
 import type { AppConfig } from './config/config';
+import { ScrapeService } from './observability/scrape.service';
 
 export const API_PREFIX = 'api/v1';
 
@@ -32,6 +33,8 @@ export async function createApp(config: AppConfig): Promise<NestExpressApplicati
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  // P5: Prometheus scrape endpoint (static bearer, outside /api/v1 and the user AuthGuard)
+  app.use('/internal/metrics', app.get(ScrapeService).handler());
   app.use(cookieParser());
   // GitHub webhooks: keep the exact raw bytes for HMAC verification (parsed later by the handler).
   app.use(`/${API_PREFIX}/webhooks`, express.raw({ type: () => true, limit: '1mb' }));

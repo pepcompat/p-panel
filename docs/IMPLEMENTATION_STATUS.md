@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P4 complete except BLOCKED externals; next P5
+Current phase: P5 complete; next P6 (backup/restore)
 Last verified revision: (no commits yet)
 
 ## P0
@@ -71,13 +71,13 @@ Phase tests: P4-T01, P4-T02, P4-T03, P4-T04, P4-T05, P4-T06, P4-T07 (see `TEST_R
 
 ## P5
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                         |
-| ------- | ------ | --------- | ------------ | -------- | --------------------------------------------------------------------------------------------- |
-| P5.01   | TODO   |           |              |          | Deploy/secure Alloy, Prometheus, Loki; define retention and size limits.                      |
-| P5.02   | TODO   |           |              |          | Fleet/server/application charts and status, last-known sample with stale marker.              |
-| P5.03   | TODO   |           |              |          | Central log search/live tail by server/app/source/time/severity; role-scoped queries.         |
-| P5.04   | TODO   |           |              |          | Secret redaction, query rate limits, retention, stream backpressure and limited buffering.    |
-| P5.05   | TODO   |           |              |          | Alert rule CRUD, incidents, Telegram/email/webhook channel validation and test notifications. |
+| Task ID | Status | Change/PR | Test command                                            | Evidence                                                                                                                                       | Notes                                                                                         |
+| ------- | ------ | --------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| P5.01   | PASS   |           | scripts/observability/up.sh; e2e_p5.py                  | Prometheus/Loki/Mailpit/receiver on 127.0.0.1, retention + limits; ADR-0008 (agent as telemetry adapter instead of per-node Alloy)             | Deploy/secure Alloy, Prometheus, Loki; define retention and size limits.                      |
+| P5.02   | PASS   |           | e2e_p5.py + web e2e                                     | docs/evidence/2026-11-23/p5-e2e.json; gaps for missing data, stale/offline distinct                                                            | Fleet/server/application charts and status, last-known sample with stale marker.              |
+| P5.03   | PASS   |           | e2e_p5.py + web e2e                                     | docs/evidence/2026-11-23/p5-e2e.json; typed queries only, SSE tail with single-use token                                                       | Central log search/live tail by server/app/source/time/severity; role-scoped queries.         |
+| P5.04   | PASS   |           | go test ./internal/logship ./internal/redact; e2e_p5.py | docs/evidence/2026-11-23/p5-e2e.json; shared golden redaction vectors (TS + Go)                                                                | Secret redaction, query rate limits, retention, stream backpressure and limited buffering.    |
+| P5.05   | PASS   |           | e2e_p5.py                                               | docs/evidence/2026-11-23/p5-e2e.json; webhook (HMAC, SSRF guard), email via Mailpit; Telegram tested against fake API (real bot token BLOCKED) | Alert rule CRUD, incidents, Telegram/email/webhook channel validation and test notifications. |
 
 Phase tests: P5-T01, P5-T02, P5-T03, P5-T04 (see `TEST_REPORT.md`) · Gate: TODO
 

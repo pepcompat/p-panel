@@ -47,6 +47,17 @@ import { SetupController } from './setup/setup.controller';
 import { SetupService } from './setup/setup.service';
 import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
+import { AlertEngineService } from './observability/alert-engine.service';
+import { AlertsService } from './observability/alerts.service';
+import { LokiClient, PrometheusClient } from './observability/backends';
+import { ChannelsService } from './observability/channels.service';
+import { LogIngestService } from './observability/log-ingest.service';
+import { LogsService } from './observability/logs.service';
+import { MetricsService } from './observability/metrics.service';
+import { NotifierService } from './observability/notifier.service';
+import { ObservabilityController } from './observability/observability.controller';
+import { ScrapeService } from './observability/scrape.service';
+import { TelemetryService } from './observability/telemetry.service';
 
 /** Center API modular monolith. Config is injected so tests can boot isolated instances. */
 @Module({})
@@ -69,6 +80,7 @@ export class AppModule {
         NginxRevisionsController,
         DeployController,
         IntegrationsController,
+        ObservabilityController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config },
@@ -100,6 +112,17 @@ export class AppModule {
         RegistryClient,
         WebhooksService,
         SweeperService,
+        TelemetryService,
+        PrometheusClient,
+        LokiClient,
+        ScrapeService,
+        MetricsService,
+        LogIngestService,
+        LogsService,
+        NotifierService,
+        ChannelsService,
+        AlertEngineService,
+        AlertsService,
         AgentService,
         AgentGatewayServer,
         { provide: APP_GUARD, useClass: AuthGuard },

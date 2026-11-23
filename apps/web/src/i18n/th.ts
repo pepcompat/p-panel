@@ -1,5 +1,6 @@
 import type { MessageKey } from './en';
 import { p4bTh } from './p4b';
+import { p5Th } from './p5';
 
 /**
  * Thai messages. Partial by type so a missing key falls back to English at runtime;
@@ -8,6 +9,7 @@ import { p4bTh } from './p4b';
  */
 export const th: Partial<Record<MessageKey, string>> = {
   ...p4bTh,
+  ...p5Th,
   'app.name': 'pPanel',
   'app.tagline': 'center v0.1',
   'app.skipToContent': 'ข้ามไปยังเนื้อหา',

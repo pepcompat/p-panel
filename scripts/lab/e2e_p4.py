@@ -285,7 +285,9 @@ def main():
                  expect=201)
     integ = ig["data"]
     sha = hashlib.sha1(TAG.encode()).hexdigest()
-    sh("docker", "tag", f"{REG_PUSH}/ppanel-test/web:v2", f"{REG_PUSH}/ppanel-test/web:sha-{sha[:7]}")
+    # the Mac's local image cache may have been pruned; the registry is the source of truth
+    sh("docker", "pull", "-q", img["PPANEL_LAB_IMAGE_WEB_V2"])
+    sh("docker", "tag", img["PPANEL_LAB_IMAGE_WEB_V2"], f"{REG_PUSH}/ppanel-test/web:sha-{sha[:7]}")
     sh("docker", "push", "-q", f"{REG_PUSH}/ppanel-test/web:sha-{sha[:7]}")
     call("POST", f"/applications/{app['id']}/auto-deploy", creator,
          {"integrationId": integ["id"], "repo": "lab-org/web", "branches": ["main"],

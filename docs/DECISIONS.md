@@ -31,3 +31,5 @@ Add a row for every decision; supersede rather than edit accepted ADRs.
 | D-010 | 2026-11-17 | Default UI locale `en`, optional `th`                                                                                                                                           | brief §13 / design §10.1                                                                        |
 | D-011 | 2026-11-17 | IDs are UUID v7 strings; enums lowercase snake strings                                                                                                                          | API_CONTRACTS §0                                                                                |
 | D-012 | 2026-11-17 | Screen IDs `SCR-*` defined in `FEATURE_MATRIX.md` (design prototype has routes but no screen IDs) — to be reconciled with design handoff (D10-05)                               | design §12 needs `screen_id`                                                                    |
+
+| ADR-0008 | Agent is the telemetry adapter (no per-node Alloy in v1) | Accepted | [adr/0008](adr/0008-agent-as-telemetry-adapter.md) |

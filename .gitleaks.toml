@@ -1,9 +1,19 @@
-# gitleaks config: default rules plus a narrow allowlist for non-secret identifiers.
+# gitleaks config (v8.21): default rules plus narrow allowlists for non-secret identifiers and for
+# redaction test fixtures. In this legacy allowlist, a finding is allowed if it matches ANY entry.
 [extend]
 useDefault = true
 
 [allowlist]
-description = "pPanel non-secret identifiers"
+description = "pPanel non-secret identifiers and redaction fixtures"
 # Nginx server-block IDs produced by the agent's discovery scanner (srv_ + 12 hex), e.g. in mock data.
 regexes = ['''^srv_[0-9a-f]{12}$''']
 regexTarget = "secret"
+# Redaction test fixtures: these exact files intentionally contain FAKE secrets to prove they get
+# redacted (P5-T03). Keep this list to exact files, never directories.
+paths = [
+  '''^packages/shared-contracts/testdata/redaction-golden\.json$''',
+  '''^apps/agent/internal/redact/redact_test\.go$''',
+  '''^apps/agent/internal/logship/(lab|pipeline|tailer)_test\.go$''',
+  '''^apps/api/test/integration/observability(-real)?\.spec\.ts$''',
+  '''^apps/web/src/mocks/p5-routes\.ts$''',
+]

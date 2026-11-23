@@ -1,0 +1,154 @@
+{
+  "ranAt": "2026-11-23T08:07:40Z",
+  "steps": [
+    {
+      "step": "approver user with TOTP",
+      "ok": true,
+      "email": "e2e-approver-1795421219@ppanel.local"
+    },
+    {
+      "step": "enroll + online",
+      "ok": true,
+      "serverId": "01a20771-ac33-7a90-8131-3f94d9d1d7ec"
+    },
+    {
+      "step": "P3-T01 scan completed, nginx config + master PID unchanged",
+      "ok": true,
+      "summary": {
+        "listeners": 3,
+        "upstreams": 1,
+        "containers": 0,
+        "duplicates": 1,
+        "phpFpmPools": 1,
+        "manualReview": 5,
+        "nginxServers": 9,
+        "sourceStatus": {
+          "nginx": "ok",
+          "ports": "ok",
+          "docker": "unavailable",
+          "php-fpm": "ok",
+          "systemd": "unavailable"
+        },
+        "systemdUnits": 0
+      },
+      "before": {
+        "configHash": "ecb855f79c1addb3",
+        "masterPid": "7"
+      },
+      "after": {
+        "configHash": "ecb855f79c1addb3",
+        "masterPid": "7"
+      }
+    },
+    {
+      "step": "P3-T02 findings incl. duplicate conflict",
+      "ok": true,
+      "target": "example.lab",
+      "conflicts": ["dup.example.lab", "dup.example.lab"]
+    },
+    {
+      "step": "import Observe; managed via import refused; host unchanged",
+      "ok": true,
+      "appId": "01a20771-b967-774a-ac1f-6267431d22e8",
+      "refusedCode": "IMPORT_MODE_NOT_ALLOWED"
+    },
+    {
+      "step": "viewer ownership change denied",
+      "ok": true,
+      "code": "FORBIDDEN"
+    },
+    {
+      "step": "adopt (observed -> adopted)",
+      "ok": true
+    },
+    {
+      "step": "read current nginx files",
+      "ok": true,
+      "path": "/etc/nginx/sites-available/01-static-multi.conf",
+      "sha": "7c4a5e7e500a"
+    },
+    {
+      "step": "P3-T03 broken config: validate invalid, apply refused, host unchanged",
+      "ok": true,
+      "nginxTest": "16#14316: unknown directive \"p3_broken_directive\" in /etc/nginx/sites-enabled/01-static-multi.conf:7\nnginx: configuration file /etc/nginx/nginx.conf test failed",
+      "applyCode": "REVISION_STATE_INVALID"
+    },
+    {
+      "step": "invalid revision is terminal (cancel not applicable)",
+      "ok": true,
+      "code": "REVISION_STATE_INVALID"
+    },
+    {
+      "step": "good revision validates; host unchanged after dry-run",
+      "ok": true,
+      "status": "awaiting_approval"
+    },
+    {
+      "step": "apply without approval refused",
+      "ok": true,
+      "code": "APPROVAL_REQUIRED"
+    },
+    {
+      "step": "creator cannot approve own revision",
+      "ok": true,
+      "code": "APPROVER_IS_CREATOR"
+    },
+    {
+      "step": "second user approves with step-up (planHash-bound)",
+      "ok": true,
+      "planHash": "abfd29fc8b1323b7"
+    },
+    {
+      "step": "apply: nginx -t + reload + postchecks, master PID kept",
+      "ok": true,
+      "status": "applied",
+      "probe": "200",
+      "postchecks": [
+        {
+          "ok": true,
+          "path": "/p3-e2e",
+          "status": 200,
+          "hostHeader": "static.example.lab"
+        },
+        {
+          "ok": true,
+          "path": "/",
+          "status": 200,
+          "hostHeader": "static.example.lab"
+        }
+      ]
+    },
+    {
+      "step": "approval is single-use (re-approve after apply refused)",
+      "ok": true,
+      "code": "REVISION_STATE_INVALID"
+    },
+    {
+      "step": "revert restores original config",
+      "ok": true,
+      "status": "reverted"
+    },
+    {
+      "step": "P3-T05 external edit flagged as drift; new revision blocked",
+      "ok": true,
+      "code": "DRIFT_REVIEW_REQUIRED",
+      "drift": [
+        {
+          "path": "/etc/nginx/sites-enabled/01-static-multi.conf",
+          "changedBy": "external",
+          "revisionId": null,
+          "currentSha256": "561c72a734b096f3be5d53b42f9c27854ebd38256065678c0f7680d7f81972bb",
+          "previousSha256": "7c4a5e7e500ab173d5b38aa800f5389b1c90282894e95d57427e1898469acbba"
+        }
+      ]
+    },
+    {
+      "step": "lab restored to baseline",
+      "ok": true,
+      "final": {
+        "configHash": "ecb855f79c1addb3",
+        "masterPid": "7"
+      }
+    }
+  ]
+}

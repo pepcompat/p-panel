@@ -1,0 +1,41 @@
+{
+  "comment": "Golden vectors for log redaction. apps/agent (Go) and packages/shared-contracts (TS) must both produce `out` for `in` using REDACTION_PATTERNS only (no known secrets).",
+  "cases": [
+    {
+      "in": "GET /api?api_key=sk_live_51HxQ2abcdef123456 200",
+      "out": "GET /api?api_key=[REDACTED] 200"
+    },
+    { "in": "Authorization: Bearer abc.def-ghi_123", "out": "Authorization: [REDACTED]" },
+    {
+      "in": "curl -H \"authorization: token ghp_0123456789abcdefghijABCDEFGHIJ\"",
+      "out": "curl -H \"authorization: [REDACTED]\""
+    },
+    {
+      "in": "calling with bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U done",
+      "out": "calling with bearer [REDACTED] done"
+    },
+    { "in": "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijk", "out": "token=[REDACTED]" },
+    {
+      "in": "{\"password\":\"hunter2!\",\"user\":\"bob\"}",
+      "out": "{\"password\":\"[REDACTED]\",\"user\":\"bob\"}"
+    },
+    { "in": "DB_PASSWORD=Sup3rSecret; host=db", "out": "DB_PASSWORD=[REDACTED]; host=db" },
+    {
+      "in": "connect postgres://app:s3cr3t@db:5432/app",
+      "out": "connect postgres://app:[REDACTED]@db:5432/app"
+    },
+    { "in": "aws key AKIAIOSFODNN7EXAMPLE used", "out": "aws key [REDACTED] used" },
+    { "in": "slack xoxb-123456789012-abcdefghij", "out": "slack [REDACTED]" },
+    { "in": "enroll with ppe_M9Tyc7Zyuc9yLpeMJhUe6tfN6nx4", "out": "enroll with [REDACTED]" },
+    {
+      "in": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIB\n-----END EC PRIVATE KEY-----",
+      "out": "[REDACTED]"
+    },
+    { "in": "client_secret: abcdef123", "out": "client_secret: [REDACTED]" },
+    { "in": "GET /healthz 200 0.002s", "out": "GET /healthz 200 0.002s" },
+    {
+      "in": "user tokenized the input; secretary arrived",
+      "out": "user tokenized the input; secretary arrived"
+    }
+  ]
+}

@@ -22,6 +22,14 @@ type Snapshot struct {
 	DiskPct   *float64 `json:"diskPct,omitempty"`
 	Load1     *float64 `json:"load1,omitempty"`
 	UptimeSec *float64 `json:"uptimeSec,omitempty"`
+	// P5 additions: absolute values (bytes; network counters are cumulative
+	// since boot, summed over all interfaces except lo). Nil = unknown.
+	MemTotalBytes     *uint64 `json:"memTotalBytes,omitempty"`
+	MemAvailableBytes *uint64 `json:"memAvailableBytes,omitempty"`
+	DiskTotalBytes    *uint64 `json:"diskTotalBytes,omitempty"`
+	DiskFreeBytes     *uint64 `json:"diskFreeBytes,omitempty"`
+	NetRxBytes        *uint64 `json:"netRxBytes,omitempty"`
+	NetTxBytes        *uint64 `json:"netTxBytes,omitempty"`
 }
 
 // Detail is the richer inventory view.
@@ -61,6 +69,21 @@ type Sampler struct {
 }
 
 func f64(v float64) *float64 { return &v }
+func u64(v uint64) *uint64   { return &v }
+
+// NetTotals sums rx/tx over all interfaces except loopback. ok=false when no
+// non-loopback interface is known.
+func NetTotals(cs []NetCounter) (rx, tx uint64, ok bool) {
+	for _, c := range cs {
+		if c.Interface == "lo" || c.Interface == "" {
+			continue
+		}
+		rx += c.RxBytes
+		tx += c.TxBytes
+		ok = true
+	}
+	return rx, tx, ok
+}
 
 // Sample returns a heartbeat snapshot.
 func (s *Sampler) Sample() Snapshot {
@@ -77,9 +100,16 @@ func (s *Sampler) Sample() Snapshot {
 	}
 	if total, avail, ok := readMem(); ok && total > 0 {
 		out.MemPct = f64(round1(float64(total-avail) / float64(total) * 100))
+		out.MemTotalBytes, out.MemAvailableBytes = u64(total), u64(avail)
 	}
 	if d, ok := DiskUsageOf("/"); ok {
 		out.DiskPct = f64(d.UsedPct)
+		if d.TotalBytes > 0 {
+			out.DiskTotalBytes, out.DiskFreeBytes = u64(d.TotalBytes), u64(d.FreeBytes)
+		}
+	}
+	if rx, tx, ok := NetTotals(readNetCounters()); ok {
+		out.NetRxBytes, out.NetTxBytes = u64(rx), u64(tx)
 	}
 	if l1, _, _, ok := readLoad(); ok {
 		out.Load1 = f64(l1)

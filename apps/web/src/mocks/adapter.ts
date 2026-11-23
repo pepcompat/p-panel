@@ -22,6 +22,7 @@ import type { AuditEvent } from '@/lib/api/types';
 import { registerP3Routes, resetP3State } from './p3-routes';
 import { registerP4Routes, resetP4State } from './p4-routes';
 import { registerP4bRoutes, resetP4bState } from './p4b-routes';
+import { registerP5Routes, resetP5State } from './p5-routes';
 
 const SESSION_KEY = 'ppanel.mock.session';
 const NOT_BOOTSTRAPPED_KEY = 'ppanel.mock.notBootstrapped';
@@ -62,6 +63,7 @@ export function resetMockState() {
   resetP3State();
   resetP4State();
   resetP4bState();
+  resetP5State();
   safeSession()?.removeItem(SESSION_KEY);
 }
 
@@ -115,6 +117,7 @@ function ok(
 }
 
 function fail(requestId: string, e: HttpError) {
+  const retryAfter = (e.details as { retryAfterSec?: unknown } | undefined)?.retryAfterSec;
   return new Response(
     JSON.stringify({
       error: { code: e.code, message: e.message, details: e.details },
@@ -122,7 +125,13 @@ function fail(requestId: string, e: HttpError) {
     }),
     {
       status: e.status,
-      headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Request-ID': requestId,
+        ...(e.status === 429 && typeof retryAfter === 'number'
+          ? { 'Retry-After': String(retryAfter) }
+          : {}),
+      },
     },
   );
 }
@@ -610,6 +619,8 @@ registerP3Routes(p3ctx);
 // ---------- P4a: container apps / deployments / secrets / webhooks ----------
 registerP4Routes(p3ctx);
 registerP4bRoutes(p3ctx);
+// ---------- P5: metrics / central logs / alerts / incidents / channels ----------
+registerP5Routes(p3ctx);
 
 /** fetch-compatible entry point. */
 export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

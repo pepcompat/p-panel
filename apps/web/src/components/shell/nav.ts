@@ -86,9 +86,8 @@ export const NAV: NavItem[] = [
     href: '/monitoring',
     label: 'nav.monitoring',
     section: 'nav.section.observe',
-    preview: true,
   },
-  { id: 'logs', href: '/logs', label: 'nav.logs', section: 'nav.section.observe', preview: true },
+  { id: 'logs', href: '/logs', label: 'nav.logs', section: 'nav.section.observe' },
   {
     id: 'backups',
     href: '/backups',
@@ -101,7 +100,6 @@ export const NAV: NavItem[] = [
     href: '/alerts',
     label: 'nav.alerts',
     section: 'nav.section.observe',
-    preview: true,
   },
   {
     id: 'ai',

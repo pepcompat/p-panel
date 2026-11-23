@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -53,5 +55,49 @@ func TestSampleDegradesGracefully(t *testing.T) {
 	d := s.Detailed()
 	if d.CPUCount < 1 || d.Disks == nil || d.NetCounters == nil {
 		t.Fatalf("detail %+v", d)
+	}
+}
+
+func TestNetTotalsExcludesLoopback(t *testing.T) {
+	in := "Inter-|   Receive |  Transmit\n face |bytes packets errs drop fifo frame compressed multicast|bytes packets errs drop fifo colls carrier compressed\n" +
+		"    lo: 1000 10 0 0 0 0 0 0 1000 10 0 0 0 0 0 0\n" +
+		"  eth0: 200 2 0 0 0 0 0 0 300 3 0 0 0 0 0 0\n" +
+		"  eth1: 5 1 0 0 0 0 0 0 7 1 0 0 0 0 0 0\n"
+	rx, tx, ok := NetTotals(ParseNetDev(strings.NewReader(in)))
+	if !ok || rx != 205 || tx != 307 {
+		t.Fatalf("rx=%d tx=%d ok=%v", rx, tx, ok)
+	}
+	if _, _, ok := NetTotals(ParseNetDev(strings.NewReader("    lo: 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0\n"))); ok {
+		t.Fatal("loopback-only must be unknown")
+	}
+}
+
+func TestSnapshotOmitsUnknown(t *testing.T) {
+	b, _ := json.Marshal(Snapshot{})
+	if string(b) != "{}" {
+		t.Fatalf("unknown metrics must be omitted, got %s", b)
+	}
+	v := uint64(0)
+	b, _ = json.Marshal(Snapshot{NetRxBytes: &v})
+	if string(b) != `{"netRxBytes":0}` {
+		t.Fatalf("known zero must be present: %s", b)
+	}
+	s := (&Sampler{}).Sample()
+	b, _ = json.Marshal(s)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	for k, val := range m {
+		if val == nil {
+			t.Errorf("%s is null", k)
+		}
+	}
+	if runtime.GOOS == "linux" {
+		for _, k := range []string{"memTotalBytes", "memAvailableBytes", "diskTotalBytes", "diskFreeBytes"} {
+			if _, ok := m[k]; !ok {
+				t.Errorf("linux sample missing %s: %s", k, b)
+			}
+		}
+	} else if _, ok := m["netRxBytes"]; ok {
+		t.Errorf("net counters unknown on %s but present", runtime.GOOS)
 	}
 }

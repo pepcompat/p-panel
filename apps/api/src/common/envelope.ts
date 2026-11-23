@@ -17,6 +17,15 @@ export class Paginated<T> {
   ) {}
 }
 
+/** Cursor-paginated list (`paginate: { limit, hasMore, nextCursor }`) with optional extra `meta`. */
+export class CursorPaginated<T> {
+  constructor(
+    public readonly items: T[],
+    public readonly paginate: { limit: number; hasMore: boolean; nextCursor: string | null },
+    public readonly meta: Record<string, unknown> = {},
+  ) {}
+}
+
 export function successEnvelope<T>(data: T, message = 'ok'): SuccessEnvelope<T> {
   return {
     success: true,
@@ -33,6 +42,10 @@ export function listEnvelope<T>(items: T[], paginate: Paginate, message = 'ok'):
 
 export function wrap(value: unknown): unknown {
   if (value instanceof Paginated) return listEnvelope(value.items, value.paginate);
+  if (value instanceof CursorPaginated) {
+    const base = successEnvelope(value.items);
+    return { ...base, paginate: value.paginate, meta: { ...value.meta, ...base.meta } };
+  }
   return successEnvelope(value ?? null);
 }
 

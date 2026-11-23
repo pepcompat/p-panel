@@ -21,6 +21,7 @@ const MaxResponseBytes = 4 << 20
 type Client struct {
 	socket string
 	hc     *http.Client
+	stream *http.Client // log follow: no total timeout (cancel via ctx)
 }
 
 type getOnly struct{ rt http.RoundTripper }
@@ -43,7 +44,17 @@ func New(socket string) *Client {
 		IdleConnTimeout:       10 * time.Second,
 		ResponseHeaderTimeout: 10 * time.Second,
 	}
-	return &Client{socket: socket, hc: &http.Client{Transport: getOnly{tr}, Timeout: 15 * time.Second}}
+	str := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socket)
+		},
+		MaxIdleConns:          0,
+		DisableKeepAlives:     true,
+		ResponseHeaderTimeout: 15 * time.Second,
+	}
+	return &Client{socket: socket, hc: &http.Client{Transport: getOnly{tr}, Timeout: 15 * time.Second},
+		stream: &http.Client{Transport: getOnly{str}}}
 }
 
 // Accessible reports whether the socket exists and can be opened.

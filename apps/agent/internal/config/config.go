@@ -56,6 +56,128 @@ type Config struct {
 	Nginx NginxConfig `yaml:"nginx" json:"nginx"`
 	// Build configures the P4b build node role (image.build / source.inspect).
 	Build BuildConfig `yaml:"build" json:"build"`
+	// Logs configures P5 log shipping (local config only: the Center can never
+	// add sources or paths).
+	Logs LogsConfig `yaml:"logs" json:"logs"`
+}
+
+// Log source names (docs/AGENT_PROTOCOL.md "Telemetry").
+const (
+	LogSourceNginxAccess = "nginx_access"
+	LogSourceNginxError  = "nginx_error"
+	LogSourceContainer   = "container"
+	LogSourceAgent       = "agent"
+)
+
+// Log shipping limits.
+const (
+	DefaultLogBufferCap      = 64 << 20
+	MinLogBufferCap          = 1 << 20
+	MaxLogBufferCap          = 4 << 30
+	DefaultLogShipIntervalMs = 2000
+	DefaultLogMaxBatch       = 1000
+	MaxLogBatchEntries       = 5000
+)
+
+// LogSource is one configured log source.
+type LogSource struct {
+	// Source is nginx_access | nginx_error | container | agent.
+	Source string `yaml:"source" json:"source"`
+	// Path is required for nginx_* (clean absolute file path), forbidden otherwise.
+	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+}
+
+// LogsConfig is the `logs:` section.
+type LogsConfig struct {
+	// Enabled turns log shipping on (default true).
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Sources defaults to nginx access/error under /var/log/nginx, managed containers and the agent.
+	Sources []LogSource `yaml:"sources" json:"sources"`
+	// BufferCapBytes caps the on-disk segment buffer (default 64 MiB, min 1 MiB).
+	BufferCapBytes int64 `yaml:"bufferCapBytes" json:"bufferCapBytes"`
+	// ShipIntervalMs is the ship cadence (default 2000).
+	ShipIntervalMs int `yaml:"shipIntervalMs" json:"shipIntervalMs"`
+	// MaxBatchEntries ships early once this many entries are pending (default 1000, max 5000).
+	MaxBatchEntries int `yaml:"maxBatchEntries" json:"maxBatchEntries"`
+}
+
+// DefaultLogSources is used when logs.sources is empty.
+func DefaultLogSources() []LogSource {
+	return []LogSource{
+		{Source: LogSourceNginxAccess, Path: "/var/log/nginx/access.log"},
+		{Source: LogSourceNginxError, Path: "/var/log/nginx/error.log"},
+		{Source: LogSourceContainer},
+		{Source: LogSourceAgent},
+	}
+}
+
+// LogBufferDir is where log segments are kept.
+func (c *Config) LogBufferDir() string { return filepath.Join(c.StateDir, "logs", "buffer") }
+
+// LogStateDir holds positions.json and the in-flight batch.
+func (c *Config) LogStateDir() string { return filepath.Join(c.StateDir, "logs") }
+
+// HasLogSource reports whether a source type is configured.
+func (l *LogsConfig) HasLogSource(name string) bool {
+	for _, s := range l.Sources {
+		if s.Source == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *LogsConfig) validate() []string {
+	var errs []string
+	if len(l.Sources) == 0 {
+		l.Sources = DefaultLogSources()
+	}
+	if l.BufferCapBytes == 0 {
+		l.BufferCapBytes = DefaultLogBufferCap
+	}
+	if l.ShipIntervalMs == 0 {
+		l.ShipIntervalMs = DefaultLogShipIntervalMs
+	}
+	if l.MaxBatchEntries == 0 {
+		l.MaxBatchEntries = DefaultLogMaxBatch
+	}
+	if l.BufferCapBytes < MinLogBufferCap || l.BufferCapBytes > MaxLogBufferCap {
+		errs = append(errs, "logs.bufferCapBytes must be 1 MiB..4 GiB")
+	}
+	if l.ShipIntervalMs < 200 || l.ShipIntervalMs > 60000 {
+		errs = append(errs, "logs.shipIntervalMs must be 200..60000")
+	}
+	if l.MaxBatchEntries < 1 || l.MaxBatchEntries > MaxLogBatchEntries {
+		errs = append(errs, "logs.maxBatchEntries must be 1..5000")
+	}
+	seen := map[string]bool{}
+	for i, s := range l.Sources {
+		s.Source = strings.TrimSpace(s.Source)
+		s.Path = strings.TrimSpace(s.Path)
+		l.Sources[i] = s
+		switch s.Source {
+		case LogSourceNginxAccess, LogSourceNginxError:
+			if s.Path == "" || !filepath.IsAbs(s.Path) || filepath.Clean(s.Path) != s.Path || s.Path == "/" {
+				errs = append(errs, fmt.Sprintf("logs.sources[%d]: %s needs a clean absolute file path", i, s.Source))
+			}
+		case LogSourceContainer, LogSourceAgent:
+			if s.Path != "" {
+				errs = append(errs, fmt.Sprintf("logs.sources[%d]: %s takes no path", i, s.Source))
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("logs.sources[%d]: unknown source %q (nginx_access|nginx_error|container|agent)", i, s.Source))
+			continue
+		}
+		key := s.Source + "\x00" + s.Path
+		if seen[key] || (s.Path != "" && seen["path\x00"+s.Path]) {
+			errs = append(errs, fmt.Sprintf("logs.sources[%d]: duplicate source", i))
+		}
+		seen[key] = true
+		if s.Path != "" {
+			seen["path\x00"+s.Path] = true
+		}
+	}
+	return errs
 }
 
 // BuildConfig is the `build:` section. Builds are an OPERATOR decision on the
@@ -150,6 +272,8 @@ func Default() *Config {
 		MaxBufferedResults:   100,
 		DockerSocket:         "/var/run/docker.sock",
 		PhpFpmPoolGlob:       "/etc/php/*/fpm/pool.d/*.conf",
+		Logs: LogsConfig{Enabled: true, BufferCapBytes: DefaultLogBufferCap,
+			ShipIntervalMs: DefaultLogShipIntervalMs, MaxBatchEntries: DefaultLogMaxBatch},
 	}
 }
 
@@ -229,6 +353,7 @@ func (c *Config) Validate() error {
 	if w := c.Build.WorkDir; w != "" && (!filepath.IsAbs(w) || filepath.Clean(w) != w || w == "/") {
 		errs = append(errs, "build.workDir must be a clean absolute path (not /)")
 	}
+	errs = append(errs, c.Logs.validate()...)
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))
 	}

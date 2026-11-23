@@ -3,6 +3,7 @@
 package fakecenter
 
 import (
+	"compress/gzip"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -116,9 +117,11 @@ type Center struct {
 	Acks         []string
 	Results      map[string][]map[string]any
 	Rotations    int
-	tasks        chan []map[string]any
-	AckStatus    int // if non-zero, ack responds with this status
-	RenewAfter   *time.Time
+	// LogBatches are decoded POST /agent/v1/logs bodies (gzip).
+	LogBatches []map[string]any
+	tasks      chan []map[string]any
+	AckStatus  int // if non-zero, ack responds with this status
+	RenewAfter *time.Time
 
 	enrollSrv  *http.Server
 	EnrollURL  string
@@ -230,6 +233,7 @@ func (c *Center) startGatewayOn(ln net.Listener) {
 	mux.HandleFunc("/agent/v1/tasks", c.handleTasks)
 	mux.HandleFunc("/agent/v1/tasks/", c.handleTaskAction)
 	mux.HandleFunc("/agent/v1/certificate/rotate", c.handleRotate)
+	mux.HandleFunc("/agent/v1/logs", c.handleLogs)
 	cfg := &tls.Config{Certificates: []tls.Certificate{c.gwCert}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: c.CA.Pool(), MinVersion: tls.VersionTLS12}
 	srv := &http.Server{Handler: c.peerCheck(mux), TLSConfig: cfg}
 	c.mu.Lock()
@@ -272,6 +276,38 @@ func (c *Center) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		data["certRenewAfter"] = ra.UTC().Format(time.RFC3339)
 	}
 	writeOK(w, 200, data)
+}
+
+func (c *Center) handleLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || r.Header.Get("Content-Encoding") != "gzip" {
+		writeErr(w, 400, "BAD_REQUEST", "gzip POST required")
+		return
+	}
+	zr, err := gzip.NewReader(io.LimitReader(r.Body, 1<<20+1))
+	if err != nil {
+		writeErr(w, 400, "BAD_REQUEST", err.Error())
+		return
+	}
+	var b map[string]any
+	if err := json.NewDecoder(io.LimitReader(zr, 8<<20)).Decode(&b); err != nil {
+		writeErr(w, 400, "BAD_REQUEST", err.Error())
+		return
+	}
+	c.mu.Lock()
+	c.LogBatches = append(c.LogBatches, b)
+	c.mu.Unlock()
+	n := 0
+	if es, ok := b["entries"].([]any); ok {
+		n = len(es)
+	}
+	writeOK(w, 200, map[string]any{"accepted": n, "duplicate": false})
+}
+
+// LogBatchesCopy returns received log batches.
+func (c *Center) LogBatchesCopy() []map[string]any {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]map[string]any(nil), c.LogBatches...)
 }
 
 // Enqueue makes the next long-poll return these grants.

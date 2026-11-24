@@ -26,8 +26,7 @@ fingerprints() {
 sshd_pid() { docker exec "${P10_CONTAINER}" cat /run/sshd.pid 2>/dev/null; }
 
 wait_sshd() { # wait until sshd answers with an SSH banner on the published loopback port
-  local i
-  for i in $(seq 1 40); do
+  for _ in $(seq 1 40); do
     if python3 -I - "${P10_PORT}" <<'PY' 2>/dev/null; then return 0; fi
 import socket, sys
 s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=2)

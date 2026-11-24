@@ -118,7 +118,20 @@ jobs:
           for pkg in $(go list ./...); do
             for fz in $(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep '^Fuzz' || true); do
               echo "== $pkg $fz"
-              go test "$pkg" -run '^$' -fuzz "^${fz}\$" -fuzztime 10s
+              # Go's fuzz coordinator can report "context deadline exceeded" on a loaded runner
+              # without any failing input; retry that case once. A real crasher (written to
+              # testdata/fuzz as "Failing input") always fails the job.
+              if ! out="$(go test "$pkg" -run '^$' -fuzz "^${fz}\$" -fuzztime 10s 2>&1)"; then
+                echo "$out"
+                if grep -q 'context deadline exceeded' <<<"$out" && ! grep -q 'Failing input' <<<"$out"; then
+                  echo "::warning::$fz: fuzz engine deadline flake, retrying once"
+                  go test "$pkg" -run '^$' -fuzz "^${fz}\$" -fuzztime 10s
+                else
+                  exit 1
+                fi
+              else
+                echo "$out" | tail -n 3
+              fi
             done
           done
       - name: Cross-build agent (linux amd64/arm64, static)

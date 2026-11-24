@@ -30,6 +30,8 @@ export const ERROR_CODES = {
   AGENT_CERT_REVOKED: 'AGENT_CERT_REVOKED',
   AGENT_PROTOCOL_UNSUPPORTED: 'AGENT_PROTOCOL_UNSUPPORTED',
   SERVER_REVOKED: 'SERVER_REVOKED',
+  /** P8: agent older than the Center's minAgentVersion → mutating jobs refused (409); read-only jobs still run */
+  AGENT_OUTDATED: 'AGENT_OUTDATED',
   // jobs
   JOB_TYPE_UNKNOWN: 'JOB_TYPE_UNKNOWN',
   RESOURCE_NOT_OWNED: 'RESOURCE_NOT_OWNED',

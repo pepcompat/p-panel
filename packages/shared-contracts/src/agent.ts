@@ -1,6 +1,19 @@
 import { z } from 'zod';
 
 export const AGENT_PROTOCOL_VERSION = '1';
+
+/** P8: `GET /api/v1/version` (public). Single product version (root VERSION file, SemVer). */
+export interface CenterVersionInfo {
+  version: string;
+  commit: string;
+  /** ISO 8601 UTC build time, null for an unstamped dev build */
+  buildDate: string | null;
+  agentProtocol: typeof AGENT_PROTOCOL_VERSION;
+  /** agents older than this are `agentOutdated` and get 409 AGENT_OUTDATED for mutating jobs */
+  minAgentVersion: string;
+  /** name of the latest applied Prisma migration, null when the DB is unreachable */
+  schemaVersion: string | null;
+}
 export const AGENT_PROTOCOL_HEADER = 'X-Agent-Protocol';
 
 const osFacts = z

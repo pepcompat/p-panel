@@ -8,6 +8,7 @@ import {
   STALE_AFTER_SEC,
 } from '@ppanel/shared-contracts';
 import type { Prisma } from '@prisma/client';
+import { isAgentOutdated } from '../version/build-info';
 
 export const serverInclude = {
   addresses: { orderBy: { address: 'asc' } },
@@ -54,7 +55,12 @@ export function statusWhere(status: string, now = Date.now()): Prisma.ServerWher
   }
 }
 
-export function toServer(row: ServerRow, allowedActions: string[], now = Date.now()): Server {
+export function toServer(
+  row: ServerRow,
+  allowedActions: string[],
+  now = Date.now(),
+  minAgentVersion = '0.0.0',
+): Server {
   const status = deriveStatus(row.status, row.lastHeartbeatAt, now);
   const m = row.metrics as {
     cpuPct?: number | null;
@@ -74,6 +80,7 @@ export function toServer(row: ServerRow, allowedActions: string[], now = Date.no
     status,
     lastHeartbeatAt: row.lastHeartbeatAt?.toISOString() ?? null,
     agentVersion: row.agentVersion,
+    agentOutdated: isAgentOutdated(row.agentVersion, minAgentVersion),
     os: (row.os as Server['os']) ?? null,
     provider: (row.provider as Server['provider']) ?? null,
     addresses: row.addresses.map((a): ServerAddress => ({

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   ERROR_CODES,
   type Heartbeat,
@@ -14,6 +14,7 @@ import { Paginated } from '../common/envelope';
 import { PrismaService } from '../common/prisma.service';
 import type { AuthUser } from '../common/principal';
 import { buildWhere, type FieldMap, paginate, type ParsedQuery } from '../common/query-builder';
+import { APP_CONFIG, type AppConfig } from '../config/config';
 import { JobNotifier } from '../jobs/job-notifier';
 import { serverInclude, type ServerRow, statusWhere, toServer } from './server-view';
 
@@ -47,6 +48,7 @@ export class ServersService {
     private readonly audit: AuditService,
     private readonly auth: AuthService,
     private readonly notifier: JobNotifier,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   allowedActions(
@@ -63,7 +65,7 @@ export class ServersService {
   }
 
   view(user: AuthUser, row: ServerRow): Server {
-    return toServer(row, this.allowedActions(user, row));
+    return toServer(row, this.allowedActions(user, row), Date.now(), this.config.minAgentVersion);
   }
 
   async list(user: AuthUser, pq: ParsedQuery) {

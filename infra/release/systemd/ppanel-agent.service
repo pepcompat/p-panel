@@ -1,0 +1,78 @@
+# pPanel Agent — systemd unit (P8, docs/RELEASE_CONTRACT.md §5, docs/INSTALL.md "least privileges").
+# Installed by install-agent.sh to /etc/systemd/system/ppanel-agent.service (the script embeds this exact
+# file; scripts/release/build.sh fails if the two drift).
+#
+# Runs as root with a reduced capability bounding set: it must reload nginx (signal the root master,
+# write /etc/nginx), run `nginx -t`/`nginx -T` (root-only includes and TLS key paths), talk to the Docker
+# socket (host-root-equivalent; GETs for inventory, typed container ops only) and call systemctl over
+# D-Bus for allowlisted units. It opens NO listening socket; all connections are outbound.
+# Restore targets outside the paths below need a drop-in: `systemctl edit ppanel-agent` →
+#   [Service]
+#   ReadWritePaths=/srv/myapp/data
+
+[Unit]
+Description=pPanel Agent
+Documentation=https://github.com/pepcompat/ppanel/blob/main/docs/INSTALL.md
+After=network-online.target docker.service nginx.service
+Wants=network-online.target
+ConditionPathExists=/var/lib/ppanel-agent/identity.json
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStartPre=/usr/local/bin/ppanel-agent check-config --config /etc/ppanel-agent/config.yaml
+ExecStart=/usr/local/bin/ppanel-agent run --config /etc/ppanel-agent/config.yaml
+Restart=always
+RestartSec=5s
+TimeoutStopSec=45s
+KillMode=mixed
+UMask=0077
+
+# --- filesystem: everything read-only except what the agent manages ---
+ProtectSystem=strict
+# state (identity, key, job cache, log buffer, backup work dir, restore staging)
+ReadWritePaths=/var/lib/ppanel-agent
+# nginx typed jobs write candidates / managed files here; `nginx -t`/`-T` open logs, temp and pid paths
+ReadWritePaths=-/etc/nginx -/var/log/nginx -/var/lib/nginx -/var/cache/nginx -/run/nginx -/run/nginx.pid
+# optional operator backup staging outside the state dir (backup.workDir)
+ReadWritePaths=-/var/backups/ppanel-agent
+StateDirectory=ppanel-agent
+StateDirectoryMode=0700
+ConfigurationDirectory=ppanel-agent
+ConfigurationDirectoryMode=0750
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+
+# --- privileges ---
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_SYS_PTRACE CAP_CHOWN CAP_FOWNER
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# MemoryDenyWriteExecute is intentionally NOT set: it is inherited by `nginx -T`
+# and breaks PCRE JIT in some nginx builds.
+
+# --- kernel / devices ---
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# AF_UNIX: docker.sock + D-Bus; AF_INET/6: Center; AF_NETLINK: interface addresses
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# --- resources (bounded) ---
+MemoryMax=512M
+TasksMax=128
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target

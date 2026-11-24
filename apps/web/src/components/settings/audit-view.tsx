@@ -46,7 +46,7 @@ export function AuditView() {
     limit: LIMIT,
     sort: 'createdAt',
     order: 'desc',
-    action: applied.action.trim() || undefined,
+    'action[prefix]': applied.action.trim() || undefined,
     actor_id: applied.actor_id.trim() || undefined,
     target_id: applied.target_id.trim() || undefined,
     'created_at[gte]': applied.since ? new Date(applied.since).toISOString() : undefined,

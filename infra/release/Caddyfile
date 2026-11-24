@@ -1,0 +1,40 @@
+# pPanel Center reverse proxy (infra/release/compose.yml service `proxy`).
+# - TLS for the web UI and the API on :443 (ACME with an e-mail in PPANEL_TLS, or `internal` CA for lab).
+# - /api/* → api:4000 (same origin as the UI; the web bundle uses the relative base /api/v1).
+# - everything else → web:3100.
+# - /internal/* (Prometheus scrape) is NEVER proxied.
+# - The agent gateway :4443 is NOT here: it is published directly by the api service (mTLS end to end).
+{
+	admin off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+{$PPANEL_DOMAIN} {
+	tls {$PPANEL_TLS:internal}
+	encode zstd gzip
+
+	@internal path /internal /internal/*
+	respond @internal 404
+
+	handle /api/* {
+		# SSE (log tail) needs immediate flushing
+		reverse_proxy api:4000 {
+			flush_interval -1
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle {
+		reverse_proxy web:3100
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+	log {
+		output stdout
+		format json
+	}
+}

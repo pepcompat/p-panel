@@ -1,0 +1,17 @@
+# Center bundle (profile `observability`): Prometheus scrapes ONLY the Center API (ADR-0008) on the
+# internal compose network. The bearer file is written by install.sh (secrets/scrape-token, uid 65534, 0400).
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ppanel-center
+    metrics_path: /internal/metrics
+    scheme: http
+    honor_labels: true
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/scrape-token
+    static_configs:
+      - targets: ['api:4000']

@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P7 complete; next P8
+Current phase: P8 complete (0.8.0-rc.1, MVP-B release candidate); next P9
 Last verified revision: (no commits yet)
 
 ## P0
@@ -109,16 +109,16 @@ Phase tests: P7-T01, P7-T02, P7-T03, P7-T04 (see `TEST_REPORT.md`) · Gate: PASS
 
 ## P8
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                                                          |
-| ------- | ------ | --------- | ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| P8.01   | TODO   |           |              |          | Versioned Center installer (`docker compose`) and Agent installer (signed binary checksums, systemd, enrollment); least privileges documented. |
-| P8.02   | TODO   |           |              |          | `.env.example`, secrets bootstrap, network/firewall prerequisites, certificate enrollment, volume mounts.                                      |
-| P8.03   | TODO   |           |              |          | Automated CI: typecheck/lint/unit/integration/security scans/build; Playwright E2E in isolated lab.                                            |
-| P8.04   | TODO   |           |              |          | Versioned migrations, upgrade test and safe rollback procedure for Center/Agent; mixed-version compatibility policy.                           |
-| P8.05   | TODO   |           |              |          | Operator guides: enroll, import, deploy, auto deploy, TLS/Nginx, logs, alerts, backup, restore, emergency recovery.                            |
-| P8.06   | TODO   |           |              |          | Final acceptance matrix, release notes, known limitations and evidence package.                                                                |
+| Task ID | Status | Change/PR | Test command                                          | Evidence                                                                                                                              | Notes                                                                                                                                          |
+| ------- | ------ | --------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| P8.01   | PASS   |           | scripts/lab/e2e_p8_install.py                         | docs/evidence/2026-11-24/p8-t01-install.json; docs/INSTALL.md; infra/release/** (lab substitute: Ubuntu 24.04 systemd containers)     | Versioned Center installer (`docker compose`) and Agent installer (signed binary checksums, systemd, enrollment); least privileges documented. |
+| P8.02   | PASS   |           | scripts/lab/e2e_p8_install.py                         | docs/INSTALL.md (secrets bootstrap, master-key escrow, firewall, cert enrollment, volumes); .env.example / infra/release/env.template | `.env.example`, secrets bootstrap, network/firewall prerequisites, certificate enrollment, volume mounts.                                      |
+| P8.03   | PASS   |           | CI: node/go/images/journeys jobs; release.yml on tags | docs/ACCEPTANCE.md; .github/workflows/ci.yml, release.yml                                                                             | Automated CI: typecheck/lint/unit/integration/security scans/build; Playwright E2E in isolated lab.                                            |
+| P8.04   | PASS   |           | scripts/lab/e2e_p8_upgrade.py                         | docs/evidence/2026-11-24/p8-t02-upgrade.json; docs/UPGRADE_RUNBOOK.md, MIGRATION_RUNBOOK.md, COMPATIBILITY.md                         | Versioned migrations, upgrade test and safe rollback procedure for Center/Agent; mixed-version compatibility policy.                           |
+| P8.05   | PASS   |           | link check + review against code                      | docs/guides/** (10 guides), docs/runbooks/README.md                                                                                   | Operator guides: enroll, import, deploy, auto deploy, TLS/Nginx, logs, alerts, backup, restore, emergency recovery.                            |
+| P8.06   | PASS   |           |                                                       | docs/ACCEPTANCE.md, docs/RELEASE_NOTES.md, docs/KNOWN_LIMITATIONS.md, docs/evidence/2026-11-24/                                       | Final acceptance matrix, release notes, known limitations and evidence package.                                                                |
 
-Phase tests: P8-T01, P8-T02, P8-T03 (see `TEST_REPORT.md`) · Gate: TODO
+Phase tests: P8-T01, P8-T02, P8-T03 (see `TEST_REPORT.md`) · Gate: PASS as MVP-B release candidate (lab substitute; limitations in `KNOWN_LIMITATIONS.md`)
 
 ## P9
 

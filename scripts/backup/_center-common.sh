@@ -14,7 +14,14 @@ die() {
   exit 1
 }
 
-now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
+# node when present (macOS date has no %N); GNU date otherwise (installed Center hosts have no node)
+now_ms() {
+  if command -v node >/dev/null 2>&1; then
+    node -e 'process.stdout.write(String(Date.now()))'
+  else
+    date +%s%3N
+  fi
+}
 
 need_tools() {
   if [ "$TOOLS" = auto ]; then

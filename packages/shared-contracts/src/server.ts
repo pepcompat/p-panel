@@ -53,6 +53,11 @@ export interface Server {
   status: ServerStatus;
   lastHeartbeatAt: string | null;
   agentVersion: string | null;
+  /**
+   * P8: true when `agentVersion` is older than the Center's `minAgentVersion` (GET /version). Outdated
+   * agents keep running workloads; new mutating jobs are refused with 409 AGENT_OUTDATED.
+   */
+  agentOutdated?: boolean;
   os: { id: string; version: string; arch: string; kernel?: string } | null;
   provider: {
     name: string | null;
@@ -94,7 +99,10 @@ export interface EnrollmentCreated {
   enrollmentId: string;
   token: string;
   expiresAt: string;
+  /** P8: downloads + verifies install-agent.sh from the release, installs the agent and enrolls */
   installCommand: string;
+  /** enroll only (agent binary already installed): `sudo ppanel-agent enroll --center … --token …` */
+  enrollCommand?: string;
 }
 
 // ---- additions (Center API P1.06) ----

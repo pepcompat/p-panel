@@ -1,27 +1,39 @@
 # pPanel operator runbooks
 
-Index of operational procedures. A runbook is "verified" only when its steps were executed in the lab
-(or on an authorized target) and evidence is linked in `docs/TEST_REPORT.md`.
+Index of operational procedures. Task-oriented guides live in [docs/guides](../guides/README.md).
 
-| Runbook                                                                                 | Phase | Status                                  |
-| --------------------------------------------------------------------------------------- | ----- | --------------------------------------- |
-| [Dev setup & lab](../DEPLOYMENT_RUNBOOK.md)                                             | P0    | documented; lab cycle verified (P0-T02) |
-| Lab operations (`infra/lab/README.md`)                                                  | P0    | verified 2026-11-17                     |
-| Agent enrollment / revoke / cert rotation                                               | P1    | TODO                                    |
-| Legacy Nginx import (Discover → Observe → Adopt → Managed)                              | P3    | TODO                                    |
-| Nginx change apply + emergency revert                                                   | P3    | TODO                                    |
-| Deploy / rollback / auto-deploy                                                         | P4    | TODO                                    |
-| Alerts, logs, retention                                                                 | P5    | TODO                                    |
-| Backup, verified restore, restore drill                                                 | P6    | TODO                                    |
-| Center disaster recovery (DB + config + master key + CA re-key) → `RECOVERY_RUNBOOK.md` | P6.06 | TODO                                    |
-| Center outage behaviour / agent reconnect                                               | P7    | TODO                                    |
-| Production install → `DEPLOYMENT_RUNBOOK.md` §4                                         | P8    | TODO                                    |
-| Upgrade / migration / rollback → `UPGRADE_RUNBOOK.md`, `MIGRATION_RUNBOOK.md`           | P8.04 | TODO                                    |
-| Gateway shadow test & DNS cutover/rollback                                              | P9    | TODO                                    |
-| SSH key rotation & host-key mismatch                                                    | P10   | TODO                                    |
-| Firewall lockout recovery                                                               | P11   | TODO                                    |
-| Plugin install failure recovery                                                         | P12   | TODO                                    |
-| MCP client revocation / AI incident                                                     | P13   | TODO                                    |
+Status values:
 
-Conventions: each runbook lists prerequisites, exact commands, expected output, verification, rollback,
-and who may execute it (permission + approval).
+- **documented; flow verified by …**: the guide exists and its flow is exercised by the named lab E2E
+  script or integration test (evidence in `docs/TEST_REPORT.md`).
+- **documented**: the guide exists; no automated end-to-end check covers the flow.
+- **TODO**: not written yet (the feature is not implemented in this release).
+
+A runbook is "verified" on a real target only when its steps were executed there; everything below ran in
+the container lab or in integration tests.
+
+| Runbook                                                    | Guide                                                                                                                              | Phase | Status                                                                                                                                       |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dev setup & lab                                            | [DEPLOYMENT_RUNBOOK.md](../DEPLOYMENT_RUNBOOK.md)                                                                                  | P0    | documented; lab cycle verified (P0-T02)                                                                                                      |
+| Lab operations                                             | `infra/lab/README.md`                                                                                                              | P0    | verified 2026-11-17                                                                                                                          |
+| Agent enrollment / revoke / cert rotation                  | [enroll-servers.md](../guides/enroll-servers.md)                                                                                   | P1    | documented; flow verified by `scripts/lab/e2e_p3.py` (enroll) and `apps/api/test/integration/enrollment-mtls.spec.ts` (revoke, rotation)     |
+| Legacy Nginx import (Discover → Observe → Adopt → Managed) | [import-nginx.md](../guides/import-nginx.md)                                                                                       | P3    | documented; flow verified by `scripts/lab/e2e_p3.py`                                                                                         |
+| Nginx change apply + emergency revert                      | [nginx-changes-and-tls.md](../guides/nginx-changes-and-tls.md)                                                                     | P3    | documented; flow verified by `scripts/lab/e2e_p3.py` (failsafe cases: `scripts/chaos/nginx_failsafe.py`, P7-T04)                             |
+| Deploy / rollback                                          | [deploy.md](../guides/deploy.md)                                                                                                   | P4    | documented; flow verified by `scripts/lab/e2e_p4.py` and `scripts/lab/e2e_p4b.py`                                                            |
+| Auto-deploy (webhooks, coalescing)                         | [auto-deploy.md](../guides/auto-deploy.md)                                                                                         | P4    | documented; flow verified by `scripts/lab/e2e_p4.py`, `scripts/lab/e2e_p4b.py` (coalescing: `apps/api/test/integration/deployments.spec.ts`) |
+| Central logs, retention                                    | [logs.md](../guides/logs.md)                                                                                                       | P5    | documented; flow verified by `scripts/lab/e2e_p5.py`                                                                                         |
+| Alerts and incidents                                       | [alerts.md](../guides/alerts.md)                                                                                                   | P5    | documented; flow verified by `scripts/lab/e2e_p5.py`                                                                                         |
+| Backup, verified restore, restore drill                    | [backup-restore.md](../guides/backup-restore.md)                                                                                   | P6    | documented; flow verified by `scripts/lab/e2e_p6.py`                                                                                         |
+| Center disaster recovery (DB + config + master key)        | [RECOVERY_RUNBOOK.md](../RECOVERY_RUNBOOK.md), [emergency-recovery.md](../guides/emergency-recovery.md#4-center-disaster-recovery) | P6.06 | documented; flow verified by `apps/api/test/integration/center-recovery.spec.ts` (integration, not on a separate host)                       |
+| Center outage behaviour / agent reconnect                  | [emergency-recovery.md](../guides/emergency-recovery.md)                                                                           | P7    | documented; flow verified by `scripts/lab/e2e_p5.py` (P5-T04) and `scripts/chaos/center_outage.py` (P7-T01)                                  |
+| Nginx / deployment / restore manual recovery               | [emergency-recovery.md](../guides/emergency-recovery.md#3-manual-recovery-states)                                                  | P7    | documented                                                                                                                                   |
+| Production install                                         | [INSTALL.md](../INSTALL.md)                                                                                                        | P8    | documented; flow verified by `scripts/lab/e2e_p8_install.py` (P8-T01, Ubuntu systemd container — lab substitute; real VM BLOCKED)            |
+| Upgrade / migration / rollback                             | [UPGRADE_RUNBOOK.md](../UPGRADE_RUNBOOK.md), [MIGRATION_RUNBOOK.md](../MIGRATION_RUNBOOK.md)                                       | P8.04 | documented; flow verified by `scripts/lab/e2e_p8_upgrade.py` (P8-T02, 0.7.0 → 0.8.0-rc.1 → rollback, lab substitute)                         |
+| Gateway shadow test & DNS cutover/rollback                 | —                                                                                                                                  | P9    | TODO                                                                                                                                         |
+| SSH key rotation & host-key mismatch                       | —                                                                                                                                  | P10   | TODO                                                                                                                                         |
+| Firewall lockout recovery                                  | —                                                                                                                                  | P11   | TODO                                                                                                                                         |
+| Plugin install failure recovery                            | —                                                                                                                                  | P12   | TODO                                                                                                                                         |
+| MCP client revocation / AI incident                        | —                                                                                                                                  | P13   | TODO                                                                                                                                         |
+
+Conventions: each guide lists prerequisites and who may execute it (permission + approval), the UI steps
+with the equivalent API call, what you should see, failure modes with recovery, and limitations.

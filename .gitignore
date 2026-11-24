@@ -16,3 +16,4 @@ apps/agent/bin/
 playwright-report/
 test-results/
 __pycache__/
+dist-release/

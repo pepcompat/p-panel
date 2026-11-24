@@ -857,6 +857,8 @@ function validateRuleBody(b: Record<string, unknown>, existing?: AlertRule) {
     errs.push({ field: 'scopeId', message: 'Required for this scope' });
   if (r.forSec !== undefined && (!Number.isInteger(r.forSec) || r.forSec < 0 || r.forSec > 86400))
     errs.push({ field: 'forSec', message: '0–86400 seconds' });
+  else if (r.kind === 'server_offline' && r.forSec !== undefined && Number(r.forSec) < 90)
+    errs.push({ field: 'forSec', message: 'server_offline rules need forSec >= 90' });
   if (r.kind === 'metric_threshold') {
     const p = (r.params ?? {}) as Record<string, unknown>;
     if (!['cpu', 'memory', 'disk', 'load1'].includes(String(p.metric)))

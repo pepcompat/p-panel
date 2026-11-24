@@ -73,6 +73,13 @@ export const PROBES: Probe[] = [
   r('GET /api/v1/setup/status', () => '/api/v1/setup/status', {
     publicReason: 'returns only {initialized} for the first-run UI',
   }),
+  r('GET /api/v1/version', () => '/api/v1/version', {
+    publicReason:
+      'P8: build identity + compatibility policy for installer/upgrade pre-flight; no secrets',
+  }),
+  r('GET /api/v1/health', () => '/api/v1/health', {
+    publicReason: 'P8: liveness + DB reachability for container healthchecks; no data',
+  }),
   r(
     'POST /api/v1/webhooks/github/:integrationId',
     (i) => `/api/v1/webhooks/github/${i.integration}`,

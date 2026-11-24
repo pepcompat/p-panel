@@ -1,0 +1,368 @@
+{
+  "test": "P8-T02 upgrade 0.7.0 -> 0.8.0-rc.1 with data + mixed-version fleet, then rollback",
+  "result": "PASS (lab substitute)",
+  "labSubstitute": true,
+  "note": "Ubuntu 24.04 systemd containers (infra/lab/ubuntu), not VMs; 0.7.0 = aa92403 + minimal P8 packaging patch (p8-t02-v070-packaging.patch)",
+  "from": "0.7.0",
+  "to": "0.8.0-rc.1",
+  "ranAt": "2026-11-24T06:55:37Z",
+  "durationSec": 127.4,
+  "v070PackagingPatch": {
+    "base": "aa92403",
+    "file": "docs/evidence/2026-11-24/p8-t02-v070-packaging.patch",
+    "files": [
+      ".dockerignore",
+      "apps/api/Dockerfile",
+      "apps/api/docker-entrypoint.sh",
+      "apps/api/package.json",
+      "apps/api/src/app.module.ts",
+      "apps/api/src/health/health.controller.ts",
+      "apps/web/Dockerfile",
+      "apps/web/next.config.ts",
+      "pnpm-lock.yaml"
+    ]
+  },
+  "preUpgradeSnapshot": {
+    "tables": {
+      "users": "2:0556fcebdf4ce2c6457abebea91196b7",
+      "mfa_factors": "2:043d81722c1e62d5fe5d890fce8bb34a",
+      "recovery_codes": "20:5780ffce9653d9e1e017fe126558dd47",
+      "role_bindings": "2:5dc3463046da3ac450eeb6e99add6ef1",
+      "ca_keys": "1:1fec5346ba005c78df90bd3932ff044e",
+      "agent_enrollments": "2:6b228e5921d8aec1f48af9fb9b8e67b3",
+      "servers": "2:c5f0430ee061ddd40acc245a7fe3a2db",
+      "agent_certificates": "2:0273ff12745c56a5a2c78372baf968e9",
+      "discovery_scans": "1:cfb0ce04cc071ef69f263a0f225a5952",
+      "applications": "1:11e86e8a79542fb85d676d46d47a310a",
+      "notification_channels": "1:cbbaeda43d8f5897c53384296435cf32",
+      "alert_rules": "1:631143f8f406e95ad6239b30afd3a834",
+      "backup_repositories": "1:39c2284811e3100b218ccd835b057a87",
+      "backup_repo_access": "2:96f47b35bbd2ac5eb443ea39f3fc9493",
+      "backup_policies": "2:af26b009c4c82f0a44c6833c421943ef",
+      "backup_runs": "1:8bbd0867a22831877a11c0f15cfed11e",
+      "_prisma_migrations": "7:20261128100000_p7_resilience"
+    },
+    "listingCounts": {
+      "/users": 2,
+      "/servers": 2,
+      "/applications": 1,
+      "/alert-rules": 1,
+      "/notification-channels": 1,
+      "/backup-repositories": 1,
+      "/backup-policies": 2,
+      "/backup-runs": 1
+    }
+  },
+  "upgrade": {
+    "sec": 13,
+    "dump": "/opt/ppanel/backups/pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.sql.gz",
+    "rollbackCommand": "rollback.sh /opt/ppanel/backups/pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.sql.gz 0.7.0",
+    "version": {
+      "version": "0.8.0-rc.1",
+      "commit": "aa92403",
+      "buildDate": "2026-11-24T06:26:13.000Z",
+      "agentProtocol": "1",
+      "minAgentVersion": "0.7.0",
+      "schemaVersion": "20261128100000_p7_resilience"
+    }
+  },
+  "rollback": {
+    "sec": 8,
+    "summary": {
+      "rolledBack": true,
+      "from": "0.8.0-rc.1",
+      "to": "0.7.0",
+      "schemaVersion": "20261128100000_p7_resilience",
+      "restoredFrom": "/opt/ppanel/backups/pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.sql.gz",
+      "safetyDump": "/opt/ppanel/backups/pre-rollback-0.8.0-rc.1-20261124T065519Z.sql.gz"
+    }
+  },
+  "steps": [
+    {
+      "step": "0.7.0 built from aa92403 + packaging patch in a temporary worktree (removed); agents signed",
+      "ok": true,
+      "buildSec": 9,
+      "patchedFiles": [
+        ".dockerignore",
+        "apps/api/Dockerfile",
+        "apps/api/docker-entrypoint.sh",
+        "apps/api/package.json",
+        "apps/api/src/app.module.ts",
+        "apps/api/src/health/health.controller.ts",
+        "apps/web/Dockerfile",
+        "apps/web/next.config.ts",
+        "pnpm-lock.yaml"
+      ],
+      "images": {
+        "ppanel-api-0.7.0.tar": 118415360,
+        "ppanel-web-0.7.0.tar": 79889920
+      }
+    },
+    {
+      "step": "fresh Ubuntu systemd hosts up, nothing pPanel installed",
+      "ok": true
+    },
+    {
+      "step": "0.7.0 installed with the 0.8.0-rc.1 bundle (install.sh --version 0.7.0 --no-start + compose up); health OK through the TLS proxy; no /version before 0.8",
+      "ok": true,
+      "health": {
+        "status": "ok",
+        "db": "ok",
+        "version": "0.7.0"
+      },
+      "versionStatus": 404,
+      "pins": {
+        "PPANEL_API_IMAGE": "ppanel-api:0.7.0@sha256:0ccafc9dfbe523658374047bdd31c4435cd5b3443055177234eccf8077832236",
+        "PPANEL_API_IMAGE_ID": "sha256:0ccafc9dfbe523658374047bdd31c4435cd5b3443055177234eccf8077832236",
+        "PPANEL_VERSION": "0.7.0",
+        "PPANEL_WEB_IMAGE": "ppanel-web:0.7.0@sha256:fe540ce0b9b15dec41eea2b6b6908c5c1264345d1c04dd5b480a152dd429e203",
+        "PPANEL_WEB_IMAGE_ID": "sha256:fe540ce0b9b15dec41eea2b6b6908c5c1264345d1c04dd5b480a152dd429e203"
+      },
+      "tail": null
+    },
+    {
+      "step": "0.7.0: owner (setup token) + ops admin, both with TOTP; login requires the second factor",
+      "ok": true,
+      "login": {
+        "mfaRequired": true,
+        "verifyStatus": 200
+      }
+    },
+    {
+      "step": "two 0.7.0 agents enrolled with the 0.8.0-rc.1 install-agent.sh, online over mTLS",
+      "ok": true,
+      "agents": [
+        ["ubuntu-node-1", "0.7.0", "online"],
+        ["ubuntu-node-2", "0.7.0", "online"]
+      ]
+    },
+    {
+      "step": "0.7.0 data: nginx import -> application, e-mail channel, alert rule, backup repository + access, 2 policies, 1 run record",
+      "ok": true,
+      "statuses": {
+        "import": 201,
+        "channel": 201,
+        "rule": 201,
+        "repo": 201,
+        "access": [200, 200, 200, 200],
+        "policies": [
+          "01a20c55-b3aa-75c1-af5e-3d8186f9d68c",
+          "01a20c55-b3d9-7e1b-b1da-8cbfcf606b7b"
+        ],
+        "run": 202
+      },
+      "applicationId": "01a20c55-b233-7d5c-a759-85ff95465eef",
+      "alertRuleId": "01a20c55-b297-7e18-8f00-bab245f2e661",
+      "runStatus": "failed",
+      "runError": "{\"code\": \"RESTIC_UNAVAILABLE\", \"message\": \"backups are not enabled on this agent (backup.enabled is false or restic >= 0.17 is missing)\"}",
+      "note": "full restic run not attempted: the lab nodes have no restic/rest-server; the run record (terminal, with its job) is the backup data carried through the upgrade"
+    },
+    {
+      "step": "pre-upgrade snapshot: checksums of 16 key tables + API listings",
+      "ok": true,
+      "counts": {
+        "users": "2",
+        "mfa_factors": "2",
+        "recovery_codes": "20",
+        "role_bindings": "2",
+        "ca_keys": "1",
+        "agent_enrollments": "2",
+        "servers": "2",
+        "agent_certificates": "2",
+        "discovery_scans": "1",
+        "applications": "1",
+        "notification_channels": "1",
+        "alert_rules": "1",
+        "backup_repositories": "1",
+        "backup_repo_access": "2",
+        "backup_policies": "2",
+        "backup_runs": "1",
+        "_prisma_migrations": "7"
+      }
+    },
+    {
+      "step": "forced failures (image tag missing; tag holds a different release) stop upgrade.sh BEFORE stopping, dumping or migrating; 0.7.0 keeps running untouched",
+      "ok": true,
+      "cases": [
+        {
+          "version": "0.8.0-rc.99",
+          "case": "missing",
+          "exit": 1,
+          "error": "[upgrade] ERROR: cannot get image ppanel-api:0.8.0-rc.99 (wrong version/prefix? offline: use --images-dir) \u2014 nothing changed, 0.7.0 is still running",
+          "envUnchanged": true,
+          "containersUnchanged": true,
+          "noNewDump": true,
+          "stillServing": true
+        },
+        {
+          "version": "0.8.0-rc.98",
+          "case": "mislabelled",
+          "exit": 1,
+          "error": "[upgrade] ERROR: image ppanel-api:0.8.0-rc.98 is labelled version '0.7.0', expected 0.8.0-rc.98 \u2014 refusing; nothing changed, 0.7.0 is still running",
+          "envUnchanged": true,
+          "containersUnchanged": true,
+          "noNewDump": true,
+          "stillServing": true
+        }
+      ]
+    },
+    {
+      "step": "upgrade.sh 0.8.0-rc.1: pre-flight, images loaded + label-checked, api/web stopped, pre-upgrade dump (0600) + release snapshot, pins, migrate deploy, healthy, /version reports the new release",
+      "ok": true,
+      "sec": 13,
+      "summary": {
+        "upgraded": true,
+        "from": "0.7.0",
+        "to": "0.8.0-rc.1",
+        "schemaVersion": "20261128100000_p7_resilience",
+        "dump": "/opt/ppanel/backups/pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.sql.gz"
+      },
+      "version": {
+        "version": "0.8.0-rc.1",
+        "commit": "aa92403",
+        "buildDate": "2026-11-24T06:26:13.000Z",
+        "agentProtocol": "1",
+        "minAgentVersion": "0.7.0",
+        "schemaVersion": "20261128100000_p7_resilience"
+      },
+      "pins": {
+        "PPANEL_API_IMAGE": "ppanel-api:0.8.0-rc.1@sha256:f6525254a83aa3db337c418b7b7f34dd4432ec7db511ea592ba975a5cd9511a3",
+        "PPANEL_VERSION": "0.8.0-rc.1",
+        "PPANEL_WEB_IMAGE": "ppanel-web:0.8.0-rc.1@sha256:13578d15b99bb03008865d91529ba879ce8c4cadfcdaef0f4769dafc17963a91"
+      },
+      "rollbackCommand": "rollback.sh /opt/ppanel/backups/pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.sql.gz 0.7.0",
+      "tail": null
+    },
+    {
+      "step": "data retained: same ids/counts/content (16 table checksums, 8 API listings); schema unchanged (0.8.0-rc.1 adds no migration)",
+      "ok": true,
+      "tableDiff": {},
+      "listingDiff": {}
+    },
+    {
+      "step": "login with password + TOTP still works for both users after the upgrade",
+      "ok": true,
+      "owner": {
+        "mfaRequired": true,
+        "verifyStatus": 200
+      },
+      "ops": {
+        "mfaRequired": true,
+        "verifyStatus": 200
+      }
+    },
+    {
+      "step": "both 0.7.0 agents reconnected (fresh heartbeats) and are NOT outdated (minAgentVersion 0.7.0 = N-1)",
+      "ok": true,
+      "agents": [
+        ["ubuntu-node-1", "0.7.0", false, "2026-11-24T06:54:47.002Z"],
+        ["ubuntu-node-2", "0.7.0", false, "2026-11-24T06:54:47.241Z"]
+      ]
+    },
+    {
+      "step": "mutating job (backup.run) accepted for a 0.7.0 agent on the 0.8.0-rc.1 Center and executed by it",
+      "ok": true,
+      "status": 202,
+      "runStatus": "failed"
+    },
+    {
+      "step": "upgrade.sh re-run on the installed version is a no-op (exit 0, no dump, .env + containers untouched)",
+      "ok": true,
+      "out": "[upgrade] pPanel 0.8.0-rc.1 is already installed, pinned and healthy \u2014 nothing to do"
+    },
+    {
+      "step": "downgrade with upgrade.sh 0.7.0 is refused (points to rollback.sh); 0.8.0-rc.1 keeps running",
+      "ok": true,
+      "error": "[upgrade] ERROR: refusing to downgrade 0.8.0-rc.1 \u2192 0.7.0. Roll back with: /opt/ppanel/rollback.sh <pre-upgrade dump> 0.7.0"
+    },
+    {
+      "step": "node-1 agent upgraded to 0.8.0-rc.1 with install-agent.sh (verified, not re-enrolled): same server id, same mTLS certificate, online",
+      "ok": true,
+      "serverCount": "2",
+      "certSerialUnchanged": true,
+      "agents": [
+        ["ubuntu-node-1", "0.8.0-rc.1", false],
+        ["ubuntu-node-2", "0.7.0", false]
+      ]
+    },
+    {
+      "step": "mixed fleet (0.8.0-rc.1 + 0.7.0 agents): read-only jobs succeed and mutating jobs are accepted on both",
+      "ok": true,
+      "readOnly": [
+        [202, "succeeded", null],
+        [202, "succeeded", null]
+      ],
+      "mutating": [
+        [202, "failed"],
+        [202, "failed"]
+      ]
+    },
+    {
+      "step": "PPANEL_MIN_AGENT_VERSION=0.8.0-rc.1: 0.7.0 agent flagged outdated, mutating job -> 409 AGENT_OUTDATED, read-only job still runs, 0.8.0-rc.1 agent unaffected; reset to the N-1 default afterwards",
+      "ok": true,
+      "outdatedError": {
+        "status": 409,
+        "code": "AGENT_OUTDATED",
+        "details": {
+          "agentVersion": "0.7.0",
+          "minAgentVersion": "0.8.0-rc.1",
+          "jobType": "backup.run"
+        }
+      },
+      "newAgentRun": 202,
+      "readOnlyOnOutdated": [202, "succeeded", null]
+    },
+    {
+      "step": "post-upgrade writes exist (marker alert rule, new backup runs, agent version change)",
+      "ok": true,
+      "changed": ["alert_rules", "backup_runs"]
+    },
+    {
+      "step": "rollback.sh <pre-upgrade dump> 0.7.0: safety dump, restore, previous pins; Center reports 0.7.0",
+      "ok": true,
+      "sec": 8,
+      "summary": {
+        "rolledBack": true,
+        "from": "0.8.0-rc.1",
+        "to": "0.7.0",
+        "schemaVersion": "20261128100000_p7_resilience",
+        "restoredFrom": "/opt/ppanel/backups/pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.sql.gz",
+        "safetyDump": "/opt/ppanel/backups/pre-rollback-0.8.0-rc.1-20261124T065519Z.sql.gz"
+      },
+      "health": {
+        "status": "ok",
+        "db": "ok",
+        "version": "0.7.0"
+      },
+      "pinsRestored": true,
+      "tail": null
+    },
+    {
+      "step": "database equals the pre-upgrade snapshot (16 table checksums + schema); post-upgrade marker gone",
+      "ok": true,
+      "tableDiff": {}
+    },
+    {
+      "step": "0.7.0 after rollback: 2FA login works, API listings equal the pre-upgrade ones",
+      "ok": true,
+      "login": {
+        "mfaRequired": true,
+        "verifyStatus": 200
+      },
+      "listingDiff": {}
+    },
+    {
+      "step": "both agents reconnect to the rolled-back 0.7.0 Center (0.8.0-rc.1 agent newer than the Center: same protocol major, accepted)",
+      "ok": true,
+      "agents": [
+        ["ubuntu-node-1", "0.8.0-rc.1", "online"],
+        ["ubuntu-node-2", "0.7.0", "online"]
+      ]
+    },
+    {
+      "step": "lab disk used inside the center host + backups dir",
+      "ok": true,
+      "du": "935M:/var/lib/docker 1.3G:/var/lib/containerd -rw------- 41071 pre-rollback-0.8.0-rc.1-20261124T065519Z.sql.gz;-rw------- 7271 pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.release.tar.gz;-rw------- 35712 pre-upgrade-0.7.0-0.8.0-rc.1-20261124T065443Z.sql.gz;"
+    }
+  ]
+}

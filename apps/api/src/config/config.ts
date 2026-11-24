@@ -1,11 +1,16 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { type BuildInfo, deriveMinAgentVersion, resolveBuildInfo } from '../version/build-info';
 
 const bool = z
   .enum(['0', '1', 'true', 'false'])
   .optional()
   .transform((v) => v === '1' || v === 'true');
+
+/** compose passes `VAR=` for unset optional values (infra/release/compose.yml) → treat '' as unset */
+const emptyAsUnset = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema);
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -111,6 +116,30 @@ const envSchema = z.object({
     .min(60)
     .max(86_400)
     .default(6 * 3600),
+
+  // ---------------------------------------------------------------- P8 release
+  /** Build identity, injected by the image build (Dockerfile build args); dev falls back to VERSION. */
+  PPANEL_VERSION: z.string().max(64).optional(),
+  PPANEL_COMMIT: z.string().max(64).optional(),
+  PPANEL_BUILD_DATE: z.string().max(64).optional(),
+  /**
+   * Agents older than this get 409 AGENT_OUTDATED for mutating jobs (RELEASE_CONTRACT §2).
+   * Default: production = N-1 minor of PPANEL_VERSION; development/test = 0.0.0 (ad-hoc lab builds).
+   */
+  /** Where enrollment install commands download install-agent.sh + binaries (default: GitHub release). */
+  PPANEL_AGENT_DOWNLOAD_BASE: emptyAsUnset(
+    z
+      .string()
+      .url()
+      .refine((u) => u.startsWith('https://'), 'PPANEL_AGENT_DOWNLOAD_BASE must be https://')
+      .optional(),
+  ),
+  PPANEL_MIN_AGENT_VERSION: emptyAsUnset(
+    z
+      .string()
+      .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, 'PPANEL_MIN_AGENT_VERSION must be SemVer')
+      .optional(),
+  ),
 });
 
 export type AppConfig = z.infer<typeof envSchema> & {
@@ -125,6 +154,8 @@ export type AppConfig = z.infer<typeof envSchema> & {
   gatewayHostnames: string[];
   webOrigins: string[];
   isProduction: boolean;
+  build: BuildInfo;
+  minAgentVersion: string;
 };
 
 let loaded = false;
@@ -167,6 +198,7 @@ export function loadConfig(overrides: Record<string, string | undefined> = {}): 
   if (metricsScrapeToken && metricsScrapeToken.length < 32)
     throw new Error('Invalid configuration: metrics scrape token must be at least 32 characters');
   const retention = /^(\d+)([hd])$/.exec(c.LOKI_RETENTION_PERIOD)!;
+  const build = resolveBuildInfo(c);
   const list = (v: string) =>
     v
       .split(',')
@@ -190,6 +222,10 @@ export function loadConfig(overrides: Record<string, string | undefined> = {}): 
       .map((h) => h.trim())
       .filter(Boolean),
     isProduction: c.NODE_ENV === 'production',
+    build,
+    minAgentVersion:
+      c.PPANEL_MIN_AGENT_VERSION ??
+      (c.NODE_ENV === 'production' ? deriveMinAgentVersion(build.version) : '0.0.0'),
   };
 }
 

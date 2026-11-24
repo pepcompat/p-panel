@@ -1,0 +1,349 @@
+# pPanel 0.7.0 lab build = aa92403 + this minimal P8 packaging patch (scripts/lab/e2e_p8_upgrade.py patch_v070)
+ .dockerignore                            | 34 +++++++++++++
+ apps/api/Dockerfile                      | 87 ++++++++++++++++++++++++++++++++
+ apps/api/docker-entrypoint.sh            | 21 ++++++++
+ apps/api/package.json                    |  2 +-
+ apps/api/src/app.module.ts               |  2 +
+ apps/api/src/health/health.controller.ts | 19 +++++++
+ apps/web/Dockerfile                      | 64 +++++++++++++++++++++++
+ apps/web/next.config.ts                  |  6 +++
+ pnpm-lock.yaml                           |  6 +--
+ 9 files changed, 237 insertions(+), 4 deletions(-)
+
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..57db87f
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,34 @@
++# pPanel image build context = repo root (apps/api/Dockerfile, apps/web/Dockerfile).
++# Never send secrets, local state or build output to the daemon.
++**/node_modules
++**/dist
++**/.next
++**/coverage
++**/test-results
++**/playwright-report
++**/*.tsbuildinfo
++**/.turbo
++**/__pycache__
++**/.DS_Store
++**/*.log
++# secrets / local env (all of them, including examples: nothing env-shaped is baked into an image)
++**/.env
++**/.env.*
++**/*.pem
++**/*.key
++.lab
++.git
++.github
++.husky
++.vscode
++.idea
++# not needed by the API / web images
++apps/agent
++infra
++scripts
++docs
++design
++tests
++dist-release
++apps/web/tests
++apps/api/test
+diff --git a/apps/api/Dockerfile b/apps/api/Dockerfile
+new file mode 100644
+index 0000000..264b1af
+--- /dev/null
++++ b/apps/api/Dockerfile
+@@ -0,0 +1,87 @@
++# syntax=docker/dockerfile:1.7
++# pPanel Center API — production image (P8.01, docs/RELEASE_CONTRACT.md §3).
++# Build context = repo root:
++#   docker build -f apps/api/Dockerfile -t ppanel-api:$(cat VERSION) \
++#     --build-arg PPANEL_VERSION=$(cat VERSION) --build-arg PPANEL_COMMIT=$(git rev-parse --short HEAD) \
++#     --build-arg PPANEL_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) .
++# Runtime: non-root (uid 1001), read-only app files, `prisma migrate deploy` then `node dist/main.js`.
++# Entrypoint sub-commands (used by infra/release/*.sh): `migrate` (deploy migrations, exit),
++# `migrate-status`, `serve` (default; set PPANEL_SKIP_MIGRATE=1 to skip the boot migration).
++
++ARG NODE_IMAGE=node:22.23.5-alpine3.24@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
++
++FROM ${NODE_IMAGE} AS base
++ENV PNPM_HOME=/pnpm \
++    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
++    CHECKPOINT_DISABLE=1 \
++    PRISMA_HIDE_UPDATE_MESSAGE=1
++RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
++WORKDIR /repo
++
++# ---------------------------------------------------------------- build
++FROM base AS build
++# Prisma engines detect libssl at generate time (linux-musl-<arch>-openssl-3.0.x)
++RUN apk add --no-cache openssl
++COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
++COPY apps/api/package.json apps/api/
++COPY packages/shared-contracts/package.json packages/shared-contracts/
++RUN --mount=type=cache,id=ppanel-pnpm-store,target=/pnpm/store \
++    pnpm install --frozen-lockfile --filter @ppanel/api...
++COPY packages/shared-contracts packages/shared-contracts
++COPY apps/api apps/api
++# prisma.config.ts + prisma/ are in apps/api → `prisma generate` sees the real schema (not an empty client)
++RUN pnpm --filter @ppanel/api build
++# production dependency closure only (prisma CLI is a runtime dependency for `migrate deploy`)
++RUN --mount=type=cache,id=ppanel-pnpm-store,target=/pnpm/store \
++    pnpm --filter @ppanel/api deploy --prod --legacy /out \
++ && cd /out \
++ && node_modules/.bin/prisma generate \
++ && node_modules/.bin/prisma version >/dev/null \
++ && rm -rf src test scripts tsconfig.json tsup.config.ts vitest*.ts eslint.config.mjs DEPENDENCIES.md prisma/seed.ts \
++ && rm -rf /out/dist && cp -r /repo/apps/api/dist /out/dist \
++ # prune what a PostgreSQL-only, library-engine runtime never loads (other DB providers' wasm,
++ # source maps, typings, the optional typescript peer) — ~200 MB
++ && cd /out/node_modules/.pnpm \
++ && find . -type f \( -name '*.map' -o -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' \
++      -o -name '*.md' -o -name '*cockroachdb*' -o -name '*mysql*' -o -name '*sqlserver*' -o -name '*sqlite*' \) \
++      -not -path '*/.prisma/client/*' -delete \
++ && rm -rf typescript@* @types+*
++
++# ---------------------------------------------------------------- runtime
++FROM ${NODE_IMAGE} AS runtime
++RUN apk add --no-cache openssl tini \
++ && addgroup -S -g 1001 ppanel \
++ && adduser -S -D -H -u 1001 -G ppanel -h /nonexistent ppanel
++WORKDIR /app
++# app files stay root-owned and read-only for the service user (no chown -R layer)
++COPY --from=build /out/node_modules ./node_modules
++COPY --from=build /out/package.json /out/prisma.config.ts ./
++COPY --from=build /out/prisma ./prisma
++COPY --from=build /out/dist ./dist
++COPY --chmod=0755 apps/api/docker-entrypoint.sh /usr/local/bin/ppanel-api
++
++ARG PPANEL_VERSION=0.0.0-dev
++ARG PPANEL_COMMIT=unknown
++ARG PPANEL_BUILD_DATE=
++ENV NODE_ENV=production \
++    API_HOST=0.0.0.0 \
++    API_PORT=4000 \
++    AGENT_GATEWAY_PORT=4443 \
++    CHECKPOINT_DISABLE=1 \
++    PRISMA_HIDE_UPDATE_MESSAGE=1 \
++    PPANEL_VERSION=${PPANEL_VERSION} \
++    PPANEL_COMMIT=${PPANEL_COMMIT} \
++    PPANEL_BUILD_DATE=${PPANEL_BUILD_DATE}
++LABEL org.opencontainers.image.title="ppanel-api" \
++      org.opencontainers.image.description="pPanel Center API + mTLS agent gateway" \
++      org.opencontainers.image.source="https://github.com/pepcompat/ppanel" \
++      org.opencontainers.image.version="${PPANEL_VERSION}" \
++      org.opencontainers.image.revision="${PPANEL_COMMIT}" \
++      org.opencontainers.image.created="${PPANEL_BUILD_DATE}"
++
++USER 1001:1001
++EXPOSE 4000 4443
++HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 \
++  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.API_PORT||4000)+'/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
++ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/ppanel-api"]
++CMD ["serve"]
+diff --git a/apps/api/docker-entrypoint.sh b/apps/api/docker-entrypoint.sh
+new file mode 100755
+index 0000000..824d701
+--- /dev/null
++++ b/apps/api/docker-entrypoint.sh
+@@ -0,0 +1,21 @@
++#!/bin/sh
++# pPanel API container entrypoint (apps/api/Dockerfile). Never calls a package manager at runtime.
++#   serve           prisma migrate deploy (unless PPANEL_SKIP_MIGRATE=1), then the API (default)
++#   migrate         prisma migrate deploy, then exit (upgrade.sh)
++#   migrate-status  prisma migrate status, then exit
++set -eu
++cd /app
++prisma=node_modules/.bin/prisma
++
++case "${1:-serve}" in
++  serve)
++    if [ "${PPANEL_SKIP_MIGRATE:-0}" != "1" ]; then
++      echo "[ppanel-api] prisma migrate deploy" >&2
++      "$prisma" migrate deploy
++    fi
++    exec node --enable-source-maps dist/main.js
++    ;;
++  migrate) exec "$prisma" migrate deploy ;;
++  migrate-status) exec "$prisma" migrate status ;;
++  *) exec "$@" ;;
++esac
+diff --git a/apps/api/package.json b/apps/api/package.json
+index cfd0be0..29ac52a 100644
+--- a/apps/api/package.json
++++ b/apps/api/package.json
+@@ -32,6 +32,7 @@
+     "express": "5.2.1",
+     "nodemailer": "10.3.1",
+     "otplib": "12.0.1",
++    "prisma": "6.19.3",
+     "reflect-metadata": "0.2.2",
+     "rxjs": "7.8.2",
+     "yaml": "2.9.1",
+@@ -46,7 +47,6 @@
+     "@types/nodemailer": "8.0.2",
+     "@types/supertest": "6.0.3",
+     "eslint": "9.39.5",
+-    "prisma": "6.19.3",
+     "supertest": "7.3.2",
+     "tsup": "8.5.1",
+     "tsx": "4.23.15",
+diff --git a/apps/api/src/app.module.ts b/apps/api/src/app.module.ts
+index 88ad16a..9676002 100644
+--- a/apps/api/src/app.module.ts
++++ b/apps/api/src/app.module.ts
+@@ -54,6 +54,7 @@ import { SetupController } from './setup/setup.controller';
+ import { SetupService } from './setup/setup.service';
+ import { UsersController } from './users/users.controller';
+ import { UsersService } from './users/users.service';
++import { HealthController } from './health/health.controller';
+ import { AlertEngineService } from './observability/alert-engine.service';
+ import { AlertsService } from './observability/alerts.service';
+ import { LokiClient, PrometheusClient } from './observability/backends';
+@@ -73,6 +74,7 @@ export class AppModule {
+     return {
+       module: AppModule,
+       controllers: [
++        HealthController,
+         SetupController,
+         AuthController,
+         UsersController,
+diff --git a/apps/api/src/health/health.controller.ts b/apps/api/src/health/health.controller.ts
+new file mode 100644
+index 0000000..017ea7a
+--- /dev/null
++++ b/apps/api/src/health/health.controller.ts
+@@ -0,0 +1,19 @@
++import { Controller, Get } from '@nestjs/common';
++import { Public } from '../common/decorators';
++import { PrismaService } from '../common/prisma.service';
++
++/**
++ * P8 packaging patch for the 0.7.0 lab build (scripts/lab/e2e_p8_upgrade.py): liveness for the
++ * release compose healthcheck. 0.8.0 ships the real VersionController (GET /version + /health).
++ */
++@Public()
++@Controller()
++export class HealthController {
++  constructor(private readonly prisma: PrismaService) {}
++
++  @Get('health')
++  async health(): Promise<{ status: 'ok'; db: 'ok'; version: string }> {
++    await this.prisma.$queryRaw`SELECT 1`;
++    return { status: 'ok', db: 'ok', version: process.env.PPANEL_VERSION ?? 'unknown' };
++  }
++}
+diff --git a/apps/web/Dockerfile b/apps/web/Dockerfile
+new file mode 100644
+index 0000000..781fdca
+--- /dev/null
++++ b/apps/web/Dockerfile
+@@ -0,0 +1,64 @@
++# syntax=docker/dockerfile:1.7
++# pPanel web UI — production image (P8.01, docs/RELEASE_CONTRACT.md §3).
++# Build context = repo root:  docker build -f apps/web/Dockerfile -t ppanel-web:$(cat VERSION) .
++#
++# API base: the bundle talks to the SAME ORIGIN `/api/v1` (NEXT_PUBLIC_API_BASE is baked as a relative
++# path). The Center proxy (infra/release/Caddyfile) routes /api/* to the API and everything else here,
++# so one image works for any domain without a rebuild. CSP connect-src is then just 'self'.
++# Runtime: Next.js standalone server, non-root (uid 1001), app files root-owned / read-only.
++
++ARG NODE_IMAGE=node:22.23.5-alpine3.24@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
++
++FROM ${NODE_IMAGE} AS build
++ENV PNPM_HOME=/pnpm \
++    COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
++    NEXT_TELEMETRY_DISABLED=1
++RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
++WORKDIR /repo
++COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
++COPY apps/web/package.json apps/web/
++COPY packages/shared-contracts/package.json packages/shared-contracts/
++RUN --mount=type=cache,id=ppanel-pnpm-store,target=/pnpm/store \
++    pnpm install --frozen-lockfile --filter @ppanel/web...
++COPY packages/shared-contracts packages/shared-contracts
++COPY apps/web apps/web
++ENV NODE_ENV=production \
++    NEXT_OUTPUT_STANDALONE=1 \
++    NEXT_PUBLIC_API_BASE=/api/v1 \
++    NEXT_PUBLIC_API_MOCK=0
++# build cache is dropped in this stage so it never reaches a runtime layer. apps/web/public is optional:
++# git does not track empty directories, so a clean checkout (release.yml) may not have it.
++RUN pnpm --filter @ppanel/web build \
++ && rm -rf apps/web/.next/cache \
++ && mkdir -p /out \
++ && cp -a apps/web/.next/standalone/. /out/ \
++ && mkdir -p /out/apps/web/.next /out/apps/web/public \
++ && cp -a apps/web/.next/static /out/apps/web/.next/static \
++ && if [ -d apps/web/public ]; then cp -a apps/web/public/. /out/apps/web/public/; fi
++
++FROM ${NODE_IMAGE} AS runtime
++RUN apk add --no-cache tini \
++ && addgroup -S -g 1001 ppanel \
++ && adduser -S -D -H -u 1001 -G ppanel -h /nonexistent ppanel
++WORKDIR /app
++COPY --from=build /out ./
++ARG PPANEL_VERSION=0.0.0-dev
++ARG PPANEL_COMMIT=unknown
++ARG PPANEL_BUILD_DATE=
++ENV NODE_ENV=production \
++    NEXT_TELEMETRY_DISABLED=1 \
++    HOSTNAME=0.0.0.0 \
++    PORT=3100 \
++    PPANEL_VERSION=${PPANEL_VERSION}
++LABEL org.opencontainers.image.title="ppanel-web" \
++      org.opencontainers.image.description="pPanel web UI" \
++      org.opencontainers.image.source="https://github.com/pepcompat/ppanel" \
++      org.opencontainers.image.version="${PPANEL_VERSION}" \
++      org.opencontainers.image.revision="${PPANEL_COMMIT}" \
++      org.opencontainers.image.created="${PPANEL_BUILD_DATE}"
++USER 1001:1001
++EXPOSE 3100
++HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=6 \
++  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3100)+'/login').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
++ENTRYPOINT ["/sbin/tini", "--"]
++CMD ["node", "apps/web/server.js"]
+diff --git a/apps/web/next.config.ts b/apps/web/next.config.ts
+index 745ac1a..79ef77c 100644
+--- a/apps/web/next.config.ts
++++ b/apps/web/next.config.ts
+@@ -1,7 +1,13 @@
++import path from 'node:path';
+ import type { NextConfig } from 'next';
+ import { staticSecurityHeaders } from './src/lib/security-headers';
+ 
++const standalone = process.env.NEXT_OUTPUT_STANDALONE === '1';
++
+ const nextConfig: NextConfig = {
++  ...(standalone
++    ? { output: 'standalone' as const, outputFileTracingRoot: path.resolve(process.cwd(), '../..') }
++    : {}),
+   reactStrictMode: true,
+   poweredByHeader: false,
+   devIndicators: false,
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 290b538..05fbdcd 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -66,6 +66,9 @@ importers:
+       otplib:
+         specifier: 12.0.1
+         version: 12.0.1
++      prisma:
++        specifier: 6.19.3
++        version: 6.19.3(typescript@5.9.3)
+       reflect-metadata:
+         specifier: 0.2.2
+         version: 0.2.2
+@@ -103,9 +106,6 @@ importers:
+       eslint:
+         specifier: 9.39.5
+         version: 9.39.5(jiti@2.7.0)
+-      prisma:
+-        specifier: 6.19.3
+-        version: 6.19.3(typescript@5.9.3)
+       supertest:
+         specifier: 7.3.2
+         version: 7.3.2

@@ -1,0 +1,69 @@
+# Copied from infra/observability/loki/loki.yml for the Center bundle (profile `observability`). Keep in sync.
+# Loki single binary, filesystem storage, retention through the compactor (P5.01 / P5.04).
+# Only the Center pushes here (127.0.0.1); labels are set by the Center from its own records.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+  http_server_read_timeout: 30s
+  http_server_write_timeout: 30s
+  grpc_server_max_recv_msg_size: 16777216
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  replication_factor: 1
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 50
+  delete_request_store: filesystem
+
+limits_config:
+  retention_period: ${LOKI_RETENTION_PERIOD}
+  ingestion_rate_mb: ${LOKI_INGESTION_RATE_MB}
+  ingestion_burst_size_mb: ${LOKI_INGESTION_BURST_MB}
+  per_stream_rate_limit: 4MB
+  per_stream_rate_limit_burst: 8MB
+  max_line_size: 16KB
+  max_line_size_truncate: false
+  max_label_names_per_series: 10
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  max_query_length: 169h
+  max_entries_limit_per_query: 5000
+  max_streams_per_user: 10000
+  allow_structured_metadata: false
+  volume_enabled: false
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 64
+
+analytics:
+  reporting_enabled: false

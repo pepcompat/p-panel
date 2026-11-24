@@ -2,7 +2,12 @@
  * P5 UI gates and validation hints. The Center enforces everything; these only decide button state
  * and show early hints.
  */
-import { BUILTIN_ROLES, type Permission, type RoleBinding } from '@ppanel/shared-contracts';
+import {
+  BUILTIN_ROLES,
+  SERVER_OFFLINE_MIN_FOR_SEC,
+  type Permission,
+  type RoleBinding,
+} from '@ppanel/shared-contracts';
 import type { MeResponse } from './api/types';
 import type { AlertRuleInput, Incident, RuleKind, ThresholdParams } from './api/p5-types';
 import { ALERT_KIND_SCOPES, LOG_MAX_SPAN_MS, LOG_Q_MAX, THRESHOLD_METRICS } from './api/p5-types';
@@ -108,6 +113,8 @@ export function validateRule(r: AlertRuleInput): RuleFormErrors {
   if (!r.name.trim() || r.name.trim().length > 120) e.name = 'rule.err.name';
   if (r.scopeType !== 'global' && !r.scopeId) e.scopeId = 'rule.err.scope';
   if (!Number.isInteger(r.forSec) || r.forSec < 0 || r.forSec > 86400) e.forSec = 'rule.err.forSec';
+  else if (r.kind === 'server_offline' && r.forSec < SERVER_OFFLINE_MIN_FOR_SEC)
+    e.forSec = 'rule.err.forSecOffline';
   if (r.kind === 'metric_threshold') {
     const p = r.params as Partial<ThresholdParams>;
     if (!p.metric || !(THRESHOLD_METRICS as readonly string[]).includes(p.metric))

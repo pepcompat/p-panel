@@ -16,6 +16,7 @@ import { PrismaService } from '../common/prisma.service';
 import type { AuthUser } from '../common/principal';
 import { buildWhere, paginate, type ParsedQuery } from '../common/query-builder';
 import { APP_CONFIG, type AppConfig } from '../config/config';
+import { parseSemver } from '../version/build-info';
 
 export const ENROLLMENT_TOKEN_PREFIX = 'ppe_';
 
@@ -76,7 +77,9 @@ export class EnrollmentsService {
       enrollmentId: id,
       token, // shown exactly once; only sha256(token) is stored
       expiresAt: expiresAt.toISOString(),
-      installCommand: `sudo ppanel-agent enroll --center ${center} --token ${token}`,
+      installCommand: agentInstallCommand(this.config, center, token),
+      // the agent binary is already on the host (manual / offline installs)
+      enrollCommand: `sudo ppanel-agent enroll --center ${center} --token ${token}`,
     };
   }
 
@@ -116,4 +119,22 @@ export class EnrollmentsService {
     }));
     return new Paginated(items, paginate(pq, total));
   }
+}
+
+/**
+ * P8 (RELEASE_CONTRACT §5): one-liner that downloads the release's install-agent.sh (checksum +
+ * signature verified by the script itself), installs the binary + systemd unit and enrolls.
+ * Source: PPANEL_AGENT_DOWNLOAD_BASE (mirror / offline) or the GitHub release of this Center version.
+ */
+export function agentInstallCommand(config: AppConfig, center: string, token: string): string {
+  const version = config.build.version;
+  const released = parseSemver(version) !== null && !version.endsWith('-dev');
+  const base = (
+    config.PPANEL_AGENT_DOWNLOAD_BASE ??
+    (released
+      ? `https://github.com/pepcompat/ppanel/releases/download/v${version}`
+      : 'https://github.com/pepcompat/ppanel/releases/latest/download')
+  ).replace(/\/+$/, '');
+  const pin = released ? ` --version ${version}` : '';
+  return `curl -fsSLO ${base}/install-agent.sh && sudo bash install-agent.sh --center-url ${center} --token ${token}${pin}`;
 }

@@ -45,6 +45,7 @@ async function createEnrollment(environment = 'development', ttlMinutes = 15) {
     token: string;
     expiresAt: string;
     installCommand: string;
+    enrollCommand: string;
   };
 }
 
@@ -53,6 +54,13 @@ describe('P1-T01 enrollment', () => {
     const en = await createEnrollment();
     expect(en.token).toMatch(/^ppe_[A-Za-z0-9_-]{43}$/);
     expect(en.installCommand).toContain(en.token);
+    // P8: install-agent.sh form (RELEASE_CONTRACT §5), pinned to this Center's release
+    expect(en.installCommand).toMatch(
+      /^curl -fsSLO https:\/\/\S+\/install-agent\.sh && sudo bash install-agent\.sh --center-url http:\/\/localhost:4000 --token ppe_\S+/,
+    );
+    expect(en.enrollCommand).toBe(
+      `sudo ppanel-agent enroll --center http://localhost:4000 --token ${en.token}`,
+    );
     const row = await t.prisma.agentEnrollment.findUniqueOrThrow({
       where: { id: en.enrollmentId },
     });

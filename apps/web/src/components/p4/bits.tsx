@@ -508,6 +508,15 @@ export function DeliveryResultBadge({ d }: { d: WebhookDelivery }) {
   } else if (d.result === 'awaiting_approval') {
     tone = 'warn';
     key = 'wh.result.awaiting_approval';
+  } else if ((d.result as string) === 'building') {
+    tone = 'warn';
+    key = 'wh.result.building';
+  } else if ((d.result as string) === 'queued') {
+    tone = 'warn';
+    key = 'wh.result.queued';
+  } else if ((d.result as string) === 'superseded') {
+    tone = 'off';
+    key = 'wh.result.superseded';
   } else if (d.result === 'failed') {
     tone = 'crit';
     key = 'wh.result.failed';

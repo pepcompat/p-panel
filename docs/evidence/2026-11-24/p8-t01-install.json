@@ -1,0 +1,247 @@
+{
+  "test": "P8-T01 fresh install (Center + 2 agents)",
+  "result": "PASS (lab substitute)",
+  "labSubstitute": true,
+  "note": "Ubuntu 24.04 systemd containers (infra/lab/ubuntu), not VMs; P8-T01 on a real VM stays BLOCKED",
+  "version": "0.8.0-rc.1",
+  "ranAt": "2026-11-24T06:29:12Z",
+  "durationSec": 179.0,
+  "steps": [
+    {
+      "step": "release artifacts built (images linux/arm64, agent amd64+arm64, bundle, SHA256SUMS, signed)",
+      "ok": true,
+      "buildSec": 75,
+      "artifacts": {
+        "SHA256SUMS": 363,
+        "SHA256SUMS.sig": 64,
+        "install-agent.sh": 11675,
+        "ppanel-agent-linux-amd64": 8921250,
+        "ppanel-agent-linux-arm64": 8192162,
+        "ppanel-center-0.8.0-rc.1.tar.gz": 20798,
+        "ppanel-release.pub": 113
+      },
+      "images": {
+        "ppanel-api:0.8.0-rc.1": {
+          "bytes": 118402460,
+          "savedTarBytes": 118424064
+        },
+        "ppanel-web:0.8.0-rc.1": {
+          "bytes": 79872911,
+          "savedTarBytes": 79890944
+        }
+      }
+    },
+    {
+      "step": "SHA256SUMS verified + ed25519 signature verified (openssl pkeyutl -rawin)",
+      "ok": true,
+      "checked": 4
+    },
+    {
+      "step": "fresh Ubuntu systemd hosts up (center: Docker Engine; nodes: nginx), nothing pPanel installed",
+      "ok": true,
+      "ubuntu": "24.04",
+      "docker": "29.1.3",
+      "compose": "2.40.3+ds1-0ubuntu1~24.04.1",
+      "pid1": "systemd"
+    },
+    {
+      "step": "bundle verified on the center host (checksum + signature) and unpacked",
+      "ok": true
+    },
+    {
+      "step": "install.sh: prerequisites, secrets generated, stack healthy, setup token printed once",
+      "ok": true,
+      "installSec": 34,
+      "envFile": "600 root",
+      "services": ["api healthy", "postgres healthy", "proxy healthy", "web healthy"],
+      "exit": 0,
+      "tail": null
+    },
+    {
+      "step": "images pinned by tag + digest in .env; 4 secrets generated",
+      "ok": true,
+      "pins": [
+        "PPANEL_API_IMAGE=ppanel-api:0.8.0-rc.1@sha256:f6525254a83aa3db337c418b7b7f34dd4432ec7db511ea592ba975a5cd9511a3",
+        "PPANEL_WEB_IMAGE=ppanel-web:0.8.0-rc.1@sha256:13578d15b99bb03008865d91529ba879ce8c4cadfcdaef0f4769dafc17963a91"
+      ]
+    },
+    {
+      "step": "health + /version through the TLS proxy (verified CA); web UI served; gateway :4443 asks for client certs",
+      "ok": true,
+      "version": {
+        "version": "0.8.0-rc.1",
+        "commit": "aa92403",
+        "buildDate": "2026-11-24T06:26:13.000Z",
+        "agentProtocol": "1",
+        "minAgentVersion": "0.7.0",
+        "schemaVersion": "20261128100000_p7_resilience"
+      },
+      "webLogin": "200",
+      "gatewayMtls": true
+    },
+    {
+      "step": "first boot: wrong token refused, setup token creates the owner once",
+      "ok": true,
+      "wrongToken": "SETUP_TOKEN_INVALID",
+      "second": "ALREADY_BOOTSTRAPPED"
+    },
+    {
+      "step": "owner enables TOTP; login now requires the second factor",
+      "ok": true
+    },
+    {
+      "step": "two enrollment tokens; installCommand is the install-agent.sh form",
+      "ok": true,
+      "installCommand": "curl -fsSLO https://github.com/pepcompat/ppanel/releases/download/v0.8.0-rc.1/install-agent.sh && sudo bash install-agent.sh --center-url https://center.ppanel.lab --token ppe_<redacted> --version 0.8.0-rc.1",
+      "enrollCommand": "sudo ppanel-agent enroll --center https://center.ppanel.lab --token ppe_<redacted>"
+    },
+    {
+      "step": "tampered binary \u2192 CHECKSUM MISMATCH; tampered SHA256SUMS \u2192 SIGNATURE FAILED; nothing installed",
+      "ok": true
+    },
+    {
+      "step": "install-agent.sh on ppanel-lab-ubuntu-node-1: signature + checksum OK, enrolled, service active",
+      "ok": true,
+      "serverId": "01a20c3e-5874-7d36-ba1e-825a34daee6f",
+      "modes": "700 750 600",
+      "tail": null
+    },
+    {
+      "step": "install-agent.sh on ppanel-lab-ubuntu-node-2: signature + checksum OK, enrolled, service active",
+      "ok": true,
+      "serverId": "01a20c3e-5992-7e2a-94f3-178c711e7e6e",
+      "modes": "700 750 600",
+      "tail": null
+    },
+    {
+      "step": "both agents online (fresh heartbeats over mTLS)",
+      "ok": true,
+      "statuses": [
+        ["ubuntu-node-1", "online", 72.9],
+        ["ubuntu-node-2", "online", 72.9]
+      ]
+    },
+    {
+      "step": "smoke: list servers",
+      "ok": true,
+      "total": 2
+    },
+    {
+      "step": "smoke: server facts (agent version = release, not outdated, Ubuntu 24.04, mTLS cert issued)",
+      "ok": true,
+      "facts": [
+        {
+          "hostname": "ubuntu-node-1",
+          "agentVersion": "0.8.0-rc.1",
+          "agentOutdated": false,
+          "os": {
+            "id": "ubuntu",
+            "arch": "arm64",
+            "name": "Ubuntu 24.04.5 LTS",
+            "kernel": "7.0.12-linuxkit",
+            "version": "24.04"
+          },
+          "capabilities": ["nginx", "systemd"],
+          "cert": true
+        },
+        {
+          "hostname": "ubuntu-node-2",
+          "agentVersion": "0.8.0-rc.1",
+          "agentOutdated": false,
+          "os": {
+            "id": "ubuntu",
+            "arch": "arm64",
+            "name": "Ubuntu 24.04.5 LTS",
+            "kernel": "7.0.12-linuxkit",
+            "version": "24.04"
+          },
+          "capabilities": ["nginx", "systemd"],
+          "cert": true
+        }
+      ]
+    },
+    {
+      "step": "smoke: read-only nginx discovery completed, config checksum + master PID unchanged",
+      "ok": true,
+      "summary": {
+        "listeners": 3,
+        "upstreams": 0,
+        "containers": 0,
+        "duplicates": 0,
+        "phpFpmPools": 0,
+        "manualReview": 0,
+        "nginxServers": 2,
+        "sourceStatus": {
+          "nginx": "ok",
+          "ports": "ok",
+          "docker": "unavailable",
+          "php-fpm": "unavailable",
+          "systemd": "ok"
+        },
+        "systemdUnits": 70
+      },
+      "domains": ["lab-site.example.lab"],
+      "nginx": ["50fe5cbe28c6377d", "69"]
+    },
+    {
+      "step": "smoke: fleet metrics from heartbeats (DB); Prometheus/Loki reads SKIPPED (observability profile off)",
+      "ok": true,
+      "fleetSampled": 2,
+      "metricsSeries": {
+        "status": 503,
+        "code": "METRICS_BACKEND_UNAVAILABLE"
+      },
+      "logsQuery": {
+        "status": 503,
+        "code": "LOGS_BACKEND_UNAVAILABLE"
+      },
+      "note": "enable COMPOSE_PROFILES=observability in /opt/ppanel/.env for metric series / log search"
+    },
+    {
+      "step": "systemd hardening active (systemctl show) and enforced (/usr read-only, /etc/nginx writable)",
+      "ok": true,
+      "props": {
+        "Restart": "always",
+        "CapabilityBoundingSet": "cap_chown cap_dac_override cap_dac_read_search cap_fowner cap_sys_ptrace",
+        "User": "root",
+        "ReadWritePaths": "/var/lib/ppanel-agent -/etc/nginx -/var/log/nginx -/var/lib/nginx -/var/cache/nginx -/run/nginx -/run/nginx.pid -/var/backups/ppanel-agent",
+        "PrivateTmp": "yes",
+        "ProtectHome": "read-only",
+        "ProtectSystem": "strict",
+        "NoNewPrivileges": "yes",
+        "SystemCallArchitectures": "native",
+        "LockPersonality": "yes",
+        "RestrictAddressFamilies": "AF_INET AF_INET6 AF_NETLINK AF_UNIX",
+        "RestrictSUIDSGID": "yes"
+      }
+    },
+    {
+      "step": "agent survives `systemctl restart` (new PID, fresh heartbeat, online)",
+      "ok": true,
+      "pidBefore": "354",
+      "pidAfter": "519"
+    },
+    {
+      "step": "Restart=always: killed agent is restarted by systemd",
+      "ok": true
+    },
+    {
+      "step": "install.sh re-run is idempotent (no new secrets, .env unchanged, containers not recreated, still healthy)",
+      "ok": true,
+      "containers": 4
+    },
+    {
+      "step": "install-agent.sh re-run without a token: verified, not re-enrolled, same server online",
+      "ok": true
+    },
+    {
+      "step": "install-agent.sh --uninstall: unit + binary removed, state kept (no --purge)",
+      "ok": true
+    },
+    {
+      "step": "lab disk used inside the center host",
+      "ok": true,
+      "du": "934M:/var/lib/docker 980M:/var/lib/containerd"
+    }
+  ]
+}

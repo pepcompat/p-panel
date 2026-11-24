@@ -54,6 +54,7 @@ import { SetupController } from './setup/setup.controller';
 import { SetupService } from './setup/setup.service';
 import { UsersController } from './users/users.controller';
 import { UsersService } from './users/users.service';
+import { VersionController } from './version/version.controller';
 import { AlertEngineService } from './observability/alert-engine.service';
 import { AlertsService } from './observability/alerts.service';
 import { LokiClient, PrometheusClient } from './observability/backends';
@@ -73,6 +74,7 @@ export class AppModule {
     return {
       module: AppModule,
       controllers: [
+        VersionController,
         SetupController,
         AuthController,
         UsersController,

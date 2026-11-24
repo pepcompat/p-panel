@@ -254,11 +254,13 @@ export class DeploymentsService implements OnModuleInit {
     d: DeploymentFull,
     app: AppWithServer,
     approvals: OperationApproval[],
+    labels: Map<string, string> = new Map(),
   ): Deployment {
     const latest = approvals.find((a) => a.subjectId === d.id && !a.invalidatedAt) ?? null;
     return {
       id: d.id,
       applicationId: d.applicationId,
+      applicationName: app.name,
       serverId: d.serverId,
       number: d.number,
       trigger: d.trigger as DeploymentTrigger,
@@ -291,6 +293,7 @@ export class DeploymentsService implements OnModuleInit {
         expiresAt: latest?.expiresAt.toISOString() ?? null,
       },
       createdBy: d.createdBy,
+      createdByLabel: d.createdBy ? (labels.get(d.createdBy) ?? null) : null,
       createdAt: d.createdAt.toISOString(),
       updatedAt: d.updatedAt.toISOString(),
       finishedAt: d.finishedAt?.toISOString() ?? null,
@@ -300,6 +303,17 @@ export class DeploymentsService implements OnModuleInit {
       buildId: d.buildId,
       ...(app.kind === 'compose' ? { compose: composeView(d) } : {}),
     };
+  }
+
+  /** display labels (displayName) for the users who created the given deployments */
+  private async creatorLabels(rows: { createdBy: string | null }[]): Promise<Map<string, string>> {
+    const ids = [...new Set(rows.map((r) => r.createdBy).filter((x): x is string => !!x))];
+    if (ids.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, displayName: true },
+    });
+    return new Map(users.map((u) => [u.id, u.displayName]));
   }
 
   private async approvalsFor(ids: string[]): Promise<OperationApproval[]> {
@@ -329,7 +343,13 @@ export class DeploymentsService implements OnModuleInit {
       for (const s of running) await this.reconcileStep(s);
       ({ d, app } = await this.loadDeployment(user, id));
     }
-    return this.toView(user, d, app, await this.approvalsFor([d.id]));
+    return this.toView(
+      user,
+      d,
+      app,
+      await this.approvalsFor([d.id]),
+      await this.creatorLabels([d]),
+    );
   }
 
   async listForApp(user: AuthUser, appId: string, pq: ParsedQuery) {
@@ -379,8 +399,9 @@ export class DeploymentsService implements OnModuleInit {
       }))
         known.set(a.id, a);
     const approvals = await this.approvalsFor(rows.map((r) => r.id));
+    const labels = await this.creatorLabels(rows);
     return new Paginated(
-      rows.map((r) => this.toView(user, r, known.get(r.applicationId)!, approvals)),
+      rows.map((r) => this.toView(user, r, known.get(r.applicationId)!, approvals, labels)),
       paginate(pq, total),
     );
   }

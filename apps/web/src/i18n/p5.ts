@@ -251,7 +251,7 @@ export const p5En = {
     'Fires when the current container is not running / unhealthy, or the last deployment needs manual recovery.',
   'rule.kindHint.log_dropped':
     'Fires when an agent reports dropped log entries in the last window.',
-  'rule.kindHint.backup_failed': 'Reserved for P6 — accepted but inactive.',
+  'rule.kindHint.backup_failed': 'Fires when a backup run fails or a policy misses its schedule.',
   'rule.scope.global': 'All servers in scope',
   'rule.scope.environment': 'Environment',
   'rule.scope.server': 'Server',
@@ -270,7 +270,8 @@ export const p5En = {
   'rule.f.pick': 'Pick…',
   'rule.f.severity': 'Severity',
   'rule.f.forSec': 'For (seconds)',
-  'rule.f.forSecHint': 'Condition must hold this long before firing (default 60).',
+  'rule.f.forSecHint':
+    'Condition must hold this long before firing (default 60; server offline: at least 90).',
   'rule.f.channels': 'Notify channels',
   'rule.f.noChannels': 'No channels yet — create one in the Channels tab.',
   'rule.f.enabled': 'Enabled',
@@ -280,6 +281,8 @@ export const p5En = {
   'rule.err.name': 'Name is required (max 80 characters).',
   'rule.err.scope': 'Pick a target for this scope.',
   'rule.err.forSec': '0 to 86400 seconds.',
+  'rule.err.forSecOffline':
+    'Server offline rules need at least 90 seconds (agents may take up to a minute to reconnect after a Center restart).',
   'rule.err.metric': 'Pick cpu, memory, disk or load.',
   'rule.err.value': 'Enter a number.',
   'rule.err.pct': 'Percent thresholds are between 0 and 100.',
@@ -570,7 +573,7 @@ export const p5Th: Record<P5Key, string> = {
   'rule.kindHint.app_down':
     'ทำงานเมื่อ container ปัจจุบันไม่ทำงาน/ไม่ healthy หรือ deployment ล่าสุดต้องกู้คืนด้วยมือ',
   'rule.kindHint.log_dropped': 'ทำงานเมื่อ agent รายงานว่ามี log ถูกทิ้งในช่วงล่าสุด',
-  'rule.kindHint.backup_failed': 'สงวนไว้สำหรับ P6 — รับได้แต่ยังไม่ทำงาน',
+  'rule.kindHint.backup_failed': 'แจ้งเตือนเมื่อการสำรองข้อมูลล้มเหลวหรือ policy พลาดรอบที่กำหนด',
   'rule.scope.global': 'ทุก server ใน scope',
   'rule.scope.environment': 'Environment',
   'rule.scope.server': 'Server',
@@ -589,7 +592,7 @@ export const p5Th: Record<P5Key, string> = {
   'rule.f.pick': 'เลือก…',
   'rule.f.severity': 'ความรุนแรง',
   'rule.f.forSec': 'นาน (วินาที)',
-  'rule.f.forSecHint': 'เงื่อนไขต้องคงอยู่นานเท่านี้ก่อนแจ้งเตือน (ค่าเริ่มต้น 60)',
+  'rule.f.forSecHint': 'เงื่อนไขต้องคงอยู่นานเท่านี้ก่อนแจ้งเตือน (ค่าเริ่มต้น 60; server offline อย่างน้อย 90)',
   'rule.f.channels': 'ช่องทางแจ้งเตือน',
   'rule.f.noChannels': 'ยังไม่มีช่องทาง — สร้างในแท็บช่องทาง',
   'rule.f.enabled': 'เปิดใช้',
@@ -599,6 +602,8 @@ export const p5Th: Record<P5Key, string> = {
   'rule.err.name': 'ต้องระบุชื่อ (ไม่เกิน 80 ตัวอักษร)',
   'rule.err.scope': 'เลือกเป้าหมายของขอบเขตนี้',
   'rule.err.forSec': '0 ถึง 86400 วินาที',
+  'rule.err.forSecOffline':
+    'กฎ server offline ต้องตั้งอย่างน้อย 90 วินาที (agent อาจใช้เวลาถึงหนึ่งนาทีในการเชื่อมต่อใหม่หลัง Center รีสตาร์ท)',
   'rule.err.metric': 'เลือก cpu, memory, disk หรือ load',
   'rule.err.value': 'กรอกตัวเลข',
   'rule.err.pct': 'เกณฑ์แบบเปอร์เซ็นต์ต้องอยู่ระหว่าง 0 ถึง 100',

@@ -340,6 +340,8 @@ export type DeploymentAction = (typeof DEPLOYMENT_ACTIONS)[number];
 export interface Deployment {
   id: string;
   applicationId: string;
+  /** display label (P8) */
+  applicationName?: string;
   serverId: string;
   number: number;
   trigger: DeploymentTrigger;
@@ -361,6 +363,8 @@ export interface Deployment {
     expiresAt: string | null;
   };
   createdBy: string | null;
+  /** display label of the creator (P8); null for webhook/system triggers */
+  createdByLabel?: string | null;
   createdAt: string;
   updatedAt: string;
   finishedAt: string | null;

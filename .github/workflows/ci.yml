@@ -159,3 +159,86 @@ jobs:
           docker run --rm -v "$PWD:/repo:ro" \
             zricethezav/gitleaks:v8.21.2@sha256:0e99e8821643ea5b235718642b93bb32486af9c8162c8b8731f7cbdc951a7f46 \
             git /repo --no-banner --redact --exit-code 1
+
+  images:
+    name: production images (build only, no push)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build Center API image (apps/api/Dockerfile)
+        if: hashFiles('apps/api/Dockerfile') != ''
+        run: |
+          docker build -f apps/api/Dockerfile -t "ppanel-api:ci-${GITHUB_SHA::12}" \
+            --build-arg PPANEL_VERSION="$(cat VERSION 2>/dev/null || echo 0.0.0-ci)" \
+            --build-arg PPANEL_COMMIT="${GITHUB_SHA::12}" \
+            --build-arg PPANEL_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
+      - name: Build web image (apps/web/Dockerfile)
+        if: hashFiles('apps/web/Dockerfile') != ''
+        run: |
+          docker build -f apps/web/Dockerfile -t "ppanel-web:ci-${GITHUB_SHA::12}" \
+            --build-arg PPANEL_VERSION="$(cat VERSION 2>/dev/null || echo 0.0.0-ci)" \
+            --build-arg PPANEL_COMMIT="${GITHUB_SHA::12}" .
+      - name: Report missing Dockerfiles
+        if: hashFiles('apps/api/Dockerfile') == '' || hashFiles('apps/web/Dockerfile') == ''
+        run: |
+          [ -f apps/api/Dockerfile ] || echo "::notice::apps/api/Dockerfile not present; API image build skipped"
+          [ -f apps/web/Dockerfile ] || echo "::notice::apps/web/Dockerfile not present; web image build skipped"
+
+  journeys:
+    name: playwright user journeys (real UI + real API, no lab agents)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16.6-alpine
+        env:
+          POSTGRES_USER: ppanel
+          POSTGRES_PASSWORD: ppanel_ci_only
+          POSTGRES_DB: ppanel
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ppanel"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      # CI-only throwaway DB credentials; API secrets are generated per run by journeys.sh.
+      JOURNEYS_PG_BASE: postgresql://ppanel:ppanel_ci_only@127.0.0.1:5432
+      JOURNEYS_PSQL: host
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm --filter @ppanel/web exec playwright install --with-deps chromium
+      - name: Journeys J01 (first boot + 2FA) and J11 (RBAC denial audited)
+        env:
+          JOURNEYS_ARTIFACTS: ${{ runner.temp }}/journeys
+        run: scripts/lab/journeys.sh
+      - name: Upload journey report + screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: journeys-report
+          path: |
+            ${{ runner.temp }}/journeys/results.json
+            ${{ runner.temp }}/journeys/screens/
+            ${{ runner.temp }}/journeys/html/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload traces, videos and server logs (failure only)
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: journeys-traces
+          path: |
+            ${{ runner.temp }}/journeys/test-results/
+            ${{ runner.temp }}/journeys/*.log
+          if-no-files-found: ignore
+          retention-days: 14

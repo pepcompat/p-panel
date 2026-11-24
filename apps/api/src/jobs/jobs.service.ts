@@ -25,6 +25,7 @@ import { currentRequestId } from '../common/request-context';
 import { Paginated } from '../common/envelope';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { ServersService } from '../servers/servers.service';
+import { isAgentOutdated } from '../version/build-info';
 import { type FinishedJob, JobHooks } from './job-hooks';
 import { JobNotifier } from './job-notifier';
 
@@ -139,6 +140,13 @@ export class JobsService {
     const parsed = def.params.safeParse(input.params);
     if (!parsed.success) throw AppError.validation(zodDetails(parsed.error), 'Invalid job params');
     const params = parsed.data as Record<string, unknown>;
+    if (def.mutating) {
+      const srv = await tx.server.findUnique({
+        where: { id: input.serverId },
+        select: { agentVersion: true },
+      });
+      this.assertAgentCurrent(input.type, srv?.agentVersion ?? null);
+    }
     const id = uuidv7();
     const row = await tx.job.create({
       data: {
@@ -169,6 +177,17 @@ export class JobsService {
       tx,
     );
     return row;
+  }
+
+  /** RELEASE_CONTRACT §2: an agent below minAgentVersion keeps running but gets no new mutating jobs. */
+  private assertAgentCurrent(type: JobType, agentVersion: string | null): void {
+    const min = this.config.minAgentVersion;
+    if (!isAgentOutdated(agentVersion, min)) return;
+    throw AppError.conflict(
+      `Agent ${agentVersion} is older than the minimum supported version ${min}; upgrade the agent before running ${type}`,
+      ERROR_CODES.AGENT_OUTDATED,
+      { agentVersion, minAgentVersion: min, jobType: type },
+    );
   }
 
   notify(serverId: string): void {
@@ -222,6 +241,7 @@ export class JobsService {
 
     if (server.status === 'revoked')
       throw AppError.conflict('Server is revoked', ERROR_CODES.SERVER_REVOKED);
+    if (def.mutating) this.assertAgentCurrent(type, server.agentVersion);
     if (def.mutating && server.environment === 'production')
       this.auth.assertStepUp(user, stepUpHeader);
     if (type === 'service.restart' && !server.ownedUnits.includes(String(params.unit))) {

@@ -331,6 +331,62 @@ services:
       - ${PPANEL_AGENT_BIN_DIR:-../../.lab/agent-bin}:/opt/ppanel-agent:ro
       - ../lab/node/agent-config/node-c-chaos.yaml:/etc/ppanel-agent/config.yaml:ro
 
+  # P8 LAB SUBSTITUTE for fresh Ubuntu 24.04 VMs (profile `ubuntu`, NOT started by scripts/lab/up.sh).
+  # systemd is PID 1; ubuntu-center runs its own Docker Engine (installer target), the nodes run nginx
+  # (install-agent.sh targets). !!! privileged: true is REQUIRED (systemd cgroups/mounts, dockerd) and
+  # allowed ONLY for these disposable lab containers. Own network, no published ports. Started only by
+  # scripts/lab/e2e_p8_install.py:
+  #   docker compose -p ppanel-lab -f infra/compose/lab.yml --profile ubuntu up -d --build --no-deps \
+  #     ubuntu-center ubuntu-node-1 ubuntu-node-2
+  ubuntu-center:
+    profiles: [ubuntu]
+    image: ppanel-lab-ubuntu-center:dev
+    build:
+      context: ../lab/ubuntu
+      args: { ROLE: center }
+    container_name: ppanel-lab-ubuntu-center
+    hostname: center
+    privileged: true # LAB ONLY — systemd + Docker Engine inside (infra/lab/ubuntu/README.md)
+    restart: 'no'
+    tmpfs: ['/run', '/run/lock', '/tmp']
+    volumes:
+      # engine + containerd snapshotter data must not live on the container's own overlay rootfs
+      - ubuntu-center-docker:/var/lib/docker
+      - ubuntu-center-containerd:/var/lib/containerd
+    networks:
+      ubuntunet:
+        aliases: [center.ppanel.lab]
+    labels:
+      com.ppanel.lab: 'true'
+
+  ubuntu-node-1:
+    profiles: [ubuntu]
+    image: ppanel-lab-ubuntu-node:dev
+    build:
+      context: ../lab/ubuntu
+      args: { ROLE: node }
+    container_name: ppanel-lab-ubuntu-node-1
+    hostname: ubuntu-node-1
+    privileged: true # LAB ONLY — systemd PID 1 (unit sandboxing needs mount namespaces)
+    restart: 'no'
+    tmpfs: ['/run', '/run/lock', '/tmp']
+    networks: [ubuntunet]
+    labels:
+      com.ppanel.lab: 'true'
+
+  ubuntu-node-2:
+    profiles: [ubuntu]
+    image: ppanel-lab-ubuntu-node:dev
+    container_name: ppanel-lab-ubuntu-node-2
+    hostname: ubuntu-node-2
+    privileged: true # LAB ONLY — systemd PID 1
+    restart: 'no'
+    tmpfs: ['/run', '/run/lock', '/tmp']
+    networks: [ubuntunet]
+    depends_on: [ubuntu-node-1] # same image; built once by node-1
+    labels:
+      com.ppanel.lab: 'true'
+
 networks:
   labnet:
     name: ppanel-lab-net
@@ -338,6 +394,10 @@ networks:
   # P6: maintenance identity + offsite S3 only (never attached to the nodes)
   backupadmin:
     name: ppanel-lab-backup-admin
+    driver: bridge
+  # P8: Ubuntu systemd lab (profile `ubuntu`) — isolated from the nodes' labnet
+  ubuntunet:
+    name: ppanel-lab-ubuntu
     driver: bridge
 
 volumes:
@@ -348,3 +408,5 @@ volumes:
   registry-data: {}
   backup-data: {}
   minio-data: {}
+  ubuntu-center-docker: {}
+  ubuntu-center-containerd: {}

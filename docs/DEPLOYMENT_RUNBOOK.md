@@ -1,6 +1,6 @@
 # pPanel — Deployment runbook
 
-Status: **Dev setup = documented (P0)**. **Production install = TODO (P8.01–P8.02).**
+Status: **Dev setup = documented (P0)**. **Production install = `docs/INSTALL.md` (P8.01–P8.02).**
 Every command here targets localhost or disposable lab containers only.
 
 ## 1. Dev setup from a clean checkout (macOS arm64 / Linux)
@@ -65,16 +65,15 @@ docker compose -p ppanel-dev -f infra/compose/dev.yml down   # keeps the pgdata 
 # add -v ONLY if you intend to wipe local dev data; never prune globally (unrelated amas-* containers live here)
 ```
 
-## 4. Production install — TODO (P8)
+## 4. Production install
 
-- [ ] P8.01 Versioned Center installer (`docker compose`, pinned images) and Agent installer
-      (signed checksummed binaries, systemd unit, enrollment).
-- [ ] P8.02 Secrets bootstrap (`PPANEL_MASTER_KEY` escrow separate from DB backup), TLS reverse proxy in
-      front of :3100/:4000, :4443 reachable only from managed hosts (prefer private path), firewall prerequisites.
-- [ ] P8.04 Upgrade + rollback procedure → `UPGRADE_RUNBOOK.md`, `MIGRATION_RUNBOOK.md`.
-- [ ] P6.06 Center DB + config + key recovery → `RECOVERY_RUNBOOK.md`.
+See **`docs/INSTALL.md`** (P8.01/P8.02): prerequisites, network/firewall, secrets bootstrap and master-key
+escrow, Center install (`infra/release/install.sh`), agent install (`install-agent.sh`), least privileges,
+uninstall. Upgrades/rollbacks: `docs/UPGRADE_RUNBOOK.md`. Center recovery: `docs/RECOVERY_RUNBOOK.md`.
+Release artifacts are built by `.github/workflows/release.yml` or locally with `scripts/release/build.sh`.
 
-Until P8 passes on a fresh Ubuntu VM (P8-T01), **do not install pPanel on any production host.**
+The installer passed P8-T01 only on the lab substitute (`infra/lab/ubuntu`); re-run it on a real VM before
+installing pPanel on a production host.
 
 ## Behind a reverse proxy (production)
 

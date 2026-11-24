@@ -411,6 +411,9 @@ describe('P4.04/P4.05 deployment happy path, retention, managed routing', () => 
 
     const d = await getDep(dep.id);
     expect(d.status).toBe('succeeded');
+    // P8: display labels for lists/approvals
+    expect(d.applicationName).toBe(app.name);
+    expect(typeof d.createdByLabel).toBe('string');
     expect(d.container).toEqual({ name: run.name, hostPort: 20000 });
     expect(d.steps.map((s: any) => [s.name, s.status])).toEqual([
       ['preflight', 'succeeded'],

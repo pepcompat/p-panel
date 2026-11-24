@@ -1,0 +1,155 @@
+{
+  "ranAt": "2026-11-24T06:43:40.433Z",
+  "test": "P8-T03",
+  "runner": "scripts/lab/journeys.sh --lab",
+  "environment": {
+    "web": "apps/web production build (next start :3100), NEXT_PUBLIC_API_MOCK unset",
+    "api": "apps/api dist (node dist/main.js :4000), fresh DB ppanel_journeys",
+    "labAgents": "ppanel-lab-node-b (real Go agent)",
+    "playwright": "1.65.1"
+  },
+  "summary": {
+    "pass": 5,
+    "fail": 0,
+    "notRun": 0,
+    "durationMs": 117223,
+    "screenshotsBytes": 1446875
+  },
+  "journeys": [
+    {
+      "id": "J01",
+      "title": "J01 first boot: bootstrap owner, enrol TOTP, sign in with 2FA",
+      "project": "first-boot",
+      "file": "apps/web/tests/e2e/journeys/j01-first-boot.journey.ts",
+      "status": "PASS",
+      "durationMs": 19549,
+      "steps": [
+        {
+          "step": "wrong setup token refused, still not bootstrapped"
+        },
+        {
+          "step": "owner bootstrapped via UI",
+          "email": "owner@journeys.test"
+        },
+        {
+          "step": "second bootstrap refused",
+          "status": 409,
+          "code": "ALREADY_BOOTSTRAPPED"
+        },
+        {
+          "step": "TOTP confirmed, recovery codes shown once",
+          "recoveryCodes": 10
+        },
+        {
+          "step": "sign-in with password + TOTP reaches the app"
+        }
+      ],
+      "screenshots": [
+        "docs/evidence/2026-11-24/p8-journeys/j01-1-bootstrap-form.png",
+        "docs/evidence/2026-11-24/p8-journeys/j01-2-totp-qr.png",
+        "docs/evidence/2026-11-24/p8-journeys/j01-3-mfa-prompt.png",
+        "docs/evidence/2026-11-24/p8-journeys/j01-4-signed-in-with-2fa.png",
+        "docs/evidence/2026-11-24/p8-journeys/j01-5-audit.png"
+      ]
+    },
+    {
+      "id": "seed",
+      "title": "seed dev users into the journeys DB",
+      "project": "seed",
+      "file": "apps/web/tests/e2e/journeys/seed.setup.ts",
+      "status": "PASS",
+      "durationMs": 438,
+      "steps": [],
+      "screenshots": []
+    },
+    {
+      "id": "J02",
+      "title": "J02 enroll a lab server from the UI; it appears online and reconnects",
+      "project": "journeys",
+      "file": "apps/web/tests/e2e/journeys/j02-enroll-server.journey.ts",
+      "status": "PASS",
+      "durationMs": 8399,
+      "steps": [
+        {
+          "step": "one-time enrollment token created in UI",
+          "name": "j02-node-b-41757",
+          "environment": "production"
+        },
+        {
+          "step": "agent enrolled with the token",
+          "serverId": "01a20c4c-1556-728f-804d-a5bfda9d3880"
+        },
+        {
+          "step": "agent reconnects after restart",
+          "heartbeatBefore": "2026-11-24T06:44:02.608Z",
+          "heartbeatAfter": "2026-11-24T06:44:07.953Z"
+        }
+      ],
+      "screenshots": [
+        "docs/evidence/2026-11-24/p8-journeys/j02-1-enroll-token.png",
+        "docs/evidence/2026-11-24/p8-journeys/j02-2-server-online.png",
+        "docs/evidence/2026-11-24/p8-journeys/j02-3-server-detail.png"
+      ]
+    },
+    {
+      "id": "J05",
+      "title": "J05 production deploy: second-person approval with step-up in the UI",
+      "project": "journeys",
+      "file": "apps/web/tests/e2e/journeys/j05-deploy-approval.journey.ts",
+      "status": "PASS",
+      "durationMs": 85920,
+      "steps": [
+        {
+          "step": "requester + approver (ops_admin, TOTP) created"
+        },
+        {
+          "step": "managed routing enabled on the production server (approved by second person)"
+        },
+        {
+          "step": "production deployment awaiting approval",
+          "deploymentId": "01a20c4c-91e7-7a47-a2c5-c8d2202c2a0f"
+        },
+        {
+          "step": "approver approved planHash in UI with step-up",
+          "planHash": "e3ddf5168627d193"
+        },
+        {
+          "step": "site serves v1 through managed nginx route",
+          "domain": "j05-web-41757.lab.test",
+          "body": "ppanel-test web v1"
+        }
+      ],
+      "screenshots": [
+        "docs/evidence/2026-11-24/p8-journeys/j05-1-requester-waits.png",
+        "docs/evidence/2026-11-24/p8-journeys/j05-2-approver-panel.png",
+        "docs/evidence/2026-11-24/p8-journeys/j05-3-deployment-succeeded.png"
+      ]
+    },
+    {
+      "id": "J11",
+      "title": "J11 viewer is denied in UI and API; the denial is audited",
+      "project": "journeys",
+      "file": "apps/web/tests/e2e/journeys/j11-rbac-denial.journey.ts",
+      "status": "PASS",
+      "durationMs": 1389,
+      "steps": [
+        {
+          "step": "viewer UI: enroll page forbidden, approvals read-only"
+        },
+        {
+          "step": "viewer POST /enrollments refused",
+          "status": 403,
+          "code": "FORBIDDEN"
+        },
+        {
+          "step": "owner sees audit row result=denied for the viewer",
+          "action": "http.post"
+        }
+      ],
+      "screenshots": [
+        "docs/evidence/2026-11-24/p8-journeys/j11-1-viewer-enroll-forbidden.png",
+        "docs/evidence/2026-11-24/p8-journeys/j11-2-owner-sees-denied-audit.png"
+      ]
+    }
+  ]
+}

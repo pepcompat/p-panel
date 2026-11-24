@@ -1,0 +1,198 @@
+# pPanel Center — production stack (P8.01, docs/RELEASE_CONTRACT.md §4, docs/INSTALL.md).
+# Installed to /opt/ppanel by install.sh; every value comes from /opt/ppanel/.env (0600 root).
+#   cd /opt/ppanel && docker compose ps | logs -f api | up -d
+# Ports: 80/443 (proxy, web+API), 4443 (agent gateway, mTLS, published directly — never through the
+# proxy), PostgreSQL on 127.0.0.1 only. Images are pinned in .env (PPANEL_API_IMAGE / PPANEL_WEB_IMAGE).
+name: ppanel
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: '20m', max-file: '5' }
+
+services:
+  postgres:
+    image: postgres:16.6-alpine@sha256:1d04b9ba1d4996401f2552b51beda8187f175c0645c091e4781134fc9c9a3eef
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ppanel
+      POSTGRES_DB: ppanel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run install.sh (POSTGRES_PASSWORD missing)}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - '127.0.0.1:${PPANEL_DB_LOCAL_PORT:-55432}:5432'
+    networks: [backend]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ppanel -d ppanel']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    security_opt: ['no-new-privileges:true']
+    logging: *logging
+
+  api:
+    image: ${PPANEL_API_IMAGE:?run install.sh (PPANEL_API_IMAGE missing)}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://ppanel:${POSTGRES_PASSWORD}@postgres:5432/ppanel?schema=public
+      API_HOST: 0.0.0.0
+      API_PORT: '4000'
+      AGENT_GATEWAY_PORT: '4443'
+      PPANEL_MASTER_KEY: ${PPANEL_MASTER_KEY:?run install.sh (PPANEL_MASTER_KEY missing)}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?run install.sh (JWT_ACCESS_SECRET missing)}
+      PPANEL_SETUP_TOKEN: ${PPANEL_SETUP_TOKEN:-}
+      PPANEL_PUBLIC_API_URL: https://${PPANEL_DOMAIN:?set PPANEL_DOMAIN}
+      PPANEL_PUBLIC_WEB_URL: https://${PPANEL_DOMAIN}
+      WEB_ORIGIN: https://${PPANEL_DOMAIN}
+      PPANEL_GATEWAY_HOSTNAMES: ${PPANEL_GATEWAY_HOST:-${PPANEL_DOMAIN}}
+      PPANEL_PUBLIC_GATEWAY_URL: https://${PPANEL_GATEWAY_HOST:-${PPANEL_DOMAIN}}:4443
+      # only the proxy reaches :4000 (not published), so X-Forwarded-For can be trusted
+      TRUST_PROXY: '1'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PPANEL_GIT_HOST_ALLOWLIST: ${PPANEL_GIT_HOST_ALLOWLIST:-github.com}
+      PPANEL_REGISTRY_ALLOWLIST: ${PPANEL_REGISTRY_ALLOWLIST:-}
+      PPANEL_MIN_AGENT_VERSION: ${PPANEL_MIN_AGENT_VERSION:-}
+      PPANEL_AGENT_DOWNLOAD_BASE: ${PPANEL_AGENT_DOWNLOAD_BASE:-}
+      PPANEL_SMTP_URL: ${PPANEL_SMTP_URL:-}
+      PPANEL_SMTP_FROM: ${PPANEL_SMTP_FROM:-pPanel <alerts@localhost>}
+      PPANEL_BACKUP_REPORT_TOKEN: ${PPANEL_BACKUP_REPORT_TOKEN:-}
+      PPANEL_METRICS_SCRAPE_TOKEN: ${PPANEL_METRICS_SCRAPE_TOKEN:-}
+      PPANEL_PROMETHEUS_URL: http://prometheus:9090
+      PPANEL_LOKI_URL: http://loki:3100
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-168h}
+    ports:
+      # agent gateway (mTLS). Restrict with PPANEL_GATEWAY_BIND (private IP) and the host firewall.
+      - '${PPANEL_GATEWAY_BIND:-0.0.0.0}:4443:4443'
+    networks: [backend, frontend]
+    read_only: true
+    tmpfs: ['/tmp:size=64m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+    logging: *logging
+
+  web:
+    image: ${PPANEL_WEB_IMAGE:?run install.sh (PPANEL_WEB_IMAGE missing)}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: '3100'
+    networks: [frontend]
+    read_only: true
+    tmpfs: ['/tmp:size=64m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3100/login').then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    logging: *logging
+
+  proxy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_healthy }
+    environment:
+      PPANEL_DOMAIN: ${PPANEL_DOMAIN}
+      PPANEL_TLS: ${PPANEL_TLS:-internal}
+    ports:
+      - '${PPANEL_HTTP_PORT:-80}:80'
+      - '${PPANEL_HTTPS_PORT:-443}:443'
+      - '${PPANEL_HTTPS_PORT:-443}:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [frontend]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 443']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    logging: *logging
+
+  # ---------------------------------------------------------------- profile `observability`
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROM_RETENTION_TIME:-15d}
+      - --storage.tsdb.retention.size=${PROM_RETENTION_SIZE:-2GB}
+      - --web.listen-address=:9090
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./secrets/scrape-token:/etc/prometheus/scrape-token:ro
+      - promdata:/prometheus
+    networks: [backend]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:9090/-/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *logging
+
+  loki:
+    profiles: [observability]
+    image: grafana/loki:3.5.7@sha256:0eaee7bf39cc83aaef46914fb58f287d4f4c4be6ec96b86c2ed55719a75e49c8
+    restart: unless-stopped
+    command: ['-config.file=/etc/loki/loki.yml', '-config.expand-env=true']
+    environment:
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-168h}
+      LOKI_INGESTION_RATE_MB: ${LOKI_INGESTION_RATE_MB:-8}
+      LOKI_INGESTION_BURST_MB: ${LOKI_INGESTION_BURST_MB:-16}
+    volumes:
+      - ./observability/loki.yml:/etc/loki/loki.yml:ro
+      - lokidata:/loki
+    networks: [backend]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3100/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    logging: *logging
+
+networks:
+  # DB, API, Prometheus/Loki — not reachable from the proxy
+  backend: {}
+  # proxy ↔ api/web
+  frontend: {}
+
+volumes:
+  pgdata: {}
+  caddy_data: {}
+  caddy_config: {}
+  promdata: {}
+  lokidata: {}

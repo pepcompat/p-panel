@@ -584,7 +584,7 @@ on('DELETE', '/role-bindings/:id', ({ req, params, requestId }) => {
 on('GET', '/audit-events', ({ req, url, requestId }) => {
   const u = currentUser(req);
   requirePerm(u, 'audit.read');
-  const action = url.searchParams.get('action');
+  const action = url.searchParams.get('action[prefix]') ?? url.searchParams.get('action');
   const actor = url.searchParams.get('actor_id');
   const target = url.searchParams.get('target_id');
   const since = url.searchParams.get('created_at[gte]');

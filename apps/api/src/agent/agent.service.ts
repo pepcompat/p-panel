@@ -8,7 +8,7 @@ import {
   type HeartbeatInput,
   type HeartbeatResponse,
 } from '@ppanel/shared-contracts';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import { sha256Hex } from '../common/crypto';
@@ -78,6 +78,7 @@ export class AgentService {
           status: 'enrolling',
           os: (input.facts?.os ?? undefined) as Prisma.InputJsonValue | undefined,
           provider: agentProviderJson(input.facts?.provider ?? null),
+          ...(input.facts?.ssh ? { sshFacts: input.facts.ssh as Prisma.InputJsonValue } : {}),
           agentVersion: input.facts?.agentVersion ?? null,
           enrollmentId: enrollment.id,
         },
@@ -206,6 +207,10 @@ export class AgentService {
           ...(hb.os ? { os: hb.os as Prisma.InputJsonValue } : {}),
           // P9: provider facts — null = metadata absent (cleared), undefined = not reported (kept)
           ...(hb.provider !== undefined ? { provider: agentProviderJson(hb.provider) } : {}),
+          // P10: sshd host key facts — null = none readable (cleared), undefined = not reported (kept)
+          ...(hb.ssh !== undefined
+            ? { sshFacts: hb.ssh === null ? Prisma.DbNull : (hb.ssh as Prisma.InputJsonValue) }
+            : {}),
         },
       });
       if (hb.provider !== undefined) await upsertAgentInventory(tx, id.serverId, hb.provider, now);

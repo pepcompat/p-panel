@@ -12,6 +12,7 @@ import { address, envBadgeKey, osLabel, providerLabel } from '@/lib/servers';
 import { relativeTime } from '@/lib/time';
 import { AlertFiringBadge } from '@/components/p5/bits';
 import { cn } from '@/lib/utils';
+import { OpenTerminalAction, SshAccessLine } from '@/components/p10/ssh-access';
 import { ServerMeters, StatusBadge, proposedOrOffline, serverTone, whyKey } from './server-bits';
 
 export function ServerCard({
@@ -113,6 +114,7 @@ export function ServerCard({
           <span className="w-[52px] shrink-0 text-fg-muted">{t('p9.card.vpc')}</span>
           <VpcLabel server={server} />
         </div>
+        <SshAccessLine server={server} />
       </div>
 
       {diskAlert && <div className="text-[12px] font-medium text-crit">▲ {diskAlert}</div>}
@@ -137,16 +139,7 @@ export function ServerCard({
         >
           {t('card.details')}
         </Link>
-        <GatedButton
-          size="sm"
-          className="font-mono"
-          perm="ssh.connect"
-          action="open_terminal"
-          allowedActions={server.allowedActions}
-          blockedReason={proposedOrOffline(server)}
-        >
-          {t('card.terminal')}
-        </GatedButton>
+        <OpenTerminalAction server={server} variant="card" />
         <Link
           href={`/servers/${server.id}/monitoring`}
           className="inline-flex min-h-8 items-center rounded-[5px] border border-line-strong bg-surface px-3 text-[12.5px] text-fg no-underline hover:no-underline"

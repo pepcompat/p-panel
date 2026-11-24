@@ -38,6 +38,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/nginxops"
 	"github.com/ppanel/ppanel/apps/agent/internal/provider"
 	"github.com/ppanel/ppanel/apps/agent/internal/redact"
+	"github.com/ppanel/ppanel/apps/agent/internal/sshkeys"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
@@ -160,7 +161,7 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	id, err := enroll.Run(ctx, enroll.Options{CenterURL: *center, Token: *token, StateDir: cfg.StateDir, CAFile: *caFile, Force: *force,
-		Provider: providerFacts(cfg, nil)})
+		Provider: providerFacts(cfg, nil), SSHFacts: sshFacts})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -168,6 +169,9 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "enrolled: serverId=%s gateway=%s stateDir=%s\n", id.ServerID, id.GatewayURL, cfg.StateDir)
 	return 0
 }
+
+// sshFacts reads the P10 `ssh` fact from /etc/ssh (public host keys only).
+func sshFacts() *sshkeys.Facts { return sshkeys.CollectFacts(sshkeys.DefaultEtcDir) }
 
 // providerFacts returns the P9 provider fact source (DigitalOcean metadata,
 // link-local, 2 s, no redirects), or nil when disabled in the local config.
@@ -314,6 +318,8 @@ func cmdRun(args []string, stderr io.Writer) int {
 		Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return fetchSecrets(ctx, a) }})
 	deps := &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx, Containers: ctr,
 		// P9 network.diagnose / http.probe: Center endpoints come from the agent's connection manager.
+		// P10 ssh.keys.sync: the local ssh.* policy decides which accounts may be managed.
+		SSH: &sshkeys.Syncer{AllowedUsers: cfg.SSH.AllowedUsers, AllowRoot: cfg.SSH.AllowRoot},
 		Network: &handlers.NetworkDeps{
 			Endpoints:   func() []connpath.Endpoint { return a.Conn().Endpoints() },
 			ProbeCenter: func(ctx context.Context) []connpath.ProbeResult { return a.Conn().ProbeNow(ctx) },
@@ -355,7 +361,7 @@ func cmdRun(args []string, stderr io.Writer) int {
 	}
 	handlers.RegisterAll(reg, deps)
 	opts := agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log,
-		Containers: &logship.Collector{Docker: docker.New(cfg.DockerSocket)}, Provider: providerFacts(cfg, log)}
+		Containers: &logship.Collector{Docker: docker.New(cfg.DockerSocket)}, Provider: providerFacts(cfg, log), SSHFacts: sshFacts}
 	if pipe != nil {
 		opts.Logs = pipe
 	}

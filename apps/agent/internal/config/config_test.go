@@ -239,3 +239,36 @@ func TestProviderSection(t *testing.T) {
 		t.Fatal("unknown provider key accepted")
 	}
 }
+
+func TestSSHConfig(t *testing.T) {
+	cfg := Default()
+	if err := Parse([]byte("ssh:\n  allowedUsers: [deploy, ' ops ']\n"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SSH.AllowRoot || cfg.SSH.AllowedUsers[1] != "ops" {
+		t.Fatalf("got %+v", cfg.SSH)
+	}
+	for _, bad := range []string{
+		"ssh:\n  allowedUsers: [root]\n",
+		"ssh:\n  allowedUsers: ['Bad User']\n",
+		"ssh:\n  allowedUsers: [a, a]\n",
+		"ssh:\n  allowedUsers: ['-x']\n",
+		"ssh:\n  allowRoots: true\n",
+	} {
+		c := Default()
+		err := Parse([]byte(bad), c)
+		if err == nil {
+			err = c.Validate()
+		}
+		if err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+	c := Default()
+	if err := Parse([]byte("ssh:\n  allowRoot: true\n  allowedUsers: [root]\n"), c); err != nil || c.Validate() != nil {
+		t.Fatalf("allowRoot+root refused")
+	}
+}

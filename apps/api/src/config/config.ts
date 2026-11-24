@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { isIP } from 'node:net';
 import path from 'node:path';
 import {
   type ConnectionPath,
@@ -160,6 +161,21 @@ const envSchema = z.object({
    */
   PPANEL_DO_API_BASE: z.string().default(''),
   PPANEL_PROVIDER_TIMEOUT_MS: z.coerce.number().int().min(500).max(60_000).default(10_000),
+  // ---------------------------------------------------------------- P10 SSH gateway
+  /** Session closes after this long without stdin and stdout. */
+  SSH_IDLE_TIMEOUT_SEC: z.coerce.number().int().min(1).max(86_400).default(900),
+  /** Hard cap of one session (also capped by the grant expiry). */
+  SSH_MAX_SESSION_SEC: z.coerce.number().int().min(10).max(86_400).default(28_800),
+  SSH_MAX_SESSIONS_PER_USER: z.coerce.number().int().min(1).max(1000).default(3),
+  SSH_MAX_SESSIONS_PER_SERVER: z.coerce.number().int().min(1).max(1000).default(5),
+  SSH_MAX_SESSIONS_GLOBAL: z.coerce.number().int().min(1).max(10_000).default(50),
+  /** Grant/session sweeper period (expired grants close their sessions). */
+  PPANEL_SSH_SWEEP_INTERVAL_MS: z.coerce.number().int().min(100).max(600_000).default(30_000),
+  /**
+   * Lab/dev only: comma list of `host:port` SSH endpoints accepted without address verification
+   * (e.g. `127.0.0.1:52222`). Ignored when NODE_ENV=production.
+   */
+  PPANEL_SSH_LAB_ENDPOINTS: z.string().max(2000).default(''),
   PPANEL_MIN_AGENT_VERSION: emptyAsUnset(
     z
       .string()
@@ -188,6 +204,8 @@ export type AppConfig = z.infer<typeof envSchema> & {
   gatewayEndpoints: GatewayEndpoint[];
   /** P9: allowed provider API bases (normalised, no trailing slash) */
   doApiBases: string[];
+  /** P10: lab SSH endpoints (always empty in production) */
+  sshLabEndpoints: Array<{ host: string; port: number }>;
 };
 
 export interface GatewayListener {
@@ -308,7 +326,26 @@ export function loadConfig(overrides: Record<string, string | undefined> = {}): 
         : []),
     ],
     doApiBases: doApiBases(c.PPANEL_DO_API_BASE, c.NODE_ENV === 'production'),
+    sshLabEndpoints:
+      c.NODE_ENV === 'production' ? [] : parseSshLabEndpoints(c.PPANEL_SSH_LAB_ENDPOINTS),
   };
+}
+
+/** `127.0.0.1:52222,[::1]:2222` → [{ host, port }] (IP literals only). */
+export function parseSshLabEndpoints(raw: string): Array<{ host: string; port: number }> {
+  const out: Array<{ host: string; port: number }> = [];
+  for (const part of raw
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)) {
+    const m = /^(\[[0-9a-fA-F:.]+\]|[0-9.]+):(\d{1,5})$/.exec(part);
+    const port = m ? Number(m[2]) : 0;
+    const host = m ? m[1]!.replace(/^\[|\]$/g, '') : '';
+    if (!m || port < 1 || port > 65535 || isIP(host) === 0)
+      throw new Error(`Invalid configuration: PPANEL_SSH_LAB_ENDPOINTS entry "${part}"`);
+    out.push({ host, port });
+  }
+  return out;
 }
 
 function doApiBases(raw: string, production: boolean): string[] {

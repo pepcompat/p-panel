@@ -64,6 +64,12 @@ export async function bootApp(overrides: Record<string, string> = {}): Promise<T
 }
 
 const TABLES = [
+  'ssh_sessions',
+  'ssh_access_grants',
+  'ssh_host_keys',
+  'ssh_key_deployments',
+  'ssh_endpoints',
+  'ssh_credentials',
   'gateway_change_plans',
   'gateway_routes',
   'gateways',

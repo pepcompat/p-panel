@@ -344,3 +344,65 @@ Params (strict; the Center's `httpProbeParams` shape plus `allowedPorts`): `{ ur
 ### Gateway route files (nginx path policy addition)
 
 `nginx.validate|apply|revert` may also **create** `/etc/nginx/ppanel-gateway/<name>` (depth 1 only; the directory is created 0755 and removed again when a revert empties it; a symlinked `ppanel-gateway` is refused) and exactly `/etc/nginx/conf.d/ppanel-gateway.conf`. `nginx.read_files` of such a file before its directory exists reports `exists: false` (instead of `PATH_NOT_ALLOWED`). Everything else of the P3 path policy is unchanged. No new file-writing job type.
+
+## SSH key sync and ssh facts (P10) — authoritative
+
+Contract: `docs/P10_SSH_CONTRACT.md` §2. Implemented by `apps/agent/internal/sshkeys` (+ `internal/handlers/ssh_jobs.go`).
+The agent is **not** part of the terminal path: there is no shell job, the terminal runs browser ↔ Center ↔ sshd. The
+agent only installs **public** keys and reports host key fingerprints. No job parameter, result or log line ever
+carries private key material (an input that is not a one-line public key is refused).
+
+### `ssh.keys.sync` (mutating, 30 s)
+
+Params (strict; unknown fields and JSON `null` refused): `{ user, keys: [{ fingerprint, publicKey }] (≤ 20, may be
+empty), managedBlockId: "ppanel" }`.
+
+- Before ack (`Decode` + `Preflight`, no side effect):
+  - `user` must match `^[a-z_][a-z0-9_-]{0,31}$`, appear **exactly once** in `/etc/passwd` (not followed if it is a
+    symlink; NSS/LDAP users are not eligible), with uid ≥ 1000 **or** be listed in agent config `ssh.allowedUsers`.
+    Any uid-0 account (whatever its name) is refused unless `ssh.allowRoot: true`; `nobody` (uid 65534) only via
+    `ssh.allowedUsers`. The home directory must be a clean absolute path other than `/`. Else `SSH_USER_INVALID`.
+  - each key: one line of printable ASCII `<type> <base64>[ <comment>]` with type ∈ {`ssh-ed25519`,
+    `ecdsa-sha2-nistp256`, `ssh-rsa`}; anything before the type (authorized_keys **options** such as `command=`,
+    `restrict`, `permitopen=`), control characters (newline/CR injection), non-canonical base64, a blob whose inner
+    type differs from the stated type, trailing blob data, a wrong ed25519/P-256 length or an RSA modulus outside
+    3072..16384 bits is refused. The SHA256 fingerprint (`"SHA256:"` + unpadded base64 of sha256(blob), OpenSSH
+    format) is recomputed and must equal `fingerprint`; duplicates are refused. Else `SSH_KEY_INVALID`.
+- Execution: the resolved home directory is opened by walking from `/` without following symlinks (`safefs`) and
+  must be owned by the user or root. `~/.ssh` is created 0700 if missing; it must be a real directory (a symlink →
+  `SSH_PATH_UNSAFE`), owned by the user (or root, then taken over); it is set to 0700 and the user's uid/gid.
+  `authorized_keys` is read with `O_NOFOLLOW` (≤ 1 MiB): a symlink, non-regular file (fifo, directory), a file owned
+  by another user or with more than one hard link → `SSH_PATH_UNSAFE` (nothing is written).
+- Only the block between `# >>> ppanel managed keys (do not edit) >>>` and `# <<< ppanel managed keys <<<` is
+  rewritten (sorted by fingerprint), each line `restrict,pty <type> <base64> ppanel:<fingerprint>` (the Center's key
+  comment is not copied; `restrict` disables port/agent/X11 forwarding and user rc, `pty` re-enables the terminal).
+  Every other byte is preserved; a missing block is appended at the end (a final newline is added to an
+  unterminated last line first — the only byte ever added to foreign content); an empty key set removes the block.
+  Unbalanced or duplicated markers → `SSH_KEYS_FILE_MALFORMED` (file untouched; an operator must repair it).
+- Write: temp file (O_EXCL|O_NOFOLLOW) in `~/.ssh`, mode 0600, `fchown` to the user, fsync, `renameat`, fsync(dir).
+  An unchanged file with correct mode/owner is not rewritten (`changed: false`); no file is created for an empty set.
+- Result: `{ user, managedFingerprints: [...], preservedLines, fileSha256 (hex sha256 of the resulting file; of ""
+when there is no file), changed }`.
+- Error codes: `SSH_USER_INVALID`, `SSH_KEY_INVALID` (contract), plus agent-side `SSH_PATH_UNSAFE`,
+  `SSH_KEYS_FILE_MALFORMED`, `REJECTED_INVALID_PARAMS` (shape) and `HANDLER_FAILED` (write error).
+- Production note: `packaging/ppanel-agent.service` keeps `ProtectHome=read-only`; to use `ssh.keys.sync` on a
+  systemd install the operator adds a drop-in `ReadWritePaths=/home/<user>/.ssh` per managed user (else the write
+  fails with `HANDLER_FAILED: read-only file system`).
+
+### Agent config (`ssh:`, local only)
+
+```yaml
+ssh:
+  allowedUsers: [deploy] # accounts below uid 1000 that may be managed (uid >= 1000 always may); `root` needs allowRoot
+  allowRoot: false # default; true permits uid-0 accounts
+```
+
+### `ssh` fact
+
+`ssh: { hostKeys: [{ algorithm, fingerprintSha256 }], port }` from `/etc/ssh/ssh_host_*_key.pub` (public files only,
+never followed if symlinked, ≤ 16 files; types ed25519, ecdsa P-256/384/521, rsa; sorted by algorithm) and the first
+`Port` of `/etc/ssh/sshd_config` (Include directives followed in order like sshd, ≤ 32 files, depth ≤ 4; scanning a
+file stops at its first `Match`): 22 when no Port line exists; **`port` is omitted** when sshd_config is unreadable
+(the Center's schema defaults it to 22 and would drop the whole fact on an explicit `null`). No host public key →
+`ssh: null`. Sent in enrollment `facts.ssh`, in **every heartbeat** (`ssh`, re-read each time so a changed host key is
+reported within one interval) and in the `inventory.collect` result (`ssh`).

@@ -20,3 +20,10 @@ ownedUnitsFile: /etc/ppanel-agent/owned-units
 #   allowedRoots:            # optional: NARROW (never widen) editable paths
 #     - /etc/nginx/sites-available
 #     - /etc/nginx/ppanel-managed
+
+# P10 ssh.keys.sync (the Center installs PUBLIC keys into a managed block of ~user/.ssh/authorized_keys).
+# Accounts with uid >= 1000 are eligible; list lower-uid accounts here. root needs allowRoot: true.
+# With the shipped systemd unit (ProtectHome=read-only) add a drop-in: ReadWritePaths=/home/<user>/.ssh
+# ssh:
+#   allowedUsers: [deploy]
+#   allowRoot: false

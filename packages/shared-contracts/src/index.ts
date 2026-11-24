@@ -18,3 +18,4 @@ export * from './redaction';
 export * from './observability';
 export * from './backup';
 export * from './network';
+export * from './ssh';

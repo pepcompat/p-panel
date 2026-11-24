@@ -18,6 +18,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/connpath"
 	"github.com/ppanel/ppanel/apps/agent/internal/facts"
 	"github.com/ppanel/ppanel/apps/agent/internal/provider"
+	"github.com/ppanel/ppanel/apps/agent/internal/sshkeys"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
@@ -41,6 +42,8 @@ type Options struct {
 	HTTPClient *http.Client
 	// Provider returns the P9 provider fact (nil func or nil result = null).
 	Provider func(ctx context.Context) *provider.Info
+	// SSHFacts returns the P10 ssh fact (nil func or nil result = null).
+	SSHFacts func() *sshkeys.Facts
 }
 
 // Request is the enrollment request body.
@@ -131,6 +134,9 @@ func Run(ctx context.Context, o Options) (*state.Identity, error) {
 		Facts: facts.Facts{OS: facts.Collect(), AgentVersion: version.Version}}
 	if o.Provider != nil {
 		req.Facts.Provider = o.Provider(ctx)
+	}
+	if o.SSHFacts != nil {
+		req.Facts.SSH = o.SSHFacts()
 	}
 	var resp Response
 	if err := cl.Do(ctx, http.MethodPost, "/api/v1/agent/enroll", req, &resp); err != nil {

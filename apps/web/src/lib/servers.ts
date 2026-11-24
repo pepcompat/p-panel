@@ -27,6 +27,7 @@ export const REAL_TABS: readonly ServerTab[] = [
   'overview',
   'applications',
   'network',
+  'terminal',
   'monitoring',
   'logs',
   'backups',

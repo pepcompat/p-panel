@@ -119,7 +119,9 @@ describe('CSP', () => {
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("base-uri 'self'");
-    expect(/connect-src ([^;]+)/.exec(csp)![1]).toBe("'self' https://api.example.test");
+    expect(/connect-src ([^;]+)/.exec(csp)![1]).toBe(
+      "'self' https://api.example.test wss://api.example.test",
+    );
   });
   it('dev only adds unsafe-eval (React Refresh) and websockets', () => {
     const csp = buildCsp({ nonce: 'n', dev: true, apiBase: 'http://localhost:4000/api/v1' });

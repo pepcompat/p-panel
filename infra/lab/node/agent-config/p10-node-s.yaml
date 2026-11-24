@@ -1,0 +1,12 @@
+# pPanel agent config for ppanel-lab-node-s (P10 SSH gateway target; profile `p10`, scripts/lab/p10-ssh.sh).
+# Mounted read-only at /etc/ppanel-agent/config.yaml. LAB ONLY.
+stateDir: /var/lib/ppanel-agent
+logLevel: info
+# no DigitalOcean metadata in this lab node
+provider:
+  metadataDisabled: true
+# P10 ssh.keys.sync policy: accounts with uid >= 1000 (here: `ops`, uid 1001) are eligible by default;
+# root stays refused (allowRoot: false). allowedUsers would add accounts below uid 1000 — none here.
+ssh:
+  allowRoot: false
+  allowedUsers: []

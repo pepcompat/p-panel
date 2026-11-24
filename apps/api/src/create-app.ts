@@ -46,6 +46,11 @@ export async function createApp(config: AppConfig): Promise<NestExpressApplicati
   app.use(cookieParser());
   // GitHub webhooks: keep the exact raw bytes for HMAC verification (parsed later by the handler).
   app.use(`/${API_PREFIX}/webhooks`, express.raw({ type: () => true, limit: '1mb' }));
+  // P10: SSH credential bodies (imported private keys) are capped at 16 KiB → 413
+  app.use(
+    `/${API_PREFIX}/ssh/credentials`,
+    express.json({ limit: '16kb', type: ['application/json', 'application/*+json'] }),
+  );
   app.use(
     express.json({
       limit: config.BODY_LIMIT,

@@ -100,6 +100,13 @@ type Info struct {
 	Mode     os.FileMode
 	Size     int64
 	UID, GID int
+	// Nlink is the hard-link count (a regular file with Nlink > 1 may be a
+	// hard link to a file elsewhere on the same filesystem).
+	Nlink uint64
+}
+
+func infoOf(st *unix.Stat_t) Info {
+	return Info{Mode: fileMode(st), Size: st.Size, UID: int(st.Uid), GID: int(st.Gid), Nlink: uint64(st.Nlink)}
 }
 
 func fileMode(st *unix.Stat_t) os.FileMode {
@@ -125,7 +132,7 @@ func (d *Dir) Lstat(name string) (Info, error) {
 	if err := unix.Fstatat(d.fd, name, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return Info{}, &os.PathError{Op: "fstatat", Path: filepath.Join(d.path, name), Err: err}
 	}
-	return Info{Mode: fileMode(&st), Size: st.Size, UID: int(st.Uid), GID: int(st.Gid)}, nil
+	return infoOf(&st), nil
 }
 
 // ReadFile reads regular file name (no symlink following) up to max bytes;
@@ -145,7 +152,7 @@ func (d *Dir) ReadFile(name string, max int64) ([]byte, Info, error) {
 	if err := unix.Fstat(fd, &st); err != nil {
 		return nil, Info{}, err
 	}
-	info := Info{Mode: fileMode(&st), Size: st.Size, UID: int(st.Uid), GID: int(st.Gid)}
+	info := infoOf(&st)
 	if st.Mode&unix.S_IFMT != unix.S_IFREG {
 		return nil, info, fmt.Errorf("safefs: %s is not a regular file", f.Name())
 	}
@@ -181,6 +188,31 @@ func (d *Dir) RemoveDir(name string) error {
 	}
 	if err := unix.Unlinkat(d.fd, name, unix.AT_REMOVEDIR); err != nil && !errors.Is(err, unix.ENOENT) {
 		return &os.PathError{Op: "unlinkat", Path: filepath.Join(d.path, name), Err: err}
+	}
+	return nil
+}
+
+// Stat returns the attributes of the open directory itself (fstat).
+func (d *Dir) Stat() (Info, error) {
+	var st unix.Stat_t
+	if err := unix.Fstat(d.fd, &st); err != nil {
+		return Info{}, &os.PathError{Op: "fstat", Path: d.path, Err: err}
+	}
+	return infoOf(&st), nil
+}
+
+// Chmod sets the permission bits of the open directory itself (fchmod).
+func (d *Dir) Chmod(mode os.FileMode) error {
+	if err := unix.Fchmod(d.fd, uint32(mode.Perm())); err != nil {
+		return &os.PathError{Op: "fchmod", Path: d.path, Err: err}
+	}
+	return nil
+}
+
+// Chown sets the owner of the open directory itself (fchown).
+func (d *Dir) Chown(uid, gid int) error {
+	if err := unix.Fchown(d.fd, uid, gid); err != nil {
+		return &os.PathError{Op: "fchown", Path: d.path, Err: err}
 	}
 	return nil
 }

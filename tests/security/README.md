@@ -17,7 +17,7 @@ threat in `docs/SECURITY_THREAT_MODEL.md` §3 and a test ID in `docs/TEST_REPORT
 | Secret leakage canary scan (DB, logs, responses)    | P4-T02, P5-T03, P7-T03 | `tests/security/leakage/`                                            | automated (P7-T03)           |
 | SSRF (webhooks, registry, git, Telegram, health)    | P7.01                  | `tests/security/ssrf/`                                               | automated (P7.01)            |
 | XSS rendering + CSP                                 | P7.01                  | `apps/web/tests/unit/security-xss.test.tsx`                          | automated (P7.01)            |
-| SSH gateway (XSS/WS hijack, host key)               | P10-T2, P10-T3         | `tests/security/ssh/`                                                | TODO (P10)                   |
+| SSH gateway (WS hijack, ticket, CSRF, key exposure) | P10-T2, P10-T3         | `tests/security/ssh/` + `authz/probes.ts` + `apps/api` p10-ssh.spec  | automated (P10)              |
 | MCP auth / scope / self-approval / prompt injection | P13-T1…T5              | `tests/security/mcp/`                                                | TODO (P13)                   |
 
 Run: `pnpm test:security` (typechecks `tests/security/tsconfig.json`, then runs

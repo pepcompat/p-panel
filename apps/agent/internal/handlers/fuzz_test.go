@@ -34,6 +34,7 @@ func FuzzGrantValidate(f *testing.F) {
 		`{"jobId":"j5","type":"shell.exec","params":{"cmd":"id"},"leaseToken":"l","expiresAt":"` + exp + `","serverId":"` + srv + `"}`,
 		`{"jobId":"j6","type":"container.run_candidate","params":{},"leaseToken":"l","expiresAt":"` + exp + `","serverId":"other"}`,
 		`{"jobId":"j7","type":"nginx.apply","params":{"revisionId":"x"},"leaseToken":"l","expiresAt":"` + exp + `","serverId":"` + srv + `"}`,
+		`{"jobId":"j9","type":"ssh.keys.sync","params":{"user":"ops","keys":[{"publicKey":"restrict ssh-ed25519 AAAA","fingerprint":"SHA256:x"}],"managedBlockId":"ppanel"},"leaseToken":"l","expiresAt":"` + exp + `","serverId":"` + srv + `"}`,
 		`{"jobId":"j8","type":"backup.run","params":{"a":"\u0000"},"leaseToken":"l","expiresAt":"` + exp + `","serverId":"` + srv + `"}`,
 	} {
 		f.Add([]byte(s))

@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P9 complete (lab); next P10
+Current phase: P10 complete (lab); next P11
 Last verified revision: (no commits yet)
 
 ## P0
@@ -134,15 +134,15 @@ Phase tests: P9-T1, P9-T2, P9-T3, P9-T4 (see `TEST_REPORT.md`) · Gate: PASS (la
 
 ## P10
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                     |
-| ------- | ------ | --------- | ------------ | -------- | --------------------------------------------------------------------------------------------------------- |
-| P10-01  | TODO   |           |              |          | Browser WebSocket terminal gateway, pty resize, disconnect/idle handling and per-session limits.          |
-| P10-02  | TODO   |           |              |          | SSH key enrollment/rotation/revoke; encrypted key storage and never exposing private material to browser. |
-| P10-03  | TODO   |           |              |          | SSH host-key verification and mandatory mismatch block.                                                   |
-| P10-04  | TODO   |           |              |          | Per-server user/endpoint policy, RBAC, MFA and Production approvals.                                      |
-| P10-05  | TODO   |           |              |          | SSH access metadata auditing without unconditional terminal recording.                                    |
+| Task ID | Status | Change/PR | Test command                                     | Evidence                                                                                                                                                                 | Notes                                                                                                     |
+| ------- | ------ | --------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| P10-01  | PASS   |           | e2e_p10.py (T1/T4) + p10-ssh integration         | docs/evidence/2026-11-24/p10-e2e.json; ws gateway on /api/v1/ssh/stream, pty resize, idle/max/grant-expiry close, per-user/server/global limits; web terminal (xterm.js) | Browser WebSocket terminal gateway, pty resize, disconnect/idle handling and per-session limits.          |
+| P10-02  | PASS   |           | e2e_p10.py (T1/T2/T3) + p10-ssh unit/integration | docs/evidence/2026-11-24/p10-e2e.json; generate/import/rotate/revoke, AES-256-GCM at rest, agent `ssh.keys.sync` installs public keys only                               | SSH key enrollment/rotation/revoke; encrypted key storage and never exposing private material to browser. |
+| P10-03  | PASS   |           | e2e_p10.py (T2) + p10-ssh integration            | docs/evidence/2026-11-24/p10-e2e.json; scan + trust with step-up, agentMatch via agent facts, mismatch blocks before auth (4409)                                         | SSH host-key verification and mandatory mismatch block.                                                   |
+| P10-04  | PASS   |           | e2e_p10.py (T2) + security authz matrix          | docs/evidence/2026-11-24/p10-e2e.json; endpoint verification, root refused, scoped ssh.connect, grants, production second-person approval + step-up                      | Per-server user/endpoint policy, RBAC, MFA and Production approvals.                                      |
+| P10-05  | PASS   |           | p10-ssh integration + leakage spec               | docs/evidence/2026-11-24/p10-e2e.json; ssh.* audit metadata only; recording disabled                                                                                     | SSH access metadata auditing without unconditional terminal recording.                                    |
 
-Phase tests: P10-T1, P10-T2, P10-T3, P10-T4 (see `TEST_REPORT.md`) · Gate: TODO
+Phase tests: P10-T1, P10-T2, P10-T3, P10-T4 (see `TEST_REPORT.md`) · Gate: PASS (lab; terminal only through the Center SSH gateway; real-VM run BLOCKED)
 
 ## P11
 

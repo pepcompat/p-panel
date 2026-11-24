@@ -23,4 +23,12 @@ paths = [
   '''^tests/security/ssrf/ssrf\.spec\.ts$''',
   '''^apps/web/tests/e2e/p9\.spec\.ts$''',
   '''^apps/web/tests/unit/p9-mock\.test\.ts$''',
+  # P10: fake OpenSSH private-key headers in rejection/redaction tests, and the PEM template that wraps a key
+  # generated at runtime (ssh-keys.ts). No real key material.
+  '''^apps/agent/internal/sshkeys/sshkeys_test\.go$''',
+  '''^apps/api/src/ssh/ssh-keys\.ts$''',
+  '''^apps/api/test/unit/p10-ssh\.spec\.ts$''',
+  '''^apps/web/tests/e2e/p10\.spec\.ts$''',
+  '''^apps/web/tests/unit/p10-mock\.test\.ts$''',
+  '''^apps/web/tests/unit/p10\.test\.tsx$''',
 ]

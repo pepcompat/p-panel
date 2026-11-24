@@ -46,6 +46,9 @@ StateDirectoryMode=0700
 ConfigurationDirectory=ppanel-agent
 ConfigurationDirectoryMode=0750
 ProtectHome=read-only
+# P10 ssh.keys.sync writes ~user/.ssh/authorized_keys: allow it per managed user in a drop-in, e.g.
+#   [Service]
+#   ReadWritePaths=/home/ops/.ssh
 PrivateTmp=yes
 PrivateDevices=yes
 

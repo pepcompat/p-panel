@@ -7,12 +7,14 @@ import { p4bEn } from './p4b';
 import { p5En } from './p5';
 import { p6En } from './p6';
 import { p9En } from './p9';
+import { p10En } from './p10';
 
 export const en = {
   ...p4bEn,
   ...p5En,
   ...p6En,
   ...p9En,
+  ...p10En,
   'app.name': 'pPanel',
   'app.tagline': 'center v0.1',
   'app.skipToContent': 'Skip to content',

@@ -61,6 +61,8 @@ export const RESTRICTED_JOB_TYPES: readonly JobType[] = [
   // P9: diagnostics targets / probe addresses are validated by the network + gateway workflows
   'network.diagnose',
   'http.probe',
+  // P10: authorized_keys sync is driven by the credential workflow (desired key set per server+user)
+  'ssh.keys.sync',
 ];
 
 /** Mutating jobs lock a per-server resource so two never run concurrently on the same target. */
@@ -78,6 +80,8 @@ export function resourceKeyFor(
     return `app:${String(params.app)}`;
   // builds of one app run one at a time on the build node
   if (type === 'image.build') return `build:${String(params.app)}`;
+  // P10: one authorized_keys rewrite per server user at a time
+  if (type === 'ssh.keys.sync') return `ssh_keys:${String(params.user)}`;
   // P6: backups serialize per repository (agent holds a per-repo mutex too); restores of an app
   // target share the app lock with container/compose jobs
   if (type === 'backup.run')

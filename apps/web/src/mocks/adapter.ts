@@ -31,6 +31,7 @@ import {
   registerP9Routes,
   resetP9State,
 } from './p9-routes';
+import { registerP10Routes, resetP10State } from './p10-routes';
 
 const SESSION_KEY = 'ppanel.mock.session';
 const NOT_BOOTSTRAPPED_KEY = 'ppanel.mock.notBootstrapped';
@@ -74,6 +75,7 @@ export function resetMockState() {
   resetP5State();
   resetP6State();
   resetP9State();
+  resetP10State();
   safeSession()?.removeItem(SESSION_KEY);
 }
 
@@ -641,6 +643,8 @@ registerP5Routes(p3ctx);
 registerP6Routes(p3ctx);
 // ---------- P9: groups / network inventory / diagnostics / gateways ----------
 registerP9Routes(p3ctx);
+// ---------- P10: SSH credentials / host keys / grants / sessions ----------
+registerP10Routes(p3ctx);
 
 /** fetch-compatible entry point. */
 export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

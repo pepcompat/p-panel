@@ -18,6 +18,14 @@ export const serverInclude = {
   group: { select: { name: true } },
   connection: true,
   networkInventory: true,
+  // P10 summary (cheap: endpoints + existence of a trusted key / installed active credential)
+  sshEndpoints: { select: { path: true, host: true, port: true }, orderBy: { path: 'asc' } },
+  sshHostKeys: { where: { status: 'trusted' }, select: { id: true }, take: 1 },
+  sshDeployments: {
+    where: { status: 'installed', credential: { status: 'active' } },
+    select: { id: true },
+    take: 1,
+  },
 } satisfies Prisma.ServerInclude;
 
 export type ServerRow = Prisma.ServerGetPayload<{ include: typeof serverInclude }>;
@@ -118,6 +126,15 @@ export function toServer(
     buildNode: row.buildNode,
     certificate: cert ? { serial: cert.serial, notAfter: cert.notAfter.toISOString() } : null,
     allowedActions,
+    ssh: {
+      endpoints: row.sshEndpoints.map((e) => ({
+        path: e.path as 'private' | 'public',
+        host: e.host,
+        port: e.port,
+      })),
+      trustedHostKey: row.sshHostKeys.length > 0,
+      hasCredential: row.sshDeployments.length > 0,
+    },
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     version: row.version,

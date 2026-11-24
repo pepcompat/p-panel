@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { systemdUnitSchema } from './jobs';
 import type { ServerConnectionView, ServerNetworkView } from './network';
+import type { ServerSshSummary } from './ssh';
 
 export const ENVIRONMENTS = ['production', 'uat', 'development'] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
@@ -83,6 +84,8 @@ export interface Server {
   buildNode: boolean;
   certificate: { serial: string; notAfter: string } | null;
   allowedActions: string[];
+  /** P10: SSH endpoints + readiness (additive; absent on pre-P10 Centers) */
+  ssh?: ServerSshSummary;
   createdAt: string;
   updatedAt: string;
   version: number;

@@ -57,7 +57,6 @@ export const NAV: NavItem[] = [
     href: '/ssh',
     label: 'nav.ssh',
     section: 'nav.section.infrastructure',
-    preview: true,
   },
   {
     id: 'plugins',

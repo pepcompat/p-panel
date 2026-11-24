@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ppanel/ppanel/apps/agent/internal/provider"
+	"github.com/ppanel/ppanel/apps/agent/internal/sshkeys"
 )
 
 // OS describes the host operating system.
@@ -27,6 +28,9 @@ type Facts struct {
 	// Provider (P9) is the cloud-provider fact from the DigitalOcean metadata
 	// service; null when absent or disabled.
 	Provider *provider.Info `json:"provider"`
+	// SSH (P10) is the sshd host key fingerprints + port; null when the host
+	// has no sshd host keys.
+	SSH *sshkeys.Facts `json:"ssh"`
 }
 
 // OSReleasePath is overridable for tests.

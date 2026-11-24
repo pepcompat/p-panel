@@ -71,6 +71,13 @@ import { GatewaysService } from './network/gateways.service';
 import { GatewaysController, NetworkController } from './network/network.controller';
 import { NetworkService } from './network/network.service';
 import { ProviderService } from './network/provider.service';
+import { SshCredentialsService } from './ssh/credentials.service';
+import { SshEndpointsService } from './ssh/endpoints.service';
+import { SshGatewayService } from './ssh/ssh-gateway.service';
+import { SshGrantsService } from './ssh/grants.service';
+import { SshSessionRegistry } from './ssh/ssh-registry';
+import { SshSessionsService } from './ssh/sessions.service';
+import { SshController } from './ssh/ssh.controller';
 
 /** Center API modular monolith. Config is injected so tests can boot isolated instances. */
 @Module({})
@@ -98,6 +105,7 @@ export class AppModule {
         BackupController,
         NetworkController,
         GatewaysController,
+        SshController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config },
@@ -151,6 +159,13 @@ export class AppModule {
         NetworkService,
         DiagnosticsService,
         GatewaysService,
+        // P10 SSH gateway
+        SshSessionRegistry,
+        SshCredentialsService,
+        SshEndpointsService,
+        SshGrantsService,
+        SshSessionsService,
+        SshGatewayService,
         AgentService,
         AgentGatewayServer,
         { provide: APP_GUARD, useClass: AuthGuard },

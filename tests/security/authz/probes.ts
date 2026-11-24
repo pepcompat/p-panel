@@ -643,6 +643,99 @@ export const PROBES: Probe[] = [
   r('POST /api/v1/gateway-plans/:id/cancel', (i) => `/api/v1/gateway-plans/${i.planA}/cancel`, {
     body: () => ({}),
   }),
+  // ------------------------------------------------------------------ P10 SSH gateway
+  r('GET /api/v1/ssh/settings', () => '/api/v1/ssh/settings', {
+    globalRead: 'SSH limits + recording policy are global, non-secret settings',
+  }),
+  r('GET /api/v1/ssh/credentials', () => '/api/v1/ssh/credentials'),
+  r('POST /api/v1/ssh/credentials', () => '/api/v1/ssh/credentials', {
+    body: () => ({ name: 'probe', mode: 'generate' }),
+  }),
+  r(
+    'POST /api/v1/ssh/credentials/:id/deploy',
+    (i) => `/api/v1/ssh/credentials/${i.sshCredential}/deploy`,
+    {
+      body: (i) => ({ serverId: i.serverA, sshUser: 'ops' }),
+    },
+  ),
+  r(
+    'DELETE /api/v1/ssh/credentials/:id/deployments/:deploymentId',
+    (i) => `/api/v1/ssh/credentials/${i.sshCredential}/deployments/${i.sshDeploymentA}`,
+  ),
+  r(
+    'POST /api/v1/ssh/credentials/:id/rotate',
+    (i) => `/api/v1/ssh/credentials/${i.sshCredential}/rotate`,
+    {
+      body: () => ({}),
+    },
+  ),
+  r(
+    'POST /api/v1/ssh/credentials/:id/revoke',
+    (i) => `/api/v1/ssh/credentials/${i.sshCredential}/revoke`,
+    {
+      body: () => ({}),
+    },
+  ),
+  r('GET /api/v1/servers/:id/ssh/endpoints', (i) => `/api/v1/servers/${i.serverA}/ssh/endpoints`),
+  r('PUT /api/v1/servers/:id/ssh/endpoints', (i) => `/api/v1/servers/${i.serverA}/ssh/endpoints`, {
+    body: () => [{ path: 'private', host: '10.77.0.1', port: 22, allowedUsers: ['ops'] }],
+  }),
+  r('GET /api/v1/servers/:id/ssh/host-keys', (i) => `/api/v1/servers/${i.serverA}/ssh/host-keys`),
+  r(
+    'POST /api/v1/servers/:id/ssh/host-keys/scan',
+    (i) => `/api/v1/servers/${i.serverA}/ssh/host-keys/scan`,
+    { body: () => ({ path: 'private' }) },
+  ),
+  r('POST /api/v1/ssh/host-keys/:id/trust', (i) => `/api/v1/ssh/host-keys/${i.sshHostKeyA}/trust`, {
+    body: () => ({}),
+  }),
+  r(
+    'POST /api/v1/ssh/host-keys/:id/reject',
+    (i) => `/api/v1/ssh/host-keys/${i.sshHostKeyA}/reject`,
+    {
+      body: () => ({}),
+    },
+  ),
+  r('GET /api/v1/ssh/grants', () => '/api/v1/ssh/grants', {
+    allowViewer: true,
+    allowDeployer: true,
+  }),
+  r('POST /api/v1/ssh/grants', () => '/api/v1/ssh/grants', {
+    body: (i) => ({
+      serverId: i.serverA,
+      sshUser: 'ops',
+      endpointPath: 'private',
+      durationMinutes: 30,
+      reason: 'probe access',
+    }),
+  }),
+  r('POST /api/v1/ssh/grants/:id/approve', (i) => `/api/v1/ssh/grants/${i.sshGrantA}/approve`, {
+    body: () => ({}),
+  }),
+  r('POST /api/v1/ssh/grants/:id/reject', (i) => `/api/v1/ssh/grants/${i.sshGrantA}/reject`, {
+    body: () => ({}),
+  }),
+  r('POST /api/v1/ssh/grants/:id/revoke', (i) => `/api/v1/ssh/grants/${i.sshGrantA}/revoke`, {
+    allowViewer: false,
+    allowDeployer: false,
+    body: () => ({}),
+  }),
+  r('GET /api/v1/ssh/sessions', () => '/api/v1/ssh/sessions', {
+    allowViewer: true,
+    allowDeployer: true,
+  }),
+  r('POST /api/v1/ssh/sessions', () => '/api/v1/ssh/sessions', {
+    body: (i) => ({ grantId: i.sshGrantA, cols: 80, rows: 24 }),
+  }),
+  r(
+    'POST /api/v1/ssh/sessions/:id/terminate',
+    (i) => `/api/v1/ssh/sessions/${i.sshSessionA}/terminate`,
+    {
+      allowViewer: false,
+      allowDeployer: false,
+      body: () => ({}),
+    },
+  ),
   r('GET /api/v1/servers', () => '/api/v1/servers'),
   r('GET /api/v1/servers/:id', (i) => `/api/v1/servers/${i.serverA}`),
   r('PATCH /api/v1/servers/:id', (i) => `/api/v1/servers/${i.serverA}`, {

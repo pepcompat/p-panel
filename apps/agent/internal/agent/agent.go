@@ -31,6 +31,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/netaddr"
 	"github.com/ppanel/ppanel/apps/agent/internal/provider"
+	"github.com/ppanel/ppanel/apps/agent/internal/sshkeys"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
@@ -60,6 +61,10 @@ type Options struct {
 	// Provider returns the P9 provider fact (DigitalOcean metadata); nil =
 	// the heartbeat carries no provider field.
 	Provider func(ctx context.Context) *provider.Info
+	// SSHFacts returns the P10 ssh fact (host key fingerprints + port), read
+	// at every heartbeat so a changed host key is reported within one
+	// interval; nil = the heartbeat carries no ssh field.
+	SSHFacts func() *sshkeys.Facts
 	// ProviderRefresh is how often Provider is re-read (default 10 min).
 	ProviderRefresh time.Duration
 	// ProbeInterval is the P9 endpoint probe cadence (default 60 s).
@@ -309,6 +314,8 @@ type HeartbeatRequest struct {
 	// P9: management-path probe report and provider fact (null = absent).
 	Connection *connpath.Report `json:"connection,omitempty"`
 	Provider   json.RawMessage  `json:"provider,omitempty"`
+	// P10: sshd host keys + port (null = no host keys; omitted = not reported).
+	SSH json.RawMessage `json:"ssh,omitempty"`
 }
 
 // SendLogs POSTs one gzip batch to /agent/v1/logs over the mTLS gateway.
@@ -395,6 +402,11 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	req.Connection = a.conn.Report()
 	if p := a.prov.Load(); p != nil {
 		req.Provider = *p
+	}
+	if a.o.SSHFacts != nil {
+		if b, err := json.Marshal(a.o.SSHFacts()); err == nil {
+			req.SSH = b
+		}
 	}
 	if u := req.Metrics.UptimeSec; u != nil {
 		v := math.Floor(*u)

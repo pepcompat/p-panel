@@ -5,6 +5,7 @@ import {
   heartbeatConnectionSchema,
   type HeartbeatConnectionDirective,
 } from './network';
+import { agentSshFactsSchema } from './ssh';
 
 export const AGENT_PROTOCOL_VERSION = '1';
 
@@ -45,6 +46,8 @@ export const agentEnrollSchema = z.object({
       agentVersion: z.string().max(64).optional(),
       /** P9: DigitalOcean metadata facts (null/absent = not a DO droplet or metadata unreachable) */
       provider: agentProviderFactsSchema.nullish().catch(null),
+      /** P10: sshd host key fingerprints + port (null = none readable) */
+      ssh: agentSshFactsSchema.nullish().catch(null),
     })
     .strip()
     .optional(),
@@ -159,6 +162,8 @@ export const heartbeatSchema = z.object({
   connection: heartbeatConnectionSchema.optional().catch(undefined),
   /** P9: DigitalOcean metadata facts (null = metadata absent; undefined = not reported) */
   provider: agentProviderFactsSchema.nullish().catch(undefined),
+  /** P10: sshd host key fingerprints + port (null = absent; undefined = not reported → kept) */
+  ssh: agentSshFactsSchema.nullish().catch(undefined),
 });
 export type HeartbeatInput = z.infer<typeof heartbeatSchema>;
 

@@ -130,6 +130,8 @@ model Server {
   ownedUnits       String[]  @default([]) @map("owned_units")
   /// P4b: Center-side build node designation (agent must also report the `build` capability)
   buildNode        Boolean   @default(false) @map("build_node")
+  /// P10: agent facts `ssh` ({ hostKeys: [{ algorithm, fingerprintSha256 }], port }), null = absent
+  sshFacts         Json?     @map("ssh_facts")
   enrollmentId     String?   @map("enrollment_id") @db.Uuid
   version          Int       @default(1)
   revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(3)
@@ -156,6 +158,11 @@ model Server {
   connectivityFrom NetworkConnectivityTest[] @relation("connectivityFrom")
   connectivityTo   NetworkConnectivityTest[] @relation("connectivityTo")
   gateway          Gateway?
+  sshEndpoints     SshEndpoint[]
+  sshDeployments   SshKeyDeployment[]
+  sshHostKeys      SshHostKey[]
+  sshGrants        SshAccessGrant[]
+  sshSessions      SshSession[]
 
   @@index([environment])
   @@index([lastHeartbeatAt])
@@ -1408,4 +1415,153 @@ model GatewayChangePlan {
   @@index([gatewayId, createdAt])
   @@index([nginxRevisionId])
   @@map("gateway_change_plans")
+}
+
+// ---------------------------------------------------------------------------
+// P10 — central SSH gateway (docs/P10_SSH_CONTRACT.md)
+// ---------------------------------------------------------------------------
+
+/// Center-held SSH key pair. private_key_enc = AES-256-GCM (PPANEL_MASTER_KEY); never returned/logged.
+model SshCredential {
+  id                String    @id @db.Uuid
+  name              String
+  kind              String // generated | imported
+  algorithm         String // ssh-ed25519 | rsa-sha2-512 | ecdsa-sha2-nistp256
+  publicKey         String    @map("public_key")
+  fingerprintSha256 String    @unique @map("fingerprint_sha256")
+  privateKeyEnc     String    @map("private_key_enc")
+  status            String    @default("active") // active | rotated | revoked
+  rotatedFromId     String?   @map("rotated_from_id") @db.Uuid
+  createdBy         String    @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedBy         String?   @map("revoked_by") @db.Uuid
+
+  deployments SshKeyDeployment[]
+
+  @@index([status])
+  @@map("ssh_credentials")
+}
+
+model SshEndpoint {
+  id           String   @id @db.Uuid
+  serverId     String   @map("server_id") @db.Uuid
+  path         String // private | public
+  host         String
+  port         Int      @default(22)
+  allowedUsers String[] @default([]) @map("allowed_users")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server   Server       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  hostKeys SshHostKey[]
+
+  @@unique([serverId, path])
+  @@map("ssh_endpoints")
+}
+
+model SshKeyDeployment {
+  id           String   @id @db.Uuid
+  serverId     String   @map("server_id") @db.Uuid
+  credentialId String   @map("credential_id") @db.Uuid
+  sshUser      String   @map("ssh_user")
+  status       String   @default("pending") // pending | installed | removing | removed | failed
+  jobId        String?  @map("job_id") @db.Uuid
+  lastError    String?  @map("last_error")
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server     Server        @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  credential SshCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, credentialId, sshUser])
+  @@index([credentialId])
+  @@index([jobId])
+  @@map("ssh_key_deployments")
+}
+
+model SshHostKey {
+  id                String    @id @db.Uuid
+  serverId          String    @map("server_id") @db.Uuid
+  endpointId        String    @map("endpoint_id") @db.Uuid
+  algorithm         String
+  fingerprintSha256 String    @map("fingerprint_sha256")
+  publicKey         String    @map("public_key")
+  status            String    @default("pending") // pending | trusted | rejected | superseded
+  seenVia           String    @map("seen_via") // scan | connect
+  agentMatch        Boolean?  @map("agent_match")
+  firstSeenAt       DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  trustedBy         String?   @map("trusted_by") @db.Uuid
+  trustedAt         DateTime? @map("trusted_at") @db.Timestamptz(3)
+
+  server   Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  endpoint SshEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@unique([endpointId, fingerprintSha256])
+  @@index([serverId])
+  @@map("ssh_host_keys")
+}
+
+model SshAccessGrant {
+  id           String    @id @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  serverId     String    @map("server_id") @db.Uuid
+  sshUser      String    @map("ssh_user")
+  endpointPath String    @map("endpoint_path")
+  reason       String
+  durationMin  Int       @map("duration_min")
+  status       String // awaiting_approval | active | expired | revoked | rejected
+  /// sha256(userId|serverId|sshUser|endpointPath|durationMin) — approval compare-and-set
+  grantHash    String    @map("grant_hash")
+  requestedAt  DateTime  @default(now()) @map("requested_at") @db.Timestamptz(3)
+  approvedBy   String?   @map("approved_by") @db.Uuid
+  approvedAt   DateTime? @map("approved_at") @db.Timestamptz(3)
+  startsAt     DateTime? @map("starts_at") @db.Timestamptz(3)
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedBy    String?   @map("revoked_by") @db.Uuid
+
+  server   Server       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  sessions SshSession[]
+
+  @@index([userId, status])
+  @@index([serverId, status])
+  @@index([status, expiresAt])
+  @@map("ssh_access_grants")
+}
+
+/// One terminal session. Metadata only: never keystrokes or output.
+model SshSession {
+  id                    String    @id @db.Uuid
+  grantId               String    @map("grant_id") @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  serverId              String    @map("server_id") @db.Uuid
+  sshUser               String    @map("ssh_user")
+  endpointPath          String    @map("endpoint_path")
+  endpointHost          String    @map("endpoint_host")
+  endpointPort          Int       @map("endpoint_port")
+  credentialFingerprint String    @map("credential_fingerprint")
+  hostKeyFingerprint    String?   @map("host_key_fingerprint")
+  status                String    @default("pending") // pending | open | closed | failed
+  endReason             String?   @map("end_reason")
+  exitCode              Int?      @map("exit_code")
+  clientIp              String?   @map("client_ip")
+  userAgent             String?   @map("user_agent")
+  bytesIn               BigInt    @default(0) @map("bytes_in")
+  bytesOut              BigInt    @default(0) @map("bytes_out")
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  openedAt              DateTime? @map("opened_at") @db.Timestamptz(3)
+  closedAt              DateTime? @map("closed_at") @db.Timestamptz(3)
+  /// sha256 hex of the single-use WebSocket ticket (cleared when consumed)
+  ticketHash            String?   @unique @map("ticket_hash")
+  ticketExpiresAt       DateTime? @map("ticket_expires_at") @db.Timestamptz(3)
+
+  grant  SshAccessGrant @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  server Server         @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([serverId, status])
+  @@index([grantId])
+  @@index([status])
+  @@map("ssh_sessions")
 }

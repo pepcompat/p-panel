@@ -3,17 +3,18 @@
 Disposable **container approximations** of two Ubuntu 24.04 managed hosts, for discovery,
 agent and read-only-import tests. Compose project name is fixed to **`ppanel-lab`**.
 
-| Container                 | Role                           | Contents                                                                                                    |
-| ------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `ppanel-lab-node-a`       | legacy native host             | Ubuntu 24.04 (pinned digest), nginx 1.24, php8.3-fpm, fixtures 00–08                                        |
-| `ppanel-lab-node-b`       | container-style host           | Ubuntu 24.04, nginx 1.24, proxy to a compose-like app, `/opt/apps/shop/docker-compose.yml` fixture          |
-| `ppanel-lab-upstream-a`   | upstream for `api.example.lab` | busybox httpd :8080 (read-only rootfs)                                                                      |
-| `ppanel-lab-upstream-b`   | the "shop" compose app         | busybox httpd :8080 (read-only rootfs)                                                                      |
-| `ppanel-lab-dind`         | **P4** Docker engine of node-b | `docker:29.0.4-dind` (pinned digest), **privileged (lab only)**, shares node-b's network namespace          |
-| `ppanel-lab-registry`     | **P4** local OCI registry      | `registry:2.8.3` (pinned digest), `lab-registry:5000` in the lab, `127.0.0.1:55000` on the Mac              |
-| `ppanel-lab-backup`       | **P6** agents' backup repo     | `restic/rest-server:0.14.0` (pinned digest) `--private-repos --append-only`, `lab-backup:8000`              |
-| `ppanel-lab-backup-admin` | **P6** maintenance identity    | same image + SAME data volume, full access, `127.0.0.1:58001` only (not on the nodes' network)              |
-| `ppanel-lab-minio`        | **P6** offsite S3              | `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` (pinned digest), `127.0.0.1:59000` only, bucket `ppanel-offsite` |
+| Container                 | Role                           | Contents                                                                                                           |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `ppanel-lab-node-a`       | legacy native host             | Ubuntu 24.04 (pinned digest), nginx 1.24, php8.3-fpm, fixtures 00–08                                               |
+| `ppanel-lab-node-b`       | container-style host           | Ubuntu 24.04, nginx 1.24, proxy to a compose-like app, `/opt/apps/shop/docker-compose.yml` fixture                 |
+| `ppanel-lab-upstream-a`   | upstream for `api.example.lab` | busybox httpd :8080 (read-only rootfs)                                                                             |
+| `ppanel-lab-upstream-b`   | the "shop" compose app         | busybox httpd :8080 (read-only rootfs)                                                                             |
+| `ppanel-lab-dind`         | **P4** Docker engine of node-b | `docker:29.0.4-dind` (pinned digest), **privileged (lab only)**, shares node-b's network namespace                 |
+| `ppanel-lab-registry`     | **P4** local OCI registry      | `registry:2.8.3` (pinned digest), `lab-registry:5000` in the lab, `127.0.0.1:55000` on the Mac                     |
+| `ppanel-lab-backup`       | **P6** agents' backup repo     | `restic/rest-server:0.14.0` (pinned digest) `--private-repos --append-only`, `lab-backup:8000`                     |
+| `ppanel-lab-backup-admin` | **P6** maintenance identity    | same image + SAME data volume, full access, `127.0.0.1:58001` only (not on the nodes' network)                     |
+| `ppanel-lab-minio`        | **P6** offsite S3              | `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` (pinned digest), `127.0.0.1:59000` only, bucket `ppanel-offsite`        |
+| `ppanel-lab-node-s`       | **P10** SSH gateway target     | profile `p10` only (`scripts/lab/p10-ssh.sh`): node image + hardened openssh-server, user `ops`, `127.0.0.1:52222` |
 
 Network `ppanel-lab-net` (bridge). Published ports are all loopback-only: the lab registry on
 **`127.0.0.1:55000`** (pushing test images from the Mac) and, P6, the backup maintenance listener
@@ -205,6 +206,40 @@ labnet and public IPv4s in the fake are TEST-NET-3 placeholders; isolation betwe
 isolation, not a cloud firewall. Every node is also on labnet (172.20/16, RFC 1918), so pair tests rely on the Center
 picking the provider-verified VPC address (`privateIpv4`).
 
+## SSH gateway target (P10)
+
+Profile `p10` in `infra/compose/lab.yml`, **not** started by `scripts/lab/up.sh` (which behaves exactly as before).
+Started/stopped only by `scripts/lab/p10-ssh.sh` (always `compose up --no-deps lab-node-s`: node-a/node-b and lab-dind
+are never recreated):
+
+```sh
+scripts/lab/p10-ssh.sh up        # build (WITH_SSHD=1) + start ppanel-lab-node-s, wait for the SSH banner, print host key fingerprints
+scripts/lab/p10-ssh.sh status    # container, sshd pid, fingerprints, 127.0.0.1:52222 banner check, sshd processes
+scripts/lab/p10-ssh.sh rekey     # delete + regenerate the host keys, SIGHUP sshd (= "changed host key")
+scripts/lab/p10-ssh.sh down      # remove the container (`down --volumes` also removes its agent state volume)
+python3 -I scripts/lab/e2e_p10.py --out docs/evidence/<date>/p10-e2e.json   # P10-T1..T4 against the real Center
+```
+
+| Piece               | What                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ppanel-lab-node-s` | `ppanel-lab-node-s:dev` = the node image with node-a's build args (so every layer is shared with node-a) plus `WITH_SSHD=1`: openssh-server, drop-in `infra/lab/node/sshd/10-ppanel-lab.conf`, user `ops` (uid 1001, password field `*`: no password login possible, public-key login allowed). Fixture sites and the `lab-upstream-a` upstream are removed at start (no dependency on the main lab), php-fpm is not started. |
+| sshd hardening      | `AuthenticationMethods publickey`, `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin no`, `AllowUsers ops`, `AllowTcpForwarding no`, `AllowStreamLocalForwarding no`, `AllowAgentForwarding no`, `PermitTunnel no`, `X11Forwarding no`, `PermitUserRC no`, `MaxAuthTries 3`, `LogLevel VERBOSE`. Managed keys additionally carry `restrict,pty`.                                               |
+| host keys           | **not baked into the image** (removed at build); `ssh-keygen -A` at the first start of the container; `rekey` regenerates them. sshd runs `-D -e` in the background of the entrypoint (logs in `docker logs`), tini reaps it; pid in `/run/sshd.pid`.                                                                                                                                                                         |
+| caps                | node defaults + `SYS_CHROOT`, `AUDIT_WRITE`, `FOWNER` (privilege separation, PTY sessions) — **only on this node**; still `cap_drop: ALL` + `no-new-privileges`.                                                                                                                                                                                                                                                              |
+| network / port      | `labnet`; sshd published on the Mac loopback only: **`127.0.0.1:52222` → 22** (the Center's endpoint in the E2E: `PPANEL_SSH_LAB_ENDPOINTS=127.0.0.1:52222`, endpoint path `public`, host `127.0.0.1`).                                                                                                                                                                                                                       |
+| agent               | binary mounted like node-a; config `agent-config/p10-node-s.yaml` (`provider.metadataDisabled`, `ssh.allowRoot: false`); state volume `node-s-agent-state`. Never auto-started (`e2e_p10.py` enrolls and starts it).                                                                                                                                                                                                          |
+
+Verified live (2026-11-24): pre-sync login as `ops` refused; after `ssh.keys.sync` (real handler, run in the node)
+key login works, PTY allocated, `-L`/`-R`/`-W` forwarding "administratively prohibited"/refused, root refused,
+password/keyboard-interactive not offered; the foreign authorized_keys line survives; a repeat sync reports
+`changed: false`; removing all keys locks the user out again; `rekey` changes all three fingerprints and an existing
+known_hosts entry then fails with "REMOTE HOST IDENTIFICATION HAS CHANGED". The agent's `ssh` fact equals
+`ssh-keygen -lf` of the host keys.
+
+**Lab substitutes:** sshd runs without systemd/PAM session setup of a real host, in a container sharing the Docker VM
+kernel; the "public" endpoint is the Mac loopback port forward (the Center sees 127.0.0.1:52222, sshd sees the Docker
+gateway address as client).
+
 ## Fixtures (`infra/nginx/fixtures/`)
 
 | File (node-a unless noted)                       | Exercises                                                                                                                                                                                                                             |
@@ -237,21 +272,21 @@ Agent state lives in the per-node named volume (`/var/lib/ppanel-agent`), remove
 
 ## Limitations — containers are NOT VMs
 
-| Aspect         | Lab reality                                                   | Consequence                                                                                                     |
-| -------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Kernel         | Shared LinuxKit kernel of Docker Desktop (arm64)              | No kernel-level isolation tests; `uname -r` is not Ubuntu's                                                     |
-| Init / systemd | `tini` as PID 1, **no systemd**                               | systemd unit discovery, `systemctl reload nginx`, agent systemd packaging cannot be tested here                 |
-| Docker         | node-a: none. node-b: **dind sidecar** (privileged, lab only) | P4 deploys run against a real Engine, but nested in Docker Desktop's VM (no real host dockerd/systemd/iptables) |
-| Firewall       | `cap_drop: ALL` (+ minimal caps); no NET_ADMIN                | UFW/nftables adapter tests (P11) BLOCKED                                                                        |
-| sshd           | not installed                                                 | SSH gateway tests (P10) BLOCKED                                                                                 |
-| Network        | bridges only (P9: two internal "VPC" bridges), no public IP   | DO VPC / private-vs-public path tests (P9) simulated with Docker networks, see the P9 section                   |
-| Reboot         | container restart ≠ host reboot                               | reboot reconciliation evidence is approximate                                                                   |
-| Arch           | arm64 only on this Mac                                        | amd64 behaviour not exercised locally (CI cross-builds the agent)                                               |
-| Packages       | Ubuntu archive at build time (not pinned per-package)         | versions recorded by `status.sh` output; rebuilds can drift                                                     |
+| Aspect         | Lab reality                                                                             | Consequence                                                                                                      |
+| -------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Kernel         | Shared LinuxKit kernel of Docker Desktop (arm64)                                        | No kernel-level isolation tests; `uname -r` is not Ubuntu's                                                      |
+| Init / systemd | `tini` as PID 1, **no systemd**                                                         | systemd unit discovery, `systemctl reload nginx`, agent systemd packaging cannot be tested here                  |
+| Docker         | node-a: none. node-b: **dind sidecar** (privileged, lab only)                           | P4 deploys run against a real Engine, but nested in Docker Desktop's VM (no real host dockerd/systemd/iptables)  |
+| Firewall       | `cap_drop: ALL` (+ minimal caps); no NET_ADMIN                                          | UFW/nftables adapter tests (P11) BLOCKED                                                                         |
+| sshd           | only on `lab-node-s` (P10, profile `p10`): OpenSSH in a tini container, no systemd unit | P10-T1…T4 run here against a real sshd; systemd-managed sshd, PAM/login.defs policies of a real host not covered |
+| Network        | bridges only (P9: two internal "VPC" bridges), no public IP                             | DO VPC / private-vs-public path tests (P9) simulated with Docker networks, see the P9 section                    |
+| Reboot         | container restart ≠ host reboot                                                         | reboot reconciliation evidence is approximate                                                                    |
+| Arch           | arm64 only on this Mac                                                                  | amd64 behaviour not exercised locally (CI cross-builds the agent)                                                |
+| Packages       | Ubuntu archive at build time (not pinned per-package)                                   | versions recorded by `status.sh` output; rebuilds can drift                                                      |
 
 Tests that therefore stay **BLOCKED until real disposable Ubuntu VMs** are supplied:
 P1-T04 (real network drop), P2-T03 partially, P3-T03 with `systemctl reload`, P4 on a real (non-nested) dockerd host,
-P7-T01/P7-T03 (outage under real traffic), P8-T01/T02, P10-T1…T4, P11-T1…T4, P12-T1/T4,
+P7-T01/P7-T03 (outage under real traffic), P8-T01/T02, P10 against a real VM sshd (lab-node-s covers P10-T1…T4), P11-T1…T4, P12-T1/T4,
 P9-T1/T3/T4 (real VPC), E2E-02 (3 agents on VMs), E2E-05…E2E-07, E2E-10, E2E-17.
 Tests that **can** run here: P1-T01/T02 (enrollment/mTLS via host.docker.internal), P2-T01/T02,
 P3-T01/T02/T04/T05 (nginx-level, using `nginx -s reload` instead of systemd), P2-T04, P4 container deploy/rollback/redaction tests against lab-dind (node-b).

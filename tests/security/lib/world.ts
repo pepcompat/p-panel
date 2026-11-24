@@ -12,6 +12,7 @@ import {
 } from '../../../apps/api/test/integration/helpers';
 import { encryptSecret, sha256Hex } from '../../../apps/api/src/common/crypto';
 import { uuidv7 } from '../../../apps/api/src/common/ids';
+import { credentialAad, generateEd25519 } from '../../../apps/api/src/ssh/ssh-keys';
 
 export const MARK_A = 'MARKA7x9';
 export const PASSWORD = 'long-enough-password';
@@ -61,6 +62,12 @@ export interface WorldIds {
   routeA: string;
   planA: string;
   diagTestA: string;
+  // P10
+  sshCredential: string;
+  sshDeploymentA: string;
+  sshHostKeyA: string;
+  sshGrantA: string;
+  sshSessionA: string;
 }
 
 export interface World {
@@ -586,6 +593,97 @@ export async function buildWorld(
     },
   });
 
+  // ---------------------------------------------------------------- P10 SSH (server A)
+  const sshKey = generateEd25519();
+  const sshCredential = uuidv7();
+  await db.sshCredential.create({
+    data: {
+      id: sshCredential,
+      name: 'global ssh key',
+      kind: 'generated',
+      algorithm: sshKey.algorithm,
+      publicKey: sshKey.publicKey,
+      fingerprintSha256: sshKey.fingerprintSha256,
+      privateKeyEnc: encryptSecret(
+        t.config.masterKey,
+        sshKey.privateOpenSsh,
+        credentialAad(sshCredential),
+      ),
+      createdBy: ownerId,
+    },
+  });
+  const sshDeploymentA = uuidv7();
+  await db.sshKeyDeployment.create({
+    data: {
+      id: sshDeploymentA,
+      serverId: serverA,
+      credentialId: sshCredential,
+      sshUser: 'ops',
+      status: 'installed',
+      lastError: `dep-${MARK_A}`,
+    },
+  });
+  const sshEndpointA = uuidv7();
+  await db.sshEndpoint.create({
+    data: {
+      id: sshEndpointA,
+      serverId: serverA,
+      path: 'private',
+      host: '10.77.0.1',
+      port: 22,
+      allowedUsers: ['ops'],
+    },
+  });
+  const sshHostKeyA = uuidv7();
+  await db.sshHostKey.create({
+    data: {
+      id: sshHostKeyA,
+      serverId: serverA,
+      endpointId: sshEndpointA,
+      algorithm: 'ssh-ed25519',
+      fingerprintSha256: `SHA256:${MARK_A}${'h'.repeat(35)}`,
+      publicKey: `ssh-ed25519 AAAA${MARK_A}`,
+      status: 'trusted',
+      seenVia: 'scan',
+      trustedBy: ownerId,
+      trustedAt: now,
+    },
+  });
+  const sshGrantA = uuidv7();
+  await db.sshAccessGrant.create({
+    data: {
+      id: sshGrantA,
+      userId: ownerId,
+      serverId: serverA,
+      sshUser: 'ops',
+      endpointPath: 'private',
+      reason: `grant-${MARK_A}`,
+      durationMin: 60,
+      status: 'active',
+      grantHash: hex64('9'),
+      startsAt: now,
+      expiresAt: new Date(now.getTime() + 3_600_000),
+    },
+  });
+  const sshSessionA = uuidv7();
+  await db.sshSession.create({
+    data: {
+      id: sshSessionA,
+      grantId: sshGrantA,
+      userId: ownerId,
+      serverId: serverA,
+      sshUser: 'ops',
+      endpointPath: 'private',
+      endpointHost: '10.77.0.1',
+      endpointPort: 22,
+      credentialFingerprint: sshKey.fingerprintSha256,
+      status: 'closed',
+      endReason: 'client_closed',
+      clientIp: '127.0.0.1',
+      closedAt: now,
+    },
+  });
+
   // ---------------------------------------------------------------- enrollment / users
   const en = await t.http
     .post('/api/v1/enrollments')
@@ -648,6 +746,11 @@ export async function buildWorld(
     routeA,
     planA,
     diagTestA,
+    sshCredential,
+    sshDeploymentA,
+    sshHostKeyA,
+    sshGrantA,
+    sshSessionA,
   };
   void sha256Hex;
   // server-B principals must never see any of these (global admin objects included: they need a
@@ -656,7 +759,15 @@ export async function buildWorld(
   // scoped principal legitimately needs, accepted in SECURITY_TEST_REPORT.md SEC-P7-A1): server group
   // ids/names, GitHub integration ids/names, backup repository ids/names/baseUrl. The repository's
   // per-server access entries (restUser, url) of server A stay in the set via MARK_A.
-  const GLOBAL_OK = new Set(['serverB', 'groupA', 'integration', 'repo', 'provider']);
+  // P10: SSH credentials are global objects (public key metadata; deployments filtered by scope).
+  const GLOBAL_OK = new Set([
+    'serverB',
+    'groupA',
+    'integration',
+    'repo',
+    'provider',
+    'sshCredential',
+  ]);
   const aSecrets = [
     MARK_A,
     MARK_A.toLowerCase(),

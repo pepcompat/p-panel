@@ -17,19 +17,24 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
 	"github.com/ppanel/ppanel/apps/agent/internal/provider"
+	"github.com/ppanel/ppanel/apps/agent/internal/sshkeys"
 )
 
-func startP9(t *testing.T, c *fakecenter.Center, dir string, prov func(context.Context) *provider.Info) *harness {
+func startP9(t *testing.T, c *fakecenter.Center, dir string, prov func(context.Context) *provider.Info, mods ...func(*Options)) *harness {
 	t.Helper()
 	cfg := config.Default()
 	cfg.StateDir = dir
 	reg := jobs.NewRegistry()
 	calls := &atomic.Int64{}
 	reg.Register(&countingHandler{typ: "inventory.collect", calls: calls})
-	a, err := New(Options{Config: cfg, Registry: reg, Host: &host.Env{Exec: execx.System{}, PhpFpmPoolGlob: filepath.Join(dir, "none", "*")},
+	o := Options{Config: cfg, Registry: reg, Host: &host.Env{Exec: execx.System{}, PhpFpmPoolGlob: filepath.Join(dir, "none", "*")},
 		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), BackoffMin: 20 * time.Millisecond, BackoffMax: 100 * time.Millisecond,
 		MinPollGap: 10 * time.Millisecond, HeartbeatInterval: 40 * time.Millisecond, ProbeInterval: 100 * time.Millisecond,
-		Provider: prov})
+		Provider: prov}
+	for _, m := range mods {
+		m(&o)
+	}
+	a, err := New(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +77,9 @@ func TestP9BackwardCompatibleGatewayURLOnly(t *testing.T) {
 	}
 	if _, has := hb[len(hb)-1]["provider"]; has {
 		t.Fatal("provider must be omitted when no provider source is configured")
+	}
+	if _, has := hb[len(hb)-1]["ssh"]; has {
+		t.Fatal("ssh must be omitted when no ssh fact source is configured")
 	}
 	_ = h
 }
@@ -147,4 +155,46 @@ func TestP9PrivatePreferredFailoverAndFailback(t *testing.T) {
 			t.Fatalf("probe %+v", e)
 		}
 	}
+}
+
+// P10: the heartbeat carries the ssh fact (host key fingerprints + port), read
+// at every heartbeat; a host without host keys reports ssh: null.
+func TestP10HeartbeatSSHFacts(t *testing.T) {
+	c, dir := enrolled(t, nil)
+	var fp atomic.Value
+	fp.Store("SHA256:R4iRQRZj8Jlz6b8IoSGQneNlAqkeMxvZNuxVwjVcHZg")
+	var none atomic.Bool
+	startP9(t, c, dir, nil, func(o *Options) {
+		o.SSHFacts = func() *sshkeys.Facts {
+			if none.Load() {
+				return nil
+			}
+			port := 22
+			return &sshkeys.Facts{HostKeys: []sshkeys.HostKey{{Algorithm: "ssh-ed25519", FingerprintSha256: fp.Load().(string)}}, Port: &port}
+		}
+	})
+	eventually(t, "heartbeats", 5*time.Second, func() bool { return c.HeartbeatCount() >= 2 })
+	hb := c.HeartbeatsCopy()
+	ssh, _ := hb[len(hb)-1]["ssh"].(map[string]any)
+	keys, _ := ssh["hostKeys"].([]any)
+	if ssh == nil || ssh["port"] != float64(22) || len(keys) != 1 {
+		t.Fatalf("ssh fact %v", hb[len(hb)-1]["ssh"])
+	}
+	// a rekeyed host is reported at the next heartbeat
+	fp.Store("SHA256:w3V8zTBQtDRcwMp1crD2386l74CC46ED83/VA1mrfYw")
+	eventually(t, "new fingerprint", 5*time.Second, func() bool {
+		hb := c.HeartbeatsCopy()
+		s, _ := hb[len(hb)-1]["ssh"].(map[string]any)
+		k, _ := s["hostKeys"].([]any)
+		if len(k) != 1 {
+			return false
+		}
+		return k[0].(map[string]any)["fingerprintSha256"] == "SHA256:w3V8zTBQtDRcwMp1crD2386l74CC46ED83/VA1mrfYw"
+	})
+	none.Store(true)
+	eventually(t, "ssh null", 5*time.Second, func() bool {
+		hb := c.HeartbeatsCopy()
+		v, has := hb[len(hb)-1]["ssh"]
+		return has && v == nil
+	})
 }

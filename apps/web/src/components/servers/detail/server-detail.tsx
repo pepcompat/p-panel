@@ -31,6 +31,7 @@ import { ServerAppsTab } from '@/components/p3/server-apps-tab';
 import { ServerMonitoringTab } from '@/components/p5/monitoring-view';
 import { LogExplorer } from '@/components/p5/log-explorer';
 import { ServerBackupsTab } from '@/components/p6/scoped-backups';
+import { OpenTerminalAction, ServerSshTab } from '@/components/p10/ssh-access';
 import type { MessageKey } from '@/i18n/en';
 
 function Header({ server, now }: { server: Server; now: number }) {
@@ -76,16 +77,7 @@ function Header({ server, now }: { server: Server; now: number }) {
         {why && <div className="text-[12px] text-crit">{t(why)}</div>}
       </div>
       <div className="flex flex-wrap gap-2">
-        <GatedButton
-          variant="dark"
-          className="min-h-[38px]"
-          perm="ssh.connect"
-          action="open_terminal"
-          allowedActions={server.allowedActions}
-          blockedReason={proposedOrOffline(server)}
-        >
-          {t('detail.openTerminal')}
-        </GatedButton>
+        <OpenTerminalAction server={server} variant="detail" />
         <GatedButton
           className="min-h-[38px]"
           perm="servers.operate"
@@ -189,13 +181,15 @@ export function ServerDetail({ id, tab }: { id: string; tab: ServerTab }) {
           )}
           {tab === 'logs' && <LogExplorer fixed={{ serverId: server.id }} />}
           {tab === 'backups' && <ServerBackupsTab server={server} />}
+          {tab === 'terminal' && <ServerSshTab server={server} />}
           {tab !== 'overview' &&
             tab !== 'network' &&
             tab !== 'settings' &&
             tab !== 'applications' &&
             tab !== 'monitoring' &&
             tab !== 'logs' &&
-            tab !== 'backups' && <ProposedTab server={server} tab={tab} now={now} />}
+            tab !== 'backups' &&
+            tab !== 'terminal' && <ProposedTab server={server} tab={tab} now={now} />}
         </div>
       )}
     </div>

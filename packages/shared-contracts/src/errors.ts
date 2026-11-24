@@ -165,5 +165,32 @@ export const ERROR_CODES = {
   SHADOW_TEST_REQUIRED: 'SHADOW_TEST_REQUIRED',
   /** probe target outside the plan's domains / known addresses (422) */
   PROBE_TARGET_NOT_ALLOWED: 'PROBE_TARGET_NOT_ALLOWED',
+  // P10 SSH gateway
+  /** imported private key is encrypted and no passphrase was given / passphrase wrong (422) */
+  SSH_KEY_ENCRYPTED: 'SSH_KEY_ENCRYPTED',
+  /** unsupported key type, RSA < 3072 bits or not a private key (422) */
+  SSH_KEY_UNSUPPORTED: 'SSH_KEY_UNSUPPORTED',
+  /** endpoint host is not a known address of that scope for the server (422) */
+  SSH_ENDPOINT_UNVERIFIED: 'SSH_ENDPOINT_UNVERIFIED',
+  /** `root` is never an allowed ssh user (422) */
+  SSH_ROOT_FORBIDDEN: 'SSH_ROOT_FORBIDDEN',
+  /** no installed deployment of an active credential for (server, sshUser) (422) */
+  SSH_NO_CREDENTIAL: 'SSH_NO_CREDENTIAL',
+  /** no trusted host key for the endpoint (422 / WS 4409) */
+  SSH_HOST_KEY_UNTRUSTED: 'SSH_HOST_KEY_UNTRUSTED',
+  /** presented host key differs from the trusted one (WS 4409); no authentication attempted */
+  SSH_HOST_KEY_MISMATCH: 'SSH_HOST_KEY_MISMATCH',
+  /** grant not active / not owned by the caller / expired (403) */
+  SSH_GRANT_INVALID: 'SSH_GRANT_INVALID',
+  /** per-user / per-server / global session limit reached (429) */
+  SSH_SESSION_LIMIT: 'SSH_SESSION_LIMIT',
+  /** TCP / SSH handshake to the endpoint failed (502) */
+  SSH_CONNECT_FAILED: 'SSH_CONNECT_FAILED',
+  /** sshd refused the credential (502) */
+  SSH_AUTH_FAILED: 'SSH_AUTH_FAILED',
+  /** the requester of a grant cannot approve it (403) */
+  SELF_APPROVAL_FORBIDDEN: 'SELF_APPROVAL_FORBIDDEN',
+  /** credential / grant / host key is in a state that does not allow this action (409) */
+  SSH_STATE_INVALID: 'SSH_STATE_INVALID',
 } as const;
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

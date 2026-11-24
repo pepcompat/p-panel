@@ -11,6 +11,7 @@
 #     gitignored .lab/backup/ by scripts/lab/backup-secrets.sh (called by up.sh). Lab shortcut: http, not https.
 # P9 (profile `p9`, scripts/lab/p9-net.sh only): lab-center-private (private gateway forwarder on two internal
 #     "VPC" networks), lab-do-fake (fake DigitalOcean API + droplet metadata, 127.0.0.1:58090) and lab-gateway.
+# P10 (profile `p10`, scripts/lab/p10-ssh.sh only): lab-node-s, the SSH gateway target (sshd on 127.0.0.1:52222).
 # Containers are NOT VMs — see infra/lab/README.md for limitations and which tests stay BLOCKED.
 name: ppanel-lab
 
@@ -434,6 +435,52 @@ services:
       - gateway-agent-state:/var/lib/ppanel-agent
       - ../lab/node/agent-config/p9-gateway.yaml:/etc/ppanel-agent/config.yaml:ro
 
+  # ---------------------------------------------------------------------------------------------------------
+  # P10 SSH gateway target (profile `p10`, NOT started by scripts/lab/up.sh). Started/stopped ONLY by
+  # scripts/lab/p10-ssh.sh (up|down|rekey|status) with `--no-deps` (never recreates node-a/node-b).
+  # The node image (same layers as node-a: NODE_ROLE a, php installed but not started) plus WITH_SSHD=1:
+  # hardened openssh-server (infra/lab/node/sshd/10-ppanel-lab.conf), user `ops` uid 1001 without password,
+  # host keys generated at first start. Fixture sites and the lab-upstream-a upstream are removed at start
+  # so it does not depend on the main lab. Extra caps (SYS_CHROOT, AUDIT_WRITE, FOWNER) are for sshd
+  # privilege separation / PTY sessions and exist ONLY on this node. sshd is published on the Mac loopback
+  # only: 127.0.0.1:52222 -> 22 (the Center's endpoint in the E2E: PPANEL_SSH_LAB_ENDPOINTS=127.0.0.1:52222).
+  lab-node-s:
+    <<: *node-common
+    image: ppanel-lab-node-s:dev
+    profiles: [p10]
+    build:
+      context: ..
+      dockerfile: lab/node/Dockerfile
+      args: { NODE_ROLE: a, WITH_PHP: '1', WITH_SSHD: '1' }
+    container_name: ppanel-lab-node-s
+    hostname: lab-node-s
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - /bin/sh
+      - -c
+      - 'rm -f /etc/nginx/sites-enabled/* /etc/nginx/conf.d/00-upstreams.conf && exec /usr/local/bin/ppanel-lab-entrypoint'
+    environment:
+      PPANEL_LAB_PHP_FPM: '0'
+    cap_add:
+      [CHOWN, SETUID, SETGID, NET_BIND_SERVICE, DAC_OVERRIDE, KILL, SYS_CHROOT, AUDIT_WRITE, FOWNER]
+    ports:
+      - '127.0.0.1:52222:22'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'test -s /run/nginx.pid && kill -0 $(cat /run/nginx.pid) && test -s /run/sshd.pid && kill -0 $(cat /run/sshd.pid)',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    volumes:
+      - ${PPANEL_AGENT_BIN_DIR:-../../.lab/agent-bin}:/opt/ppanel-agent:ro
+      - node-s-agent-state:/var/lib/ppanel-agent
+      - ../lab/node/agent-config/p10-node-s.yaml:/etc/ppanel-agent/config.yaml:ro
+
   # P8 LAB SUBSTITUTE for fresh Ubuntu 24.04 VMs (profile `ubuntu`, NOT started by scripts/lab/up.sh).
   # systemd is PID 1; ubuntu-center runs its own Docker Engine (installer target), the nodes run nginx
   # (install-agent.sh targets). !!! privileged: true is REQUIRED (systemd cgroups/mounts, dockerd) and
@@ -532,3 +579,4 @@ volumes:
   ubuntu-center-docker: {}
   ubuntu-center-containerd: {}
   gateway-agent-state: {}
+  node-s-agent-state: {}

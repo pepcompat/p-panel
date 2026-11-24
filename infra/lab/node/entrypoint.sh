@@ -21,6 +21,21 @@ if [ -n "${PPANEL_LAB_DIND_SOCKET:-}" ]; then
   echo "[ppanel-lab] /var/run/docker.sock -> ${PPANEL_LAB_DIND_SOCKET} (lab-dind sidecar)"
 fi
 
+# P10 (lab-node-s only: image built with WITH_SSHD=1). Host keys are generated at the first start of the
+# container (never baked into the image); `scripts/lab/p10-ssh.sh rekey` regenerates them. sshd runs in the
+# foreground in the background of this shell (-D -e: logs to the container log); tini reaps it.
+if [ -x /usr/sbin/sshd ]; then
+  mkdir -p /run/sshd
+  chmod 0755 /run/sshd
+  if ! ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+    ssh-keygen -A
+    echo "[ppanel-lab] sshd host keys generated (first start)"
+  fi
+  /usr/sbin/sshd -t
+  /usr/sbin/sshd -D -e &
+  echo "[ppanel-lab] sshd started (pid $!)"
+fi
+
 # Validate before start, exactly like an operator would.
 nginx -t
 

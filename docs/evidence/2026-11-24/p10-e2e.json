@@ -1,0 +1,491 @@
+{
+  "ranAt": "2026-11-24T10:35:31Z",
+  "suite": "p10-e2e",
+  "contract": "docs/P10_SSH_CONTRACT.md \u00a78",
+  "steps": [
+    {
+      "step": "Center up with PPANEL_SSH_LAB_ENDPOINTS; operator (ops_admin, TOTP) created",
+      "ok": true,
+      "operator": "p10-operator-16425@ppanel.local",
+      "retired": {
+        "credentials": 1,
+        "servers": 1
+      }
+    },
+    {
+      "step": "T1 node-s enrolled (uat) and online; engineer scoped to this server only",
+      "ok": true,
+      "serverId": "01a20d1e-a29b-770e-a987-879aa48e8f1b",
+      "engineer": "p10-engineer-16425@ppanel.local"
+    },
+    {
+      "step": "T1 endpoint 127.0.0.1:52222 accepted via PPANEL_SSH_LAB_ENDPOINTS; root -> SSH_ROOT_FORBIDDEN; unknown address -> SSH_ENDPOINT_UNVERIFIED",
+      "ok": true,
+      "endpoints": [
+        {
+          "path": "public",
+          "host": "127.0.0.1",
+          "port": 52222,
+          "allowedUsers": ["ops"],
+          "updatedAt": "2026-11-24T10:34:04.402Z"
+        }
+      ],
+      "root": [422, "SSH_ROOT_FORBIDDEN"],
+      "unverified": [422, "SSH_ENDPOINT_UNVERIFIED"]
+    },
+    {
+      "step": "T1 ed25519 credential generated (metadata only) and deployed to ops by the agent (ssh.keys.sync)",
+      "ok": true,
+      "credential": {
+        "id": "01a20d1e-aef7-784b-ba8b-26ccf5e0d337",
+        "kind": "generated",
+        "algorithm": "ssh-ed25519",
+        "fingerprintSha256": "SHA256:MN6aTMlHrlklKhfkiFJrVzKJEDZEzgla9+8tOpg0PGU",
+        "status": "active"
+      },
+      "jobId": "01a20d1e-aeff-7501-91c6-e7fe382eb4d2",
+      "deployment": {
+        "id": "01a20d1e-aefd-7498-b747-958bb3345a93",
+        "serverId": "01a20d1e-a29b-770e-a987-879aa48e8f1b",
+        "serverName": "p10-node-s-16425",
+        "sshUser": "ops",
+        "status": "installed",
+        "jobId": "01a20d1e-aeff-7501-91c6-e7fe382eb4d2",
+        "lastError": null,
+        "updatedAt": "2026-11-24T10:34:04.443Z"
+      },
+      "managedBlock": [
+        "restrict,pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICQWEWm5MjKqas0H9/BAne4okT34d++OQwouq9rJNUxv ppanel:SHA256:MN6aTMlHrlklKhfkiFJrVzKJEDZEzgla9+8tOpg0PGU"
+      ]
+    },
+    {
+      "step": "T1 host keys scanned (no auth), agentMatch true via agent facts, trusted with step-up",
+      "ok": true,
+      "nodeFingerprints": [
+        "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+        "SHA256:n5776UE16++8hQNFfkP+NRgO0zACpFyYh43LrSPDRUA",
+        "SHA256:olz838rcr1u4ev4UV/qe7zidvaHPF2OdnfzeHSkLP6c"
+      ],
+      "trusted": [
+        {
+          "algorithm": "ssh-ed25519",
+          "fingerprintSha256": "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+          "agentMatch": true
+        }
+      ]
+    },
+    {
+      "step": "T1 grant (uat, active now) -> session -> WebSocket: echo + `id -un` = ops, resize 132x43, exit code 0",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 1000,
+        "closeReason": "server_closed",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 860,
+        "messages": [
+          {
+            "type": "ready",
+            "sessionId": "01a20d1e-bb53-704e-8520-d875fb217503",
+            "hostKeyFingerprint": "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+            "endpoint": {
+              "path": "public",
+              "host": "127.0.0.1",
+              "port": 52222
+            },
+            "sshUser": "ops"
+          },
+          {
+            "type": "exit",
+            "code": 0
+          },
+          {
+            "type": "closing",
+            "reason": "server_closed"
+          }
+        ]
+      },
+      "ready": {
+        "type": "ready",
+        "sessionId": "01a20d1e-bb53-704e-8520-d875fb217503",
+        "hostKeyFingerprint": "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+        "endpoint": {
+          "path": "public",
+          "host": "127.0.0.1",
+          "port": 52222
+        },
+        "sshUser": "ops"
+      },
+      "sessionRow": {
+        "status": "closed",
+        "endReason": "server_closed",
+        "exitCode": 0,
+        "bytesIn": 43,
+        "bytesOut": 860,
+        "hostKeyFingerprint": "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+        "credentialFingerprint": "SHA256:MN6aTMlHrlklKhfkiFJrVzKJEDZEzgla9+8tOpg0PGU"
+      }
+    },
+    {
+      "step": "T2 grant for a server outside the user's ssh.connect scope -> 403/404",
+      "ok": true,
+      "status": 404,
+      "code": "NOT_FOUND",
+      "otherServer": "01a20d1c-ce05-74ab-b287-c7714ea66c6a"
+    },
+    {
+      "step": "T2 expired grant (expires_at shortened in DB) -> session refused 403 SSH_GRANT_INVALID",
+      "ok": true,
+      "status": 403,
+      "code": "SSH_GRANT_INVALID"
+    },
+    {
+      "step": "T2 production: grant awaits approval and cannot open a session; self-approval -> 403 SELF_APPROVAL_FORBIDDEN",
+      "ok": true,
+      "grantStatus": "awaiting_approval",
+      "sessionBeforeApproval": [403, "SSH_GRANT_INVALID"],
+      "selfApproval": [403, "SELF_APPROVAL_FORBIDDEN"]
+    },
+    {
+      "step": "T2 production: second person approves (step-up) -> session needs a fresh step-up -> terminal works",
+      "ok": true,
+      "approval": {
+        "status": "active",
+        "approvedBy": "01a20d1e-6a03-7f1c-aadf-42689d22e539",
+        "startsAt": "2026-11-24T10:34:08.196Z",
+        "expiresAt": "2026-11-24T10:49:08.196Z"
+      },
+      "sessionWithoutStepUp": [403, "STEP_UP_REQUIRED"],
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 1000,
+        "closeReason": "client_closed",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 558,
+        "messages": [
+          {
+            "type": "ready",
+            "sessionId": "01a20d1f-1707-7abe-822d-f5854e751d67",
+            "hostKeyFingerprint": "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+            "endpoint": {
+              "path": "public",
+              "host": "127.0.0.1",
+              "port": 52222
+            },
+            "sshUser": "ops"
+          }
+        ]
+      }
+    },
+    {
+      "step": "T2 revoked key: open session closed 4403 credential_revoked; key removed from authorized_keys (foreign line kept); new grant -> 422 SSH_NO_CREDENTIAL",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 4403,
+        "closeReason": "credential revoked",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 533,
+        "messages": [
+          {
+            "type": "ready",
+            "sessionId": "01a20d1f-17d2-7184-8df9-33246f6df309",
+            "hostKeyFingerprint": "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+            "endpoint": {
+              "path": "public",
+              "host": "127.0.0.1",
+              "port": 52222
+            },
+            "sshUser": "ops"
+          },
+          {
+            "type": "closing",
+            "reason": "credential_revoked"
+          }
+        ]
+      },
+      "sessionEndReason": "credential_revoked",
+      "deployment": {
+        "id": "01a20d1e-aefd-7498-b747-958bb3345a93",
+        "serverId": "01a20d1e-a29b-770e-a987-879aa48e8f1b",
+        "serverName": "p10-node-s-16425",
+        "sshUser": "ops",
+        "status": "removed",
+        "jobId": "01a20d1f-1bff-7c5c-801c-de49acd0ad17",
+        "lastError": null,
+        "updatedAt": "2026-11-24T10:34:32.359Z"
+      },
+      "authorizedKeys": ["# p10-e2e foreign line: must survive every ssh.keys.sync byte-for-byte"],
+      "newGrant": [422, "SSH_NO_CREDENTIAL"]
+    },
+    {
+      "step": "T2 host key changed (p10-ssh.sh rekey): close 4409 SSH_HOST_KEY_MISMATCH before any authentication; observed key stored pending (seenVia connect)",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 4409,
+        "closeReason": "host key mismatch",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 0,
+        "messages": [
+          {
+            "type": "error",
+            "code": "SSH_HOST_KEY_MISMATCH",
+            "message": "The server presented a host key that is not trusted; no authentication was attempted"
+          },
+          {
+            "type": "closing",
+            "reason": "host_key_mismatch"
+          }
+        ]
+      },
+      "sshdAuthLines": [],
+      "pendingKeys": [
+        {
+          "algorithm": "ssh-ed25519",
+          "fingerprintSha256": "SHA256:MeTP/22UXWL6RQHGhYQTHTMeXNeVqjM5LIBnDvzyxtQ",
+          "seenVia": "connect",
+          "agentMatch": false
+        }
+      ],
+      "oldFingerprints": [
+        "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU",
+        "SHA256:n5776UE16++8hQNFfkP+NRgO0zACpFyYh43LrSPDRUA",
+        "SHA256:olz838rcr1u4ev4UV/qe7zidvaHPF2OdnfzeHSkLP6c"
+      ],
+      "newFingerprints": [
+        "SHA256:MeTP/22UXWL6RQHGhYQTHTMeXNeVqjM5LIBnDvzyxtQ",
+        "SHA256:WBYy5THosUe7tgntn3G+eolApHdoTcXBxTYwMYEUjqo",
+        "SHA256:p9Ahs9tt8ozk/Cct0jEmNqG+ODqcGIbKAsC8dC+dyyU"
+      ]
+    },
+    {
+      "step": "T2 new host keys re-scanned (agentMatch true after the agent's next heartbeat) and trusted; old -> superseded",
+      "ok": true,
+      "statuses": {
+        "SHA256:MeTP/22UXWL6RQHGhYQTHTMeXNeVqjM5LIBnDvzyxtQ": "trusted",
+        "SHA256:dSGpB3lWIO5QJHgxsghX+fg8sx/bmnS1XOK7ceOZEDU": "superseded"
+      }
+    },
+    {
+      "step": "T3 wrong Origin -> HTTP 403 before the WebSocket upgrade",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 403,
+        "closeCode": null,
+        "closeReason": null,
+        "closedBy": null,
+        "error": null,
+        "stdoutBytes": 0,
+        "messages": []
+      }
+    },
+    {
+      "step": "T3 no auth message within 5 s / bogus ticket / non-auth first message -> close 4401",
+      "ok": true,
+      "noTicket": {
+        "upgradeStatus": 101,
+        "closeCode": 4401,
+        "closeReason": "auth timeout",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 0,
+        "messages": []
+      },
+      "bogus": {
+        "upgradeStatus": 101,
+        "closeCode": 4401,
+        "closeReason": "unauthorized",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 0,
+        "messages": []
+      },
+      "pingFirst": {
+        "upgradeStatus": 101,
+        "closeCode": 4401,
+        "closeReason": "unauthorized",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 0,
+        "messages": []
+      }
+    },
+    {
+      "step": "T3 ticket is single-use: first use ready, reuse -> 4401; ticket never in wsUrl",
+      "ok": true,
+      "first": {
+        "upgradeStatus": 101,
+        "closeCode": 1000,
+        "closeReason": "client_closed",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 459,
+        "messages": [
+          {
+            "type": "ready",
+            "sessionId": "01a20d1f-66a6-7973-982e-c9347470aad2",
+            "hostKeyFingerprint": "SHA256:MeTP/22UXWL6RQHGhYQTHTMeXNeVqjM5LIBnDvzyxtQ",
+            "endpoint": {
+              "path": "public",
+              "host": "127.0.0.1",
+              "port": 52222
+            },
+            "sshUser": "ops"
+          }
+        ]
+      },
+      "reuse": {
+        "upgradeStatus": 101,
+        "closeCode": 4401,
+        "closeReason": "unauthorized",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 0,
+        "messages": []
+      },
+      "wsUrl": "ws://host.docker.internal:4000/api/v1/ssh/stream"
+    },
+    {
+      "step": "T3 another user's ticket for my session -> 4401",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 4401,
+        "closeReason": "unauthorized",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 0,
+        "messages": []
+      }
+    },
+    {
+      "step": "T3 import: response is metadata only (no key echo); encrypted key without passphrase -> 422 SSH_KEY_ENCRYPTED",
+      "ok": true,
+      "imported": [201, "SHA256:fSEmWIH+syBW/UR3TNKBvPDvZgNzpug/G2HhLRx0tkI"],
+      "encrypted": [422, "SSH_KEY_ENCRYPTED"]
+    },
+    {
+      "step": "T3 no API response / WebSocket frame of the run contains private key material; managed block = only `restrict,pty` public keys; foreign line preserved",
+      "ok": true,
+      "scannedPayloads": 96,
+      "leaks": [],
+      "managedBlock": [
+        "restrict,pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAmR80Oksn+3I+Z6+OtYUBtM4aW5Y+Xuu8DuWVcloytX ppanel:SHA256:jf4vBJ+tEHZc+DdGTzVz5ndLRg8jGfY339Ac+a0MH2M"
+      ]
+    },
+    {
+      "step": "T4 Center shutdown closes the open session (center_shutdown/center_restart); no sshd session left",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 1001,
+        "closeReason": "center shutdown",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 533,
+        "messages": [
+          {
+            "type": "ready",
+            "sessionId": "01a20d1f-7ceb-79be-8f83-323feb73e4c3",
+            "hostKeyFingerprint": "SHA256:MeTP/22UXWL6RQHGhYQTHTMeXNeVqjM5LIBnDvzyxtQ",
+            "endpoint": {
+              "path": "public",
+              "host": "127.0.0.1",
+              "port": 52222
+            },
+            "sshUser": "ops"
+          },
+          {
+            "type": "closing",
+            "reason": "center_shutdown"
+          }
+        ]
+      },
+      "endReason": "center_shutdown"
+    },
+    {
+      "step": "T4 idle timeout (SSH_IDLE_TIMEOUT_SEC=5): close 4408 idle_timeout; no `sshd: ops` process remains",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 4408,
+        "closeReason": "idle timeout",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 533,
+        "messages": [
+          {
+            "type": "ready",
+            "sessionId": "01a20d1f-8a01-749c-879f-66a03077d8f3",
+            "hostKeyFingerprint": "SHA256:MeTP/22UXWL6RQHGhYQTHTMeXNeVqjM5LIBnDvzyxtQ",
+            "endpoint": {
+              "path": "public",
+              "host": "127.0.0.1",
+              "port": 52222
+            },
+            "sshUser": "ops"
+          },
+          {
+            "type": "closing",
+            "reason": "idle_timeout"
+          }
+        ]
+      },
+      "secondsToClose": 5.1,
+      "endReason": "idle_timeout"
+    },
+    {
+      "step": "T4 grant expiry (sweeper <= 30 s, keepalive traffic so idle never fires): close 4408 (or 4403) grant_expired; no `sshd: ops` process remains",
+      "ok": true,
+      "ws": {
+        "upgradeStatus": 101,
+        "closeCode": 4408,
+        "closeReason": "grant expired",
+        "closedBy": "server",
+        "error": null,
+        "stdoutBytes": 1553,
+        "messages": [
+          {
+            "type": "ready",
+            "sessionId": "01a20d1f-9e5e-7c0c-a9bc-a0ad13e6087e",
+            "hostKeyFingerprint": "SHA256:MeTP/22UXWL6RQHGhYQTHTMeXNeVqjM5LIBnDvzyxtQ",
+            "endpoint": {
+              "path": "public",
+              "host": "127.0.0.1",
+              "port": 52222
+            },
+            "sshUser": "ops"
+          },
+          {
+            "type": "closing",
+            "reason": "grant_expired"
+          }
+        ]
+      },
+      "endReason": "grant_expired"
+    },
+    {
+      "step": "T4 every closed session row has end_reason; rows carry fingerprints only; whole-run payload scan clean",
+      "ok": true,
+      "sessions": 10,
+      "withoutEndReason": [],
+      "scannedPayloads": 117,
+      "leaks": [],
+      "endReasons": [
+        "center_shutdown",
+        "client_closed",
+        "credential_revoked",
+        "grant_expired",
+        "host_key_mismatch",
+        "idle_timeout",
+        "server_closed",
+        "terminated"
+      ]
+    }
+  ]
+}

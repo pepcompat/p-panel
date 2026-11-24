@@ -64,7 +64,22 @@ type Config struct {
 	Backup BackupConfig `yaml:"backup" json:"backup"`
 	// Provider configures the P9 cloud-provider facts (DigitalOcean metadata).
 	Provider ProviderConfig `yaml:"provider" json:"provider"`
+	// SSH configures the P10 ssh.keys.sync job (local config only).
+	SSH SSHConfig `yaml:"ssh" json:"ssh"`
 }
+
+// SSHConfig is the `ssh:` section (P10). Which local accounts the Center may
+// install managed public keys for is an operator decision on the host.
+type SSHConfig struct {
+	// AllowedUsers may be targeted even when their uid is below 1000
+	// (accounts with uid >= 1000 are always eligible).
+	AllowedUsers []string `yaml:"allowedUsers" json:"allowedUsers"`
+	// AllowRoot permits managing keys of uid-0 accounts (default false).
+	AllowRoot bool `yaml:"allowRoot" json:"allowRoot"`
+}
+
+// SSHUserRe mirrors the ssh.keys.sync user pattern (contract P10 §2).
+var SSHUserRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 
 // ProviderConfig is the `provider:` section (P9). The metadata URL is local
 // config only (the Center can never point the agent elsewhere).
@@ -415,6 +430,23 @@ func (c *Config) Validate() error {
 			pu.Fragment != "" || len(u) > 512 {
 			errs = append(errs, "provider.metadataUrl must be an http(s) URL without credentials or fragment")
 		}
+	}
+	if len(c.SSH.AllowedUsers) > 64 {
+		errs = append(errs, "ssh.allowedUsers: at most 64 entries")
+	}
+	seenSSH := map[string]bool{}
+	for i, u := range c.SSH.AllowedUsers {
+		u = strings.TrimSpace(u)
+		c.SSH.AllowedUsers[i] = u
+		switch {
+		case !SSHUserRe.MatchString(u):
+			errs = append(errs, fmt.Sprintf("ssh.allowedUsers: %q must match %s", u, SSHUserRe.String()))
+		case u == "root" && !c.SSH.AllowRoot:
+			errs = append(errs, "ssh.allowedUsers: root requires ssh.allowRoot: true")
+		case seenSSH[u]:
+			errs = append(errs, fmt.Sprintf("ssh.allowedUsers: duplicate %q", u))
+		}
+		seenSSH[u] = true
 	}
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))

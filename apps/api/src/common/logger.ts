@@ -5,7 +5,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 const LEVELS: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40, fatal: 50 };
 
 const SECRET_KEY_RE =
-  /pass(word)?|secret|token|authorization|cookie|api[-_]?key|private|credential|recovery|csr|otp|^code$|set-cookie|master/i;
+  /pass(word|phrase)?|secret|token|ticket|authorization|cookie|api[-_]?key|private[-_]?key|private|credential|recovery|csr|otp|^code$|set-cookie|master/i;
 const VALUE_PATTERNS: Array<[RegExp, string]> = [
   [/ppe_[A-Za-z0-9_-]{10,}/g, 'ppe_[REDACTED]'],
   [/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, '[REDACTED_JWT]'],

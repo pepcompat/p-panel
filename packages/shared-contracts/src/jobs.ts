@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sshKeysSyncParams } from './ssh';
 
 /** systemd unit name accepted by typed jobs (no path traversal, must start alphanumeric). */
 export const SYSTEMD_UNIT_RE = /^[a-zA-Z0-9][a-zA-Z0-9@._-]{0,127}\.service$/;
@@ -736,6 +737,8 @@ export const JOB_TYPES = {
   'network.diagnose': { mutating: false, params: networkDiagnoseParams },
   /** P9 read-only: GET/HEAD with Host/SNI override to a fixed address (no redirects, ≤ 1 MiB). */
   'http.probe': { mutating: false, params: httpProbeParams },
+  /** P10: rewrite only the pPanel-managed block of ~user/.ssh/authorized_keys (public keys only). */
+  'ssh.keys.sync': { mutating: true, params: sshKeysSyncParams },
 } as const;
 
 /** Agent result error codes added in P6. */

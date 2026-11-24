@@ -1,7 +1,7 @@
 // Package handlers contains the allowlisted, typed job handlers:
 // inventory.collect, discovery.scan (read-only), service.restart (mutating,
 // owned units only), the P3 nginx.* jobs (see nginx_jobs.go) the P4 container.* jobs (container_jobs.go) and the P4b image.build /
-// source.inspect / compose.* jobs (build_jobs.go), the P6 backup.* / restore.run jobs (backup_jobs.go) and the P9 read-only network.diagnose / http.probe jobs (network_jobs.go). There is no generic command handler by design.
+// source.inspect / compose.* jobs (build_jobs.go), the P6 backup.* / restore.run jobs (backup_jobs.go) and the P9 read-only network.diagnose / http.probe jobs (network_jobs.go) and the P10 ssh.keys.sync job (ssh_jobs.go: public keys only, managed authorized_keys block). There is no generic command handler by design.
 package handlers
 
 import (
@@ -28,6 +28,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/netaddr"
 	"github.com/ppanel/ppanel/apps/agent/internal/nginx"
 	"github.com/ppanel/ppanel/apps/agent/internal/nginxops"
+	"github.com/ppanel/ppanel/apps/agent/internal/sshkeys"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
 )
 
@@ -50,6 +51,11 @@ type Deps struct {
 	// Network wires the P9 network.diagnose / http.probe jobs to the
 	// agent's connection manager (nil: no Center endpoints known).
 	Network *NetworkDeps
+	// SSH runs the P10 ssh.keys.sync job with the local ssh.* policy
+	// (nil = defaults: uid >= 1000 only, root refused).
+	SSH *sshkeys.Syncer
+	// SSHEtcDir is where the `ssh` facts are read from (default /etc/ssh).
+	SSHEtcDir string
 }
 
 // RegisterAll registers every allowlisted handler.
@@ -78,6 +84,7 @@ func RegisterAll(r *jobs.Registry, d *Deps) {
 	r.Register(&RestoreRun{d})
 	r.Register(&NetworkDiagnose{d})
 	r.Register(&HTTPProbe{d})
+	r.Register(&SSHKeysSync{d})
 }
 
 // ---------------- inventory.collect ----------------
@@ -116,6 +123,8 @@ func (h *Inventory) Run(ctx context.Context, _ any) (any, error) {
 		"docker":       dockerSection(ctx, d),
 		"systemd":      systemdSection(ctx, d),
 		"phpFpm":       phpSection(d),
+		// P10: host key fingerprints + sshd port (null when no host keys)
+		"ssh": sshkeys.CollectFacts(d.SSHEtcDir),
 	}
 	return out, nil
 }

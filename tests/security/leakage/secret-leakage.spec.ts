@@ -333,6 +333,38 @@ describe('P7-T03 canary secret scan', () => {
       allow('tailToken', 'tail-token');
     }
 
+    // ---- P10 SSH: imported private key (passphrase-protected) + single-use WebSocket ticket
+    {
+      const { sshUtils } = await import('../../../apps/api/test/support/p10-deps');
+      canaries.sshPassphrase = C('sshpass');
+      const kp = sshUtils.generateKeyPairSync('ed25519', {
+        passphrase: canaries.sshPassphrase,
+        cipher: 'aes256-ctr',
+        rounds: 4,
+      });
+      const imp = await rec(
+        'ssh-import',
+        t.http.post('/api/v1/ssh/credentials').set(bearer(owner)).set(SU).send({
+          name: 'canary key',
+          mode: 'import',
+          privateKey: kp.private,
+          passphrase: canaries.sshPassphrase,
+        }),
+      );
+      expect(imp.status).toBe(201);
+      // the stored key is re-serialised unencrypted in memory → its private tail is a canary too
+      const lines = kp.private.trim().split('\n');
+      canaries.sshPrivateTail = lines[lines.length - 2]!.slice(0, 40);
+      const ses = await rec(
+        'ssh-session',
+        t.http.post('/api/v1/ssh/sessions').set(bearer(owner)).send({ grantId: ids.sshGrantA }),
+      );
+      expect(ses.status).toBe(201);
+      canaries.sshTicket = ses.body.data.ticket;
+      allow('sshTicket', 'ssh-session');
+      await rec('ssh-credentials', t.http.get('/api/v1/ssh/credentials').set(bearer(owner)));
+    }
+
     // ---- read every GET route as owner (the read side must only ever show { set: true })
     const { PROBES } = await import('../authz/probes');
     for (const pr of PROBES.filter(

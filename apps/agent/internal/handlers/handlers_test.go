@@ -18,6 +18,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/nginx"
+	"github.com/ppanel/ppanel/apps/agent/internal/sshkeys"
 )
 
 type fakeExec struct {
@@ -70,7 +71,7 @@ func grant(typ string, params any) *jobs.Grant {
 func TestRegistryIsAllowlist(t *testing.T) {
 	reg, _, _ := setup(t)
 	got := strings.Join(reg.Types(), ",")
-	if got != "backup.run,backup.snapshots,backup.verify,compose.apply,compose.stop,container.list,container.logs,container.remove,container.restart,container.run_candidate,container.start,container.stop,discovery.scan,http.probe,image.build,inventory.collect,network.diagnose,nginx.apply,nginx.read_files,nginx.revert,nginx.validate,restore.run,service.restart,source.inspect" {
+	if got != "backup.run,backup.snapshots,backup.verify,compose.apply,compose.stop,container.list,container.logs,container.remove,container.restart,container.run_candidate,container.start,container.stop,discovery.scan,http.probe,image.build,inventory.collect,network.diagnose,nginx.apply,nginx.read_files,nginx.revert,nginx.validate,restore.run,service.restart,source.inspect,ssh.keys.sync" {
 		t.Fatalf("registered handlers: %s", got)
 	}
 }
@@ -247,5 +248,39 @@ func TestNetworkJobsValidateBeforeAck(t *testing.T) {
 	_, params, rej := reg.Validate(grant("network.diagnose", map[string]any{"tcp": []any{map[string]any{"host": "10.110.0.20", "port": 22}}}), "s", time.Now())
 	if rej != nil || params == nil {
 		t.Fatalf("valid diagnose rejected: %v", rej)
+	}
+}
+
+// P10: ssh.keys.sync is mutating; key and user problems are rejected before ack.
+func TestSSHKeysSyncValidateBeforeAck(t *testing.T) {
+	reg := jobs.NewRegistry()
+	passwd := filepath.Join(t.TempDir(), "passwd")
+	if err := os.WriteFile(passwd, []byte("root:x:0:0::/root:/bin/sh\nops:x:1001:1001::/home/ops:/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	RegisterAll(reg, &Deps{Host: &host.Env{}, Sampler: &metrics.Sampler{}, SSH: &sshkeys.Syncer{PasswdPath: passwd}})
+	h, ok := reg.Get("ssh.keys.sync")
+	if !ok || !h.Mutating() {
+		t.Fatal("ssh.keys.sync must be registered and mutating")
+	}
+	const pk = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILbIlEAqqM0ypCUxbhGVxnF3qPc8PCXMdCYEqLjrl9q1 vec"
+	const fp = "SHA256:R4iRQRZj8Jlz6b8IoSGQneNlAqkeMxvZNuxVwjVcHZg"
+	key := []any{map[string]any{"publicKey": pk, "fingerprint": fp}}
+	for _, c := range []struct {
+		p    map[string]any
+		want string
+	}{
+		{map[string]any{"user": "root", "keys": key, "managedBlockId": "ppanel"}, sshkeys.CodeUserInvalid},
+		{map[string]any{"user": "ghost", "keys": key, "managedBlockId": "ppanel"}, sshkeys.CodeUserInvalid},
+		{map[string]any{"user": "ops", "keys": []any{map[string]any{"publicKey": `command="id" ` + pk, "fingerprint": fp}}, "managedBlockId": "ppanel"}, sshkeys.CodeKeyInvalid},
+		{map[string]any{"user": "ops", "keys": key, "managedBlockId": "ppanel", "privateKey": "x"}, jobs.RejectedInvalidParams},
+	} {
+		_, _, rej := reg.Validate(grant("ssh.keys.sync", c.p), "s", time.Now())
+		if rej == nil || rej.Code != c.want {
+			t.Fatalf("%v: got %v want %s", c.p, rej, c.want)
+		}
+	}
+	if _, p, rej := reg.Validate(grant("ssh.keys.sync", map[string]any{"user": "ops", "keys": key, "managedBlockId": "ppanel"}), "s", time.Now()); rej != nil || p == nil {
+		t.Fatalf("valid grant rejected: %v", rej)
 	}
 }

@@ -76,7 +76,7 @@ test('enroll shows one-time token once', async ({ page }) => {
   await page.screenshot({ path: 'test-results/enroll-token.png' });
 });
 
-const PREVIEW_ROUTES = ['/firewall', '/ssh', '/plugins', '/runtimes', '/databases', '/ai-mcp'];
+const PREVIEW_ROUTES = ['/firewall', '/plugins', '/runtimes', '/databases', '/ai-mcp'];
 
 test('every preview route renders with the preview banner and no page errors', async ({ page }) => {
   test.setTimeout(180_000); // dev server compiles each route on first visit
@@ -104,6 +104,7 @@ test('every preview route renders with the preview banner and no page errors', a
     '/network',
     '/network/gateways',
     '/servers/groups',
+    '/ssh',
   ]) {
     await page.goto(r);
     await expect(page.locator('h1').first(), r).toBeVisible();

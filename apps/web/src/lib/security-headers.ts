@@ -9,7 +9,7 @@
 export interface CspOptions {
   nonce: string;
   dev: boolean;
-  /** absolute API base (NEXT_PUBLIC_API_BASE); its origin is allowed for fetch/EventSource */
+  /** absolute API base (NEXT_PUBLIC_API_BASE); its origin is allowed for fetch/EventSource and its ws(s) origin for the SSH gateway */
   apiBase?: string;
 }
 
@@ -23,9 +23,25 @@ export function apiOrigin(apiBase: string | undefined): string | null {
   }
 }
 
+/**
+ * WebSocket origin of the API (P10 SSH gateway `…/api/v1/ssh/stream`): http → ws, https → wss, same host.
+ * Only the API's own origin is allowed — never a blanket `ws:`/`wss:` outside `next dev`.
+ */
+export function apiWsOrigin(apiBase: string | undefined): string | null {
+  const api = apiOrigin(apiBase);
+  if (!api) return null;
+  return api.replace(/^http(s?):/, (_m, s: string) => `ws${s}:`);
+}
+
 export function buildCsp({ nonce, dev, apiBase }: CspOptions): string {
   const api = apiOrigin(apiBase);
-  const connect = ["'self'", ...(api ? [api] : []), ...(dev ? ['ws:', 'wss:'] : [])];
+  const ws = apiWsOrigin(apiBase);
+  const connect = [
+    "'self'",
+    ...(api ? [api] : []),
+    ...(ws ? [ws] : []),
+    ...(dev ? ['ws:', 'wss:'] : []),
+  ];
   const directives: Record<string, string[]> = {
     'default-src': ["'self'"],
     'script-src': [

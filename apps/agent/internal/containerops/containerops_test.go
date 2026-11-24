@@ -602,13 +602,14 @@ func TestPerAppSerialization(t *testing.T) {
 	h.fe.StartDelay = 300 * time.Millisecond
 	var wg sync.WaitGroup
 	errs := make(chan error, 6)
+	ports := freePorts(t, 6) // real host ports: the agent probes them, so never guess
 	for i, app := range []string{"shop", "shop", "shop", "blog", "blog", "news"} {
 		wg.Add(1)
 		go func(i int, app string) {
 			defer wg.Done()
 			p := runParams(t, "web", 20000, nil)
 			p.App, p.Name = app, fmt.Sprintf("ppanel-%s-%08x", app, i)
-			p.HostPort = 21000 + i*7 + int(time.Now().UnixNano()%500)
+			p.HostPort = ports[i]
 			_, err := h.m.RunCandidate(context.Background(), p)
 			errs <- err
 		}(i, app)
@@ -712,4 +713,23 @@ func TestEngineAllowlist(t *testing.T) {
 			t.Fatalf("%v must be refused", r)
 		}
 	}
+}
+
+// freePorts reserves n distinct free loopback ports from the OS and releases them for the test.
+func freePorts(t *testing.T, n int) []int {
+	t.Helper()
+	ls := make([]net.Listener, 0, n)
+	ports := make([]int, 0, n)
+	for i := 0; i < n; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ls = append(ls, l)
+		ports = append(ports, l.Addr().(*net.TCPAddr).Port)
+	}
+	for _, l := range ls {
+		_ = l.Close()
+	}
+	return ports
 }

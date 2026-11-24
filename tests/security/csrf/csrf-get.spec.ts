@@ -127,6 +127,7 @@ describe('GET handlers are side-effect free', () => {
   };
   /** sensitive reads that are audited on purpose */
   const AUDITED_READS = new Set(['GET /api/v1/backup-repositories/:id/recovery-export']);
+  const OBSERVABILITY_BACKED = new Set(['GET /api/v1/logs/query', 'GET /api/v1/metrics/series']);
 
   it('every GET (as platform owner) leaves every table unchanged and writes no audit row', async () => {
     const bad: string[] = [];
@@ -134,7 +135,11 @@ describe('GET handlers are side-effect free', () => {
       const before = await snapshot(w.t.prisma, []);
       const auditBefore = await w.t.prisma.auditEvent.count();
       const res = await w.t.http.get(p.path(w.ids)).set(bearer(w.p.owner));
-      expect(res.status, p.route).toBeLessThan(500);
+      // routes backed by Loki/Prometheus answer 503 when that backend is not running (CI has none);
+      // the side-effect checks below still apply to them
+      if (!(OBSERVABILITY_BACKED.has(p.route) && res.status === 503)) {
+        expect(res.status, p.route).toBeLessThan(500);
+      }
       const changed = diff(before, await snapshot(w.t.prisma, [])).filter(
         (t) => t !== 'audit_events' && !(SIDE_EFFECT_OK[p.route] ?? []).includes(t),
       );

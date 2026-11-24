@@ -136,7 +136,7 @@ model Server {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  group            ServerGroup?         @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  group            ServerGroup?              @relation(fields: [groupId], references: [id], onDelete: SetNull)
   addresses        ServerAddress[]
   certificates     AgentCertificate[]
   heartbeats       AgentHeartbeat[]
@@ -151,6 +151,11 @@ model Server {
   incidents        Incident[]
   backupAccess     BackupRepoAccess[]
   backupPolicies   BackupPolicy[]
+  connection       ServerConnection?
+  networkInventory ServerNetworkInventory[]
+  connectivityFrom NetworkConnectivityTest[] @relation("connectivityFrom")
+  connectivityTo   NetworkConnectivityTest[] @relation("connectivityTo")
+  gateway          Gateway?
 
   @@index([environment])
   @@index([lastHeartbeatAt])
@@ -1255,4 +1260,152 @@ model RestoreStepRow {
   @@index([backupRunId])
   @@index([deploymentId])
   @@map("restore_steps")
+}
+
+// ---------------------------------------------------------------------------
+// P9 — management paths, provider inventory, diagnostics, Gateway routing
+// ---------------------------------------------------------------------------
+
+/// Latest management-path probe report of the agent (heartbeat `connection`), 1:1 with servers.
+model ServerConnection {
+  serverId   String   @id @map("server_id") @db.Uuid
+  activePath String?  @map("active_path") // public | private
+  /// [{ path, url, ok, latencyMs, checkedAt, error? }]
+  endpoints  Json     @default("[]")
+  reportedAt DateTime @map("reported_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@map("server_connections")
+}
+
+/// One row per server per source (agent facts | provider API | user inventory).
+model ServerNetworkInventory {
+  id            String   @id @db.Uuid
+  serverId      String   @map("server_id") @db.Uuid
+  source        String // agent | provider | inventory
+  region        String?
+  vpcUuid       String?  @map("vpc_uuid")
+  vpcName       String?  @map("vpc_name")
+  dropletId     String?  @map("droplet_id")
+  privateIpv4   String?  @map("private_ipv4")
+  publicIpv4    String?  @map("public_ipv4")
+  /// provider rows: the integration that observed it
+  integrationId String?  @map("integration_id") @db.Uuid
+  observedAt    DateTime @map("observed_at") @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, source])
+  @@index([vpcUuid])
+  @@map("server_network_inventory")
+}
+
+/// Cloud provider API integration (read-only; GET requests only). Token AES-256-GCM, never returned.
+model ProviderIntegration {
+  id              String    @id @db.Uuid
+  provider        String // digitalocean
+  name            String    @unique
+  tokenEnc        String    @map("token_enc")
+  apiBase         String    @map("api_base")
+  status          String    @default("unverified") // ok | error | unverified
+  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(3)
+  lastError       Json?     @map("last_error")
+  lastSyncSummary Json?     @map("last_sync_summary")
+  createdBy       String?   @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("provider_integrations")
+}
+
+/// network.diagnose runs: single-server diagnostics or a pair (from → to private IPv4) test.
+model NetworkConnectivityTest {
+  id             String    @id @db.Uuid
+  serverId       String    @map("server_id") @db.Uuid
+  targetServerId String?   @map("target_server_id") @db.Uuid
+  kind           String // diagnose | pair
+  params         Json
+  result         Json?
+  error          Json?
+  status         String    @default("queued")
+  jobId          String?   @unique @map("job_id") @db.Uuid
+  requestedBy    String?   @map("requested_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  finishedAt     DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  server       Server  @relation("connectivityFrom", fields: [serverId], references: [id], onDelete: Cascade)
+  targetServer Server? @relation("connectivityTo", fields: [targetServerId], references: [id], onDelete: SetNull)
+
+  @@index([serverId, createdAt(sort: Desc)])
+  @@map("network_connectivity_tests")
+}
+
+/// An enrolled server designated as a Gateway (plain Nginx reverse proxy; config lives on the host).
+model Gateway {
+  id            String   @id @db.Uuid
+  serverId      String   @unique @map("server_id") @db.Uuid
+  name          String   @unique
+  status        String   @default("active")
+  /// the `applications` row (kind = gateway) whose nginx revisions carry the rendered files
+  applicationId String   @map("application_id") @db.Uuid
+  createdBy     String   @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  server Server              @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  routes GatewayRoute[]
+  plans  GatewayChangePlan[]
+
+  @@map("gateways")
+}
+
+model GatewayRoute {
+  id         String   @id @db.Uuid
+  gatewayId  String   @map("gateway_id") @db.Uuid
+  domain     String   @unique
+  mode       String // direct | hybrid | gateway
+  /// [{ serverId, address, port }]
+  backends   Json
+  healthPath String   @default("/") @map("health_path")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  gateway Gateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+
+  @@index([gatewayId])
+  @@map("gateway_routes")
+}
+
+model GatewayChangePlan {
+  id               String    @id @db.Uuid
+  gatewayId        String    @map("gateway_id") @db.Uuid
+  status           String    @default("draft")
+  routesSnapshot   Json      @map("routes_snapshot")
+  /// [{ path, sha256, content, domain }]
+  rendered         Json
+  planHash         String    @map("plan_hash")
+  nginxRevisionId  String?   @map("nginx_revision_id") @db.Uuid
+  shadowResults    Json?     @map("shadow_results")
+  /// running shadow test: { phase, probeServerId, jobs: [{ jobId, domain, kind, url }] }
+  shadowRun        Json?     @map("shadow_run")
+  verification     Json?
+  createdBy        String    @map("created_by") @db.Uuid
+  approvedBy       String?   @map("approved_by") @db.Uuid
+  approvedAt       DateTime? @map("approved_at") @db.Timestamptz(3)
+  /// the plan_hash the approval was given for (apply refuses when it differs)
+  approvedPlanHash String?   @map("approved_plan_hash")
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  gateway Gateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+
+  @@index([gatewayId, createdAt])
+  @@index([nginxRevisionId])
+  @@map("gateway_change_plans")
 }

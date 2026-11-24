@@ -69,6 +69,12 @@ type envelope struct {
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	// Base, when set, returns the base URL per request instead of BaseURL
+	// (P9: the active management path). An error fails the request unsent.
+	Base func() (string, error)
+	// Observe, when set, is called after every request with the base URL used
+	// and the outcome (nil on success).
+	Observe func(ctx context.Context, base string, err error)
 }
 
 // NewUUID returns a random RFC 4122 v4 UUID for X-Request-ID.
@@ -118,11 +124,27 @@ func ParseRetryAfter(v string, now time.Time) time.Duration {
 }
 
 func (c *Client) send(ctx context.Context, method, path string, body []byte, hasBody bool, encoding string, out any) error {
+	base := c.BaseURL
+	if c.Base != nil {
+		b, err := c.Base()
+		if err != nil {
+			return err
+		}
+		base = b
+	}
+	err := c.sendTo(ctx, base, method, path, body, hasBody, encoding, out)
+	if c.Observe != nil {
+		c.Observe(ctx, base, err)
+	}
+	return err
+}
+
+func (c *Client) sendTo(ctx context.Context, base, method, path string, body []byte, hasBody bool, encoding string, out any) error {
 	var rdr io.Reader
 	if hasBody {
 		rdr = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {
 		return err
 	}
@@ -147,7 +169,7 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, has
 		return err
 	}
 	if len(raw) > MaxResponseBytes {
-		return errors.New("center response too large")
+		return fmt.Errorf("%w: center response too large", ErrBadResponse)
 	}
 	var env envelope
 	_ = json.Unmarshal(raw, &env)
@@ -168,10 +190,17 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte, has
 		data = raw
 	}
 	if len(data) == 0 {
-		return errors.New("center response missing data")
+		return fmt.Errorf("%w: center response missing data", ErrBadResponse)
 	}
-	return json.Unmarshal(data, out)
+	if err := json.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadResponse, err)
+	}
+	return nil
 }
+
+// ErrBadResponse wraps a 2xx response the agent could not decode (the
+// endpoint answered: not a connectivity failure).
+var ErrBadResponse = errors.New("bad center response")
 
 // CertSource holds the current client certificate; swapped atomically on rotation.
 type CertSource struct {

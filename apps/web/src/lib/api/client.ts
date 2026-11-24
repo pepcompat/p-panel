@@ -15,6 +15,11 @@ export interface RequestOptions {
   auth?: boolean;
   /** Use a caller-provided X-Request-ID (otherwise a fresh UUID is generated). */
   requestId?: string;
+  /**
+   * Keep explicit `null` values in the body (default: null keys are omitted per COMPATTANA). Only for
+   * fields where null has a meaning, e.g. PATCH /servers/:id { groupId: null } = remove from group.
+   */
+  keepNulls?: boolean;
 }
 
 export interface ApiResult<T> {
@@ -143,7 +148,7 @@ export function createApiClient(opts: ApiClientOptions) {
     let body: string | undefined;
     if (o.body !== undefined) {
       headers['Content-Type'] = 'application/json';
-      body = JSON.stringify(omitNullish(o.body));
+      body = JSON.stringify(o.keepNulls ? o.body : omitNullish(o.body));
     }
     const token = o.auth === false ? null : store.get();
     if (token) headers.Authorization = `Bearer ${token}`;

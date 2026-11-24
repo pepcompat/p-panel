@@ -301,3 +301,46 @@ All mutating backup/restore jobs hold the per-app mutex (DB/volume targets) and 
 - **Repo host**: helper containers get the repo host as an `ExtraHosts` entry, resolved by the agent.
 - restic exit 10 ("repository does not exist") → `REPO_UNREACHABLE`. P6 jobs can also return `SECRETS_UNAVAILABLE`, `DOCKER_UNAVAILABLE`, `IMAGE_PULL_FAILED` and `CONTAINER_NOT_MANAGED`.
 - Known gaps: in-place restores of paths/volumes are covered by unit tests only, not in the lab. A failed volume staging restore leaves its new volume behind (agents never delete volumes). `backup.snapshots` / `backup.verify` need host restic even on Docker-only nodes.
+
+## Private networking and network jobs (P9) — authoritative
+
+Contract: `docs/P9_NETWORK_CONTRACT.md` §1, §2, §4, §5. Implemented by `apps/agent/internal/connpath`, `internal/provider`, `internal/netdiag`.
+
+### Management paths
+
+- Enrollment response (additive): `gatewayEndpoints: [{ path: "public"|"private", url }]` (≤ 8, `https://host[:port]`, no userinfo/query/fragment/path, no duplicate URL; an invalid list fails the enrollment like an invalid `gatewayUrl`). The agent writes a fresh `<stateDir>/connection.json` (0600, `internal/safefs`, no symlink following) at every enrollment: the endpoints (or `gatewayUrl` as the only `public` endpoint), no policy, nothing forbidden. A state dir without `connection.json` (enrolled before P9) behaves exactly as before: `gatewayUrl` is the single public endpoint.
+- Heartbeat response (additive): `connection: { policy, endpoints: [{ path, url }] }`. An unknown policy or an invalid endpoint list is ignored (the last good state is kept); an empty `endpoints` list keeps the current endpoints. Changes are persisted; the last received state is used during a Center outage and across restarts.
+- Dial order: `private_only` → [private]; `public_only` → [public]; `private_preferred` → [private, public]; `public_preferred` → [public, private]; `auto` → [private, public] when a private endpoint exists, else [public]. **No policy received yet** (fresh enrollment, older Center) → like `public_preferred`. **`private_only` never dials and never probes a public endpoint**, even when every private endpoint is down: requests then fail and back off (fail closed).
+- Selection: the first endpoint in dial order that is not forbidden and probed healthy; else the first not yet probed; else rotation through the allowed endpoints. A transport-level failure (dial/TLS/timeout) of any gateway request marks that endpoint unhealthy and re-selects; HTTP error answers and undecodable 2xx bodies do not. Fail-back to a preferred path happens after the next successful probe.
+- **`GET /agent/v1/ping`** (new gateway route, mTLS, no body): the probe target. Response `data: { path, serverTime, policyAllows }`. The Center answers it on **every** listener, also where the server's policy forbids the path (so a path can be verified before switching to it), and never treats it as heartbeat/liveness.
+- Probing: every 60 s and once at start before the first heartbeat: TCP connect + TLS handshake (agent client cert, pinned CA, SNI = URL host) + `GET /agent/v1/ping`, 5 s, no proxy, no redirects, `Connection: close`. `ok` = 2xx. Error codes: `DIAL_TIMEOUT`, `TLS_FAILED`, `REFUSED`, `DNS_FAILED`, `UNREACHABLE`, `PATH_FORBIDDEN` (403 `CONNECTION_PATH_NOT_ALLOWED`), `HTTP_<status>`, `CONNECTION_FAILED`. All endpoints are probed except public ones under `private_only`. The ping's `policyAllows` is recorded with the result (`policyAllows` in the report); an endpoint whose last ping said `policyAllows: false` is never selected as the active path (it is still probed and reported).
+- Heartbeat body (additive): `connection: { policy, activePath: "public"|"private"|null, endpoints: [{ path, url, ok, latencyMs|null, checkedAt, error?, policyAllows? }] }` (`latencyMs` is null when `ok` is false; only probed endpoints are listed; `policy` is informational, `""` = none received).
+- 403 `CONNECTION_PATH_NOT_ALLOWED` on any request: the path is marked forbidden (persisted with the policy known at that time) and not dialled again until a heartbeat delivers a **different** policy that allows it. If every allowed endpoint is forbidden and no new policy arrives, the first is retried at most once per 10 min (the Center audits such requests once per 10 min) — never a path the policy does not allow.
+
+### Provider facts (DigitalOcean metadata)
+
+- Source: `http://169.254.169.254/metadata/v1.json` (agent config `provider.metadataUrl` overrides it — lab only; `provider.metadataDisabled: true` turns it off). GET, no proxy, no redirects (3xx = absent), 2 s, body ≤ 64 KiB, HTTP 200 only.
+- Fact: `provider: { name: "digitalocean", dropletId: <int>, region, interfaces: { private: [ipv4], public: [ipv4] } }` (≤ 8 addresses each, `droplet_id` a positive integer ≤ 2^53, region `^[a-z0-9][a-z0-9-]{0,31}$`), otherwise `provider: null`. The agent never derives a VPC from it.
+- Sent in enrollment `facts.provider` and in every heartbeat (`provider`, refreshed every 10 min and at start; omitted only when the source is disabled).
+
+### `network.diagnose` (read-only, re-leasable, 60 s)
+
+Params (strict, JSON null refused): `{ resolve?: string[] (≤ 10 DNS host names, no IP literals, no duplicates), tcp?: [{ host: IP literal, port }] (≤ 20, no duplicates), includeRoutes?: bool, allowedPorts?: int[] (≤ 32, 1..65535) }`.
+
+- `tcp.host` must be in 10/8, 172.16/12, 192.168/16, 100.64/10 or fd00::/8 (IPv4-mapped forms are unmapped first; zones refused), **or** equal an advertised Center endpoint address (IP-literal URL host, or the resolved addresses of a host name, looked up only when needed). Loopback, link-local (metadata) and other public addresses → `REJECTED_INVALID_PARAMS` before ack.
+- `tcp.port` must be in {22, 80, 443, 4443, 4444, 5432, 6379, 3306} ∪ `allowedPorts` (∪ the endpoint's own port for a Center endpoint address).
+- Result: `{ interfaces: [{ name, mtu, up, addresses }], routes: [{ dst, gateway, iface, metric }] (from /proc/net/route + ipv6_route, ≤ 512; [] unless includeRoutes), routesError?: "UNSUPPORTED_OS"|"ROUTES_UNAVAILABLE", dns: [{ host, addresses, error?: NOT_FOUND|TIMEOUT|DNS_FAILED }], tcp: [{ host, port, ok, latencyMs|null, error? }], centerEndpoints: [same as heartbeat probe, probed now], checkedAt }`. DNS 3 s and TCP connect 3 s per target, run in parallel. Nothing is ever changed on the host.
+
+### `http.probe` (read-only, re-leasable, ≤ 10 s)
+
+Params (strict; the Center's `httpProbeParams` shape plus `allowedPorts`): `{ url, resolveTo, port?, method?: "GET"|"HEAD" (default GET), expectStatus?: int | int[] (1..10 codes 100..599, default [200]), timeoutSec?: 1..10 (default 10), allowedPorts?: int[] (≤ 32) }`.
+
+- `url`: `http(s)://<host>[:port][/path?query]`, ≤ 2048 bytes, printable ASCII only, no backslash, userinfo, `@` or fragment. The host is a DNS name, or an IP literal that must equal `resolveTo`.
+- `resolveTo`: IP literal in the same private ranges as `network.diagnose` (no loopback, no link-local, no public). **The only address the agent connects to**: a custom dialer ignores the URL host; Host header and TLS SNI = URL host; no DNS lookup, no proxy.
+- Port: `port`, else the URL port, else 80/443; must be in {80, 443, 8080, 8443} ∪ `allowedPorts` (a `port` differing from an explicit URL port is refused).
+- Redirects are never followed (a 3xx is reported with its `Location` header); at most 1 MiB of the body is read (sha256 of what was read); TLS certificates are reported (`tls.verified` against the system roots), never enforced; no request body, no cookies, no credentials.
+- Result (the job **succeeds** whenever the probe ran): `{ url, resolveTo, method, ok, status|null, expectStatus, statusMatch, latencyMs, bodySha256|null, bytesRead, truncated, headers: {Content-Type, Content-Length, Server, Location, Cache-Control, Etag (≤ 512 B each, when present)}, remoteAddr, tls?: { version, verified, verifyError?, subject, notAfter }, error?: TIMEOUT|REFUSED|UNREACHABLE|DIAL_TIMEOUT|TLS_FAILED|HTTP_ERROR }`. `ok` = no error and status ∈ expectStatus.
+
+### Gateway route files (nginx path policy addition)
+
+`nginx.validate|apply|revert` may also **create** `/etc/nginx/ppanel-gateway/<name>` (depth 1 only; the directory is created 0755 and removed again when a revert empties it; a symlinked `ppanel-gateway` is refused) and exactly `/etc/nginx/conf.d/ppanel-gateway.conf`. `nginx.read_files` of such a file before its directory exists reports `exists: false` (instead of `PATH_NOT_ALLOWED`). Everything else of the P3 path policy is unchanged. No new file-writing job type.

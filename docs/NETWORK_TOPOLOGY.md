@@ -56,38 +56,51 @@ flowchart TB
 | Droplets share one VPC (same VPC UUID) | **UNVERIFIED — BLOCKED** | **ping ≠ same VPC**: reachability can also come from VPC peering or other routing     |
 | VPC UUID(s), peering, routes           | **UNVERIFIED — BLOCKED** | requires read-only DO API token (droplet:read, vpc:read) or a user-supplied inventory |
 
-**BLOCKED (P9-01):** VPC UUID/membership stays unknown until the user supplies **DigitalOcean
-read-only API credentials** or a **manual inventory** (droplet ID, VPC UUID, private/public IPs, region,
-cloud-firewall IDs). Until then pPanel stores addresses with `source: detected|override` and
-`verifiedAt`, and the UI must show "private reachable" independently from "same VPC".
+**P9 status:** pPanel now records VPC membership only from a **read-only DigitalOcean integration**
+(`/provider-integrations`, GET-only client, token AES-256-GCM) or a **user-supplied inventory**
+(`POST /network/inventory`). Agent metadata (droplet id, region, interface IPs) is used to match droplets
+to servers but never sets a VPC. `GET /network/topology` reports `VPC_UNKNOWN`,
+`SAME_REGION_DIFFERENT_VPC`, `PRIVATE_IP_CONFLICT`, `PROVIDER_STALE` and `INVENTORY_MISMATCH`. Real VPC UUIDs
+for the production droplets are still **BLOCKED** until a read-only DO token or an inventory is supplied;
+the logic is verified in the lab against a fake DO API (P9-T1).
 
 ## 4. Connection policy (per server)
 
 `auto | private_preferred | private_only | public_preferred | public_only` (API_CONTRACTS §3).
 
-- `private_only` **fails closed**: if the private path is down, no fallback to public (P9-T2).
+- `private_only` **fails closed**: if the private path is down, no fallback to public (P9-T2). The
+  agent never dials a public endpoint, and the Center answers 403 `CONNECTION_PATH_NOT_ALLOWED` on a listener
+  whose path the policy forbids. Paths are decided by the listener a request arrives on
+  (`PPANEL_GATEWAY_LISTENERS`, e.g. `public=…:4443,private=…:4444`), never by a client claim.
+- Agents probe every advertised endpoint every 60 s (`GET /agent/v1/ping`) and report path health;
+  switching to `private_only` needs a healthy private probe in the last 5 min.
 - Any fallback private→public is audited and must be allowed by policy (brief §15.2).
 - Editing endpoint metadata in pPanel **never** edits netplan, interfaces, routes or public IPs.
 
 ## 5. Ports
 
-| Port  | Service            | Bind (dev)                                  | Prod exposure                                                       |
-| ----- | ------------------ | ------------------------------------------- | ------------------------------------------------------------------- |
-| 3100  | web                | localhost                                   | behind TLS reverse proxy, operator access only                      |
-| 4000  | API                | localhost                                   | behind TLS reverse proxy; `/api/v1/agent/enroll` reachable by hosts |
-| 4443  | agent mTLS gateway | localhost (+`host.docker.internal` for lab) | reachable by managed hosts only (private path preferred)            |
-| 55432 | Postgres (dev)     | 127.0.0.1                                   | never public                                                        |
-| 56379 | Redis (dev)        | 127.0.0.1                                   | never public                                                        |
-| —     | managed hosts      | —                                           | **no pPanel inbound port**                                          |
+| Port  | Service            | Bind (dev)                                  | Prod exposure                                                        |
+| ----- | ------------------ | ------------------------------------------- | -------------------------------------------------------------------- |
+| 3100  | web                | localhost                                   | behind TLS reverse proxy, operator access only                       |
+| 4000  | API                | localhost                                   | behind TLS reverse proxy; `/api/v1/agent/enroll` reachable by hosts  |
+| 4443  | agent mTLS gateway | localhost (+`host.docker.internal` for lab) | public management path; reachable by managed hosts only              |
+| 4444  | agent mTLS gateway | lab: via `lab-center-private` forwarder     | private management path (VPC); optional (`PPANEL_GATEWAY_LISTENERS`) |
+| 55432 | Postgres (dev)     | 127.0.0.1                                   | never public                                                         |
+| 56379 | Redis (dev)        | 127.0.0.1                                   | never public                                                         |
+| —     | managed hosts      | —                                           | **no pPanel inbound port**                                           |
 
 ## 6. Lab mapping
 
-The lab (`infra/compose/lab.yml`) uses one bridge network `ppanel-lab-net`; nodes reach the Center on
-the Mac via `host.docker.internal` (host-gateway). This simulates only "outbound to Center"; it does
-not simulate VPCs, public/private dual addressing or cloud firewalls (see `infra/lab/README.md`).
+The base lab (`infra/compose/lab.yml`) uses one bridge network `ppanel-lab-net`; nodes reach the Center on
+the Mac via `host.docker.internal`. Profile `p9` adds two internal bridges standing in for VPCs
+(`ppanel-lab-vpc-a` 10.110.0.0/24, `ppanel-lab-vpc-b` 10.120.0.0/24, same "region" `lab1`), a forwarder
+`lab-center-private` to the private listener, `lab-do-fake` (fake DO API + metadata) and `lab-gateway`.
+`scripts/lab/p9-net.sh up|down|cut|restore` attaches the existing nodes without recreating them. Docker
+bridges are a lab substitute: they do not model DO peering, cloud firewalls or real link-local metadata.
 
 ## 7. Rollback
 
-No routing change is made in P0–P8. For P9 Gateway cutover the rollback is: revert DNS to previous
+No production routing change is made by pPanel. Gateway plans (P9-05) are applied as Nginx revisions on
+the gateway host only, after a shadow test with Host/SNI override; pPanel never edits DNS. Rollback: revert DNS to previous
 records (operator-owned), keep Direct-mode Nginx untouched during shadow testing, and keep Gateway
 routing config versioned so a previous version can be re-applied without the Center.

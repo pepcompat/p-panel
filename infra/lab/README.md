@@ -170,6 +170,41 @@ The real-lab test leaves its fixtures: app `p6lab` (network `ppanel-p6lab`, volu
 staging volumes `ppanel-p6lab-restore-*` — the agent never deletes volumes), `/var/lib/ppanel-p6-labtest`
 in the nodes, and snapshots in the repos; `down.sh` removes them all with the volumes.
 
+## Private networking, fake DigitalOcean and the Gateway (P9)
+
+Profile `p9` in `infra/compose/lab.yml`, **not** started by `scripts/lab/up.sh` (which behaves exactly as before).
+Started/stopped only by `scripts/lab/p9-net.sh`:
+
+```sh
+scripts/lab/p9-net.sh up              # lab-center-private + lab-do-fake + lab-gateway; attach node-a/node-b to their VPC
+scripts/lab/p9-net.sh status
+scripts/lab/p9-net.sh cut node-a      # "private path offline" (docker network disconnect)
+scripts/lab/p9-net.sh restore node-a
+scripts/lab/p9-net.sh down            # detach, remove p9 services, networks and the gateway state volume
+python3 -I scripts/lab/e2e_p9.py --out docs/evidence/<date>/p9-e2e.json   # P9-T1..T4 against the real Center
+```
+
+| Piece                         | What                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ppanel-lab-vpc-a` / `-vpc-b` | `internal` bridges (no route out), 10.110.0.0/24 and 10.120.0.0/24, one "region" `lab1`. node-a .11 + lab-gateway .20 on vpc-a, node-b .12 on vpc-b.                                                                                                                                              |
+| `lab-center-private`          | `alpine/socat` (pinned) on both VPCs (.2) + its own egress network: TCP `:4444` → `host.docker.internal:4444` (the Center's `private` gateway listener). mTLS stays end-to-end.                                                                                                                   |
+| `lab-do-fake`                 | `infra/lab/do-fake/server.mjs` on the pinned `node:22-alpine` image (already on disk): `/v2/account`, `/v2/droplets` and `/v2/vpcs` (bearer token, GET only, **2 per page** so the Center must paginate), `/metadata/<node>/v1.json`. `127.0.0.1:58090` on the Mac, `lab-do-fake:8080` on labnet. |
+| `lab-gateway`                 | `ppanel-lab-node-a:dev` (no extra image) with the node-a fixture sites removed at start; labnet (public path) + vpc-a. Agent config `agent-config/p9-gateway.yaml`.                                                                                                                               |
+
+node-a / node-b are **never recreated** for P9: `p9-net.sh` uses `docker network connect --ip` (a `compose up` of node-b would
+make lab-dind lose its network namespace). Their P9 agent configs (`agent-config/p9-node-{a,b}.yaml`) are copied to
+`/etc/ppanel-agent/p9.yaml` by `e2e_p9.py` and passed with `--config`; the mounted `config.yaml` stays untouched.
+
+Center env for the lab (set by `e2e_p9.py`): `PPANEL_GATEWAY_LISTENERS=public=0.0.0.0:4443,private=0.0.0.0:4444`,
+`PPANEL_PUBLIC_GATEWAY_URL=https://host.docker.internal:4443`, `PPANEL_PRIVATE_GATEWAY_URL=https://lab-center-private:4444`,
+`PPANEL_GATEWAY_HOSTNAMES=localhost,host.docker.internal,lab-center-private`, `PPANEL_DO_API_BASE=http://127.0.0.1:58090`.
+
+**Lab substitutes** (not equivalent to DigitalOcean): the "VPCs" are Docker bridges on one Docker VM; the metadata service
+is an HTTP server on labnet instead of link-local `169.254.169.254`; the public "path" is `host.docker.internal` from
+labnet and public IPv4s in the fake are TEST-NET-3 placeholders; isolation between VPCs is Docker's inter-bridge
+isolation, not a cloud firewall. Every node is also on labnet (172.20/16, RFC 1918), so pair tests rely on the Center
+picking the provider-verified VPC address (`privateIpv4`).
+
 ## Fixtures (`infra/nginx/fixtures/`)
 
 | File (node-a unless noted)                       | Exercises                                                                                                                                                                                                                             |
@@ -209,7 +244,7 @@ Agent state lives in the per-node named volume (`/var/lib/ppanel-agent`), remove
 | Docker         | node-a: none. node-b: **dind sidecar** (privileged, lab only) | P4 deploys run against a real Engine, but nested in Docker Desktop's VM (no real host dockerd/systemd/iptables) |
 | Firewall       | `cap_drop: ALL` (+ minimal caps); no NET_ADMIN                | UFW/nftables adapter tests (P11) BLOCKED                                                                        |
 | sshd           | not installed                                                 | SSH gateway tests (P10) BLOCKED                                                                                 |
-| Network        | single bridge, no VPC, no public IP                           | DO VPC / private-vs-public path tests (P9) only partially simulated                                             |
+| Network        | bridges only (P9: two internal "VPC" bridges), no public IP   | DO VPC / private-vs-public path tests (P9) simulated with Docker networks, see the P9 section                   |
 | Reboot         | container restart ≠ host reboot                               | reboot reconciliation evidence is approximate                                                                   |
 | Arch           | arm64 only on this Mac                                        | amd64 behaviour not exercised locally (CI cross-builds the agent)                                               |
 | Packages       | Ubuntu archive at build time (not pinned per-package)         | versions recorded by `status.sh` output; rebuilds can drift                                                     |
@@ -230,7 +265,7 @@ P3-T01/T02/T04/T05 (nginx-level, using `nginx -s reload` instead of systemd), P2
 - **Exception (P4): `ppanel-lab-dind` is privileged** — lab-only, never a production pattern (see above).
   The Mac's own Docker socket is never mounted anywhere.
 - Host ports, loopback only: `127.0.0.1:55000` (lab registry), P6 `127.0.0.1:58001` (backup maintenance
-  listener) and `127.0.0.1:59000` (MinIO). The backup services run read-only (rest-server) with `cap_drop: ALL`.
+  listener), `127.0.0.1:59000` (MinIO) and P9 `127.0.0.1:58090` (fake DigitalOcean, profile `p9`). The backup services run read-only (rest-server) with `cap_drop: ALL`.
 - External network use: Docker Hub (pinned images), the Ubuntu apt archive and (P6) the restic release on
   GitHub (sha256-verified) during image build.
   No production host, DNS, or cloud API is contacted.

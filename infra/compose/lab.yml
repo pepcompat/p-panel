@@ -9,6 +9,8 @@
 #     lab-backup-admin (full-access maintenance identity on the SAME data; NOT on the nodes' network, published on
 #     127.0.0.1:58001 only) and lab-minio (offsite S3, 127.0.0.1:59000 only). Credentials are generated into the
 #     gitignored .lab/backup/ by scripts/lab/backup-secrets.sh (called by up.sh). Lab shortcut: http, not https.
+# P9 (profile `p9`, scripts/lab/p9-net.sh only): lab-center-private (private gateway forwarder on two internal
+#     "VPC" networks), lab-do-fake (fake DigitalOcean API + droplet metadata, 127.0.0.1:58090) and lab-gateway.
 # Containers are NOT VMs — see infra/lab/README.md for limitations and which tests stay BLOCKED.
 name: ppanel-lab
 
@@ -331,6 +333,107 @@ services:
       - ${PPANEL_AGENT_BIN_DIR:-../../.lab/agent-bin}:/opt/ppanel-agent:ro
       - ../lab/node/agent-config/node-c-chaos.yaml:/etc/ppanel-agent/config.yaml:ro
 
+  # ---------------------------------------------------------------------------------------------------------
+  # P9 private networking (profile `p9`, NOT started by scripts/lab/up.sh). Started/stopped ONLY by
+  # scripts/lab/p9-net.sh (up|down|cut|restore|status), which also attaches the EXISTING node-a / node-b to the
+  # "VPC" networks with `docker network connect` — never `compose up` a service that depends on lab-node-b
+  # (recreating node-b makes lab-dind lose its network namespace). Lab truth: one region `lab1`, two VPCs:
+  #   ppanel-lab-vpc-a 10.110.0.0/24: lab-center-private .2, node-a .11, lab-gateway .20
+  #   ppanel-lab-vpc-b 10.120.0.0/24: lab-center-private .2, node-b .12
+  # Both VPC networks are `internal` (no route out); the only way from a VPC to the Center's private
+  # listener (host :4444) is the lab-center-private forwarder. Cutting a node off its VPC network
+  # (`p9-net.sh cut node-a`) is how "private path offline" is tested.
+
+  # TCP forwarder = the Center's PRIVATE gateway endpoint as seen from the VPCs (https://lab-center-private:4444;
+  # the name must be in the Center's PPANEL_GATEWAY_HOSTNAMES so the gateway certificate covers it).
+  # Plain TCP: TLS (mTLS) is end-to-end between the agent and the Center gateway; socat never sees plaintext.
+  lab-center-private:
+    image: alpine/socat:1.8.0.1@sha256:87d88ff79bf42ca723fb360e9585c40e2923a2f4df9b9d148b127568ef6b99e7
+    profiles: [p9]
+    container_name: ppanel-lab-center-private
+    hostname: lab-center-private
+    restart: 'no'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    command: ['-d', 'tcp-listen:4444,fork,reuseaddr', 'tcp:host.docker.internal:4444']
+    networks:
+      vpca:
+        ipv4_address: 10.110.0.2
+        aliases: [lab-center-private]
+      vpcb:
+        ipv4_address: 10.120.0.2
+        aliases: [lab-center-private]
+      p9egress: {}
+    labels:
+      com.ppanel.lab: 'true'
+
+  # Fake DigitalOcean API + per-node droplet metadata (infra/lab/do-fake/server.mjs, no dependencies) on the
+  # pinned node:22-alpine image already used by the observability receiver (no extra image on disk).
+  # Center: PPANEL_DO_API_BASE=http://127.0.0.1:58090 (Mac loopback only). Agents: provider.metadataUrl
+  # http://lab-do-fake:8080/metadata/<node>/v1.json (LAB SUBSTITUTE for http://169.254.169.254/metadata/v1.json).
+  lab-do-fake:
+    image: node:22-alpine@sha256:1314fb30ec37592d5845e5a160d522c0e680972aa534549940b8d73bde88481a
+    profiles: [p9]
+    container_name: ppanel-lab-do-fake
+    hostname: lab-do-fake
+    restart: 'no'
+    read_only: true
+    user: node
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    working_dir: /srv
+    command: ['node', '/srv/server.mjs']
+    environment:
+      PPANEL_LAB_DO_TOKEN: ${PPANEL_LAB_DO_TOKEN:-lab-do-token-not-a-secret}
+    volumes:
+      - ../lab/do-fake:/srv:ro
+    networks: [labnet]
+    ports:
+      - '127.0.0.1:58090:8080'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    labels:
+      com.ppanel.lab: 'true'
+
+  # The lab GATEWAY server: same image as node-a (nginx + mounted agent), but its node-a fixture sites are
+  # removed at start so it only serves what pPanel renders under /etc/nginx/ppanel-gateway/. On labnet (public
+  # path to the Center + upstream DNS for the shared conf.d fixtures) and on vpc-a (private path, backends).
+  # Requires ppanel-lab-node-a:dev (built by scripts/lab/up.sh); never built here.
+  lab-gateway:
+    <<: *node-common
+    image: ppanel-lab-node-a:dev
+    profiles: [p9]
+    container_name: ppanel-lab-gateway
+    hostname: lab-gateway
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - /bin/sh
+      - -c
+      - 'rm -f /etc/nginx/sites-enabled/* && exec /usr/local/bin/ppanel-lab-entrypoint'
+    environment:
+      PPANEL_LAB_PHP_FPM: '0'
+    networks:
+      labnet: {}
+      vpca:
+        ipv4_address: 10.110.0.20
+    volumes:
+      - ${PPANEL_AGENT_BIN_DIR:-../../.lab/agent-bin}:/opt/ppanel-agent:ro
+      - gateway-agent-state:/var/lib/ppanel-agent
+      - ../lab/node/agent-config/p9-gateway.yaml:/etc/ppanel-agent/config.yaml:ro
+
   # P8 LAB SUBSTITUTE for fresh Ubuntu 24.04 VMs (profile `ubuntu`, NOT started by scripts/lab/up.sh).
   # systemd is PID 1; ubuntu-center runs its own Docker Engine (installer target), the nodes run nginx
   # (install-agent.sh targets). !!! privileged: true is REQUIRED (systemd cgroups/mounts, dockerd) and
@@ -399,6 +502,24 @@ networks:
   ubuntunet:
     name: ppanel-lab-ubuntu
     driver: bridge
+  # P9 (profile `p9`): two lab "VPCs" (internal, no route out) + the private forwarder's own egress network
+  vpca:
+    name: ppanel-lab-vpc-a
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.110.0.0/24
+  vpcb:
+    name: ppanel-lab-vpc-b
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.120.0.0/24
+  p9egress:
+    name: ppanel-lab-p9-egress
+    driver: bridge
 
 volumes:
   node-a-agent-state: {}
@@ -410,3 +531,4 @@ volumes:
   minio-data: {}
   ubuntu-center-docker: {}
   ubuntu-center-containerd: {}
+  gateway-agent-state: {}

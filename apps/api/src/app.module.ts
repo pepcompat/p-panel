@@ -66,6 +66,11 @@ import { NotifierService } from './observability/notifier.service';
 import { ObservabilityController } from './observability/observability.controller';
 import { ScrapeService } from './observability/scrape.service';
 import { TelemetryService } from './observability/telemetry.service';
+import { DiagnosticsService } from './network/diagnostics.service';
+import { GatewaysService } from './network/gateways.service';
+import { GatewaysController, NetworkController } from './network/network.controller';
+import { NetworkService } from './network/network.service';
+import { ProviderService } from './network/provider.service';
 
 /** Center API modular monolith. Config is injected so tests can boot isolated instances. */
 @Module({})
@@ -91,6 +96,8 @@ export class AppModule {
         IntegrationsController,
         ObservabilityController,
         BackupController,
+        NetworkController,
+        GatewaysController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config },
@@ -139,6 +146,11 @@ export class AppModule {
         BackupPoliciesService,
         BackupSchedulerService,
         RestoresService,
+        // P9 (after NginxRevisionsService: its job hooks must run before the gateway plan sync)
+        ProviderService,
+        NetworkService,
+        DiagnosticsService,
+        GatewaysService,
         AgentService,
         AgentGatewayServer,
         { provide: APP_GUARD, useClass: AuthGuard },

@@ -337,7 +337,7 @@ func (m *Manager) restore(man *manifest) []RestoreProblem {
 			continue
 		}
 		// ppanel-managed[/<app>] may have been removed when emptied (revert undo path)
-		d, err := m.restoreDir(e.Path, strings.HasPrefix(e.Path, ManagedDir+"/"))
+		d, err := m.restoreDir(e.Path, managedDepthOK(e.Path))
 		if err != nil {
 			probs = append(probs, RestoreProblem{e.Path, "rewrite original: " + err.Error()})
 			continue

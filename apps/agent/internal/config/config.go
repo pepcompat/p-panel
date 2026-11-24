@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -61,6 +62,17 @@ type Config struct {
 	Logs LogsConfig `yaml:"logs" json:"logs"`
 	// Backup configures P6 backups/restores (local config only).
 	Backup BackupConfig `yaml:"backup" json:"backup"`
+	// Provider configures the P9 cloud-provider facts (DigitalOcean metadata).
+	Provider ProviderConfig `yaml:"provider" json:"provider"`
+}
+
+// ProviderConfig is the `provider:` section (P9). The metadata URL is local
+// config only (the Center can never point the agent elsewhere).
+type ProviderConfig struct {
+	// MetadataDisabled turns the DigitalOcean metadata lookup off (provider: null).
+	MetadataDisabled bool `yaml:"metadataDisabled" json:"metadataDisabled"`
+	// MetadataURL overrides http://169.254.169.254/metadata/v1.json (lab only).
+	MetadataURL string `yaml:"metadataUrl" json:"metadataUrl"`
 }
 
 // BackupConfig is the `backup:` section (P6). Like builds, backups are an
@@ -395,6 +407,14 @@ func (c *Config) Validate() error {
 	}
 	if h := c.Backup.HelperImage; h != "" && (len(h) > 400 || !ImageDigestRefRe.MatchString(h)) {
 		errs = append(errs, "backup.helperImage must be an image reference pinned by digest (repo@sha256:<64 hex>)")
+	}
+	c.Provider.MetadataURL = strings.TrimSpace(c.Provider.MetadataURL)
+	if u := c.Provider.MetadataURL; u != "" {
+		pu, err := url.Parse(u)
+		if err != nil || (pu.Scheme != "http" && pu.Scheme != "https") || pu.Hostname() == "" || pu.User != nil ||
+			pu.Fragment != "" || len(u) > 512 {
+			errs = append(errs, "provider.metadataUrl must be an http(s) URL without credentials or fragment")
+		}
 	}
 	if len(errs) > 0 {
 		return errors.New("invalid config: " + strings.Join(errs, "; "))

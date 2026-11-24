@@ -1,0 +1,8 @@
+# pPanel agent config for the P9 lab (gateway). LAB ONLY. scripts/lab/e2e_p9.py runs the agent with it:
+# mounted read-only at /etc/ppanel-agent/config.yaml of ppanel-lab-gateway (infra/compose/lab.yml).
+# provider.metadataUrl is the LAB SUBSTITUTE for the DigitalOcean link-local metadata service
+# (http://169.254.169.254/metadata/v1.json); production configs never set it.
+stateDir: /var/lib/ppanel-agent
+logLevel: info
+provider:
+  metadataUrl: http://lab-do-fake:8080/metadata/gateway/v1.json

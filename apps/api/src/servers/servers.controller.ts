@@ -60,9 +60,10 @@ export class ServersController {
     @Param('id', uuid) id: string,
     @Body(new ZodPipe(updateServerSchema)) body: UpdateServerInput,
     @Headers('if-match') ifMatch: string | undefined,
+    @Headers(STEP_UP_HEADER.toLowerCase()) stepUp: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const s = await this.servers.update(user, id, body, parseIfMatch(ifMatch));
+    const s = await this.servers.update(user, id, body, parseIfMatch(ifMatch), stepUp);
     res.setHeader('ETag', `"${s.version}"`);
     return s;
   }

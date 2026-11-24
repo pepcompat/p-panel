@@ -1,8 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import type { Environment, Server } from '@ppanel/shared-contracts';
+import { CONNECTION_POLICIES, type Environment, type Server } from '@ppanel/shared-contracts';
 import { useI18n } from '@/i18n/provider';
 import { useServers } from '@/lib/queries';
 import { useAuth } from '@/lib/auth/auth-provider';
@@ -21,7 +22,9 @@ import { Page, PageHeader } from '@/components/ui/card';
 import { EnvBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { GatedButton } from '@/components/ui/gated-button';
-import { Input } from '@/components/ui/form';
+import { Input, Select } from '@/components/ui/form';
+import { matchesFilters, type ServerFilters } from '@/lib/p9-gates';
+import { useGroups } from '@/lib/p9-queries';
 import { Segmented } from '@/components/ui/segmented';
 import { CardSkeletonGrid, TableSkeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/states';
@@ -86,6 +89,20 @@ export function ServersView() {
   const [q, setQ] = useState(params.get('q') ?? '');
   const [view, setView] = useState<View>('cards');
   const [enrollOpen, setEnrollOpen] = useState(params.get('enroll') === '1');
+  const groups = useGroups();
+  const [filters, setFilters] = useState<ServerFilters>({
+    groupId: params.get('group') ?? '',
+    tag: params.get('tag') ?? '',
+    policy: (params.get('policy') as ServerFilters['policy']) ?? '',
+  });
+  const setFilter = (k: keyof ServerFilters, v: string) => {
+    setFilters((f) => ({ ...f, [k]: v }));
+    const sp = new URLSearchParams(params.toString());
+    const key = k === 'groupId' ? 'group' : k;
+    if (v) sp.set(key, v);
+    else sp.delete(key);
+    router.replace(`/servers${sp.toString() ? `?${sp}` : ''}`, { scroll: false });
+  };
 
   useEffect(() => {
     try {
@@ -107,7 +124,12 @@ export function ServersView() {
   };
 
   const all = useMemo(() => query.data?.items ?? [], [query.data]);
-  const searched = useMemo(() => all.filter((s) => matchesQuery(s, q)), [all, q]);
+  const searched = useMemo(
+    () => all.filter((s) => matchesQuery(s, q) && matchesFilters(s, filters)),
+    [all, q, filters],
+  );
+  const allTags = useMemo(() => [...new Set(all.flatMap((s) => s.tags))].sort(), [all]);
+  const filtering = !!(filters.groupId || filters.tag || filters.policy);
   const visible = useMemo(
     () => searched.filter((s) => env === 'all' || s.environment === env),
     [searched, env],
@@ -172,16 +194,24 @@ export function ServersView() {
         title={t('servers.title')}
         subtitle={t('servers.subtitle', { count: query.data ? query.data.total : '—' })}
         actions={
-          <GatedButton
-            variant="primary"
-            size="md"
-            className="min-h-[38px] px-4"
-            perm="servers.enroll"
-            aria-expanded={enrollOpen}
-            onClick={() => setEnrollOpen((o) => !o)}
-          >
-            {t('servers.enroll')}
-          </GatedButton>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/servers/groups"
+              className="inline-flex min-h-[38px] items-center rounded-md border border-line-strong bg-surface px-3.5 text-[13.5px] text-fg no-underline hover:bg-surface-hover hover:no-underline"
+            >
+              {t('p9.groups.manage')}
+            </Link>
+            <GatedButton
+              variant="primary"
+              size="md"
+              className="min-h-[38px] px-4"
+              perm="servers.enroll"
+              aria-expanded={enrollOpen}
+              onClick={() => setEnrollOpen((o) => !o)}
+            >
+              {t('servers.enroll')}
+            </GatedButton>
+          </div>
         }
       />
       <div className="flex flex-wrap items-center gap-2">
@@ -225,6 +255,75 @@ export function ServersView() {
             { value: 'table', label: t('servers.view.table') },
           ]}
         />
+      </div>
+      <div
+        className="flex flex-wrap items-end gap-2"
+        role="group"
+        aria-label={t('p9.filters.label')}
+      >
+        <label className="flex flex-col gap-0.5 text-[12px] text-fg-muted">
+          {t('p9.group')}
+          <Select
+            value={filters.groupId}
+            onChange={(e) => setFilter('groupId', e.target.value)}
+            className="min-h-8 w-[170px] py-1 text-[13px]"
+            data-testid="filter-group"
+          >
+            <option value="">{t('common.all')}</option>
+            <option value="__none">{t('p9.group.none')}</option>
+            {(groups.data ?? []).map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex flex-col gap-0.5 text-[12px] text-fg-muted">
+          {t('p9.filters.tag')}
+          <Select
+            value={filters.tag}
+            onChange={(e) => setFilter('tag', e.target.value)}
+            className="min-h-8 w-[150px] py-1 text-[13px]"
+            data-testid="filter-tag"
+          >
+            <option value="">{t('common.all')}</option>
+            {allTags.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex flex-col gap-0.5 text-[12px] text-fg-muted">
+          {t('p9.filters.policy')}
+          <Select
+            value={filters.policy}
+            onChange={(e) => setFilter('policy', e.target.value)}
+            className="min-h-8 w-[180px] py-1 text-[13px]"
+            data-testid="filter-policy"
+          >
+            <option value="">{t('common.all')}</option>
+            {CONNECTION_POLICIES.map((p) => (
+              <option key={p} value={p}>
+                {t(`policy.${p}`)}
+              </option>
+            ))}
+          </Select>
+        </label>
+        {filtering && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setFilters({ groupId: '', tag: '', policy: '' });
+              const sp = new URLSearchParams(params.toString());
+              ['group', 'tag', 'policy'].forEach((k) => sp.delete(k));
+              router.replace(`/servers${sp.toString() ? `?${sp}` : ''}`, { scroll: false });
+            }}
+          >
+            {t('p9.filters.clear')}
+          </Button>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-fg-muted">
         <span>{t('env.note')}</span>

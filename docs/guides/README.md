@@ -19,6 +19,7 @@ When a guide and the contract disagree, [API_CONTRACTS.md](../API_CONTRACTS.md) 
 | [Alerts and incidents](alerts.md)                 | Rules, channels (email, Telegram, signed webhook), acknowledge, auto-resolve              |
 | [Backup and restore](backup-restore.md)           | Repositories, append-only restic, policies, runs, verification, restore wizard            |
 | [Emergency recovery](emergency-recovery.md)       | Center outage, agent offline, manual-recovery states, Center disaster recovery            |
+| [Network and Gateway](network-and-gateway.md)     | Server cards/groups, private/public paths, VPC inventory, diagnostics, Gateway routing    |
 
 Install, upgrade and compatibility live in their own documents: see [INSTALL.md](../INSTALL.md),
 [UPGRADE_RUNBOOK.md](../UPGRADE_RUNBOOK.md), [MIGRATION_RUNBOOK.md](../MIGRATION_RUNBOOK.md) and

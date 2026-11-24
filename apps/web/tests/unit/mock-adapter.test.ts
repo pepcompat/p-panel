@@ -28,9 +28,10 @@ describe('mock adapter (contract-shaped)', () => {
     setToken(login.accessToken);
     const { items } = await c.list<Server>('/servers');
     const prod = items.find((s) => s.environment === 'production')!;
+    // (P9: a production connection-policy change needs step-up, so a plain field is used here)
     const updated = await c.patch<Server>(
       `/servers/${prod.id}`,
-      { connectionPolicy: 'private_only' },
+      { tags: ['web', 'edge'] },
       { headers: { 'If-Match': String(prod.version) } },
     );
     expect(updated.version).toBe(prod.version + 1);

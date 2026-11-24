@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { systemdUnitSchema } from './jobs';
+import type { ServerConnectionView, ServerNetworkView } from './network';
 
 export const ENVIRONMENTS = ['production', 'uat', 'development'] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
@@ -67,6 +68,15 @@ export interface Server {
   } | null;
   addresses: ServerAddress[];
   connectionPolicy: ConnectionPolicy;
+  /** P9: name of `groupId` (null when ungrouped) */
+  groupName: string | null;
+  /** P9: preferred verified address per scope (provider/inventory → operator override → detected) */
+  publicIpv4: string | null;
+  privateIpv4: string | null;
+  /** P9: management path state reported by the agent's endpoint probes */
+  connection: ServerConnectionView;
+  /** P9: region / VPC (VPC only from provider or inventory, never inferred) */
+  network: ServerNetworkView;
   metrics: ServerMetrics | null;
   capabilities: string[];
   /** P4b: Center-side build node designation (builds also need the agent's `build` capability). */

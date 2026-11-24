@@ -58,6 +58,9 @@ export const RESTRICTED_JOB_TYPES: readonly JobType[] = [
   'backup.snapshots',
   'backup.verify',
   'restore.run',
+  // P9: diagnostics targets / probe addresses are validated by the network + gateway workflows
+  'network.diagnose',
+  'http.probe',
 ];
 
 /** Mutating jobs lock a per-server resource so two never run concurrently on the same target. */

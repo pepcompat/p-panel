@@ -12,6 +12,7 @@ import {
 import { startFake } from '../../../apps/api/test/integration/p5-fixtures';
 import { gitHostAllowed, gitHostOf } from '../../../apps/api/src/deploy/builds.service';
 import { RegistryClient } from '../../../apps/api/src/deploy/registry.client';
+import { checkApiBase, DoClient } from '../../../apps/api/src/network/do-client';
 import { NotifierService } from '../../../apps/api/src/observability/notifier.service';
 import {
   checkWebhookUrl,
@@ -21,6 +22,7 @@ import {
 import {
   buildConfigSchema,
   containerHealthcheckSchema,
+  JOB_TYPES,
   telegramChannelConfigSchema,
 } from '../../../packages/shared-contracts/src';
 
@@ -316,5 +318,61 @@ describe('git URLs and other outbound targets', () => {
       expect(containerHealthcheckSchema.safeParse({ path }).success, path).toBe(false);
     // `//host` stays a path: the agent concatenates "http://127.0.0.1:<port>" + path (no URL resolution)
     expect(containerHealthcheckSchema.safeParse({ path: '//evil.test/x' }).success).toBe(true);
+  });
+});
+
+describe('P9 provider API + gateway probes (no SSRF through DigitalOcean integrations)', () => {
+  const ALLOW = ['https://api.digitalocean.com', 'http://lab-do-fake:8080'];
+  it('api_base must be exactly an allowlisted base (no userinfo, query, other host/scheme)', () => {
+    for (const base of [
+      'https://api.digitalocean.com@169.254.169.254',
+      'https://api.digitalocean.com.evil.test',
+      'https://user:pw@api.digitalocean.com',
+      'https://api.digitalocean.com/?u=http://169.254.169.254',
+      'http://api.digitalocean.com',
+      'http://169.254.169.254',
+      'http://lab-do-fake:8081',
+      'gopher://lab-do-fake:8080',
+      'file:///etc/passwd',
+    ])
+      expect(() => checkApiBase(base, ALLOW, false), base).toThrow();
+    // lab base: http refused in production
+    expect(() => checkApiBase('http://lab-do-fake:8080', ALLOW, true)).toThrow();
+  });
+
+  it('the client resolves first and refuses metadata / private targets before connecting; GET only', async () => {
+    const mk = (address: string, allowPrivate: boolean) =>
+      new DoClient({
+        apiBase: 'https://api.digitalocean.com',
+        token: 'TEST_FAKE_TOKEN',
+        timeoutMs: 500,
+        allowPrivate,
+        resolver: async () => [{ address, family: address.includes(':') ? 6 : 4 }],
+      });
+    for (const a of ['169.254.169.254', 'fd00:ec2::254', '100.100.100.200'])
+      await expect(mk(a, true).get('/v2/account')).rejects.toMatchObject({
+        code: 'PROVIDER_API_NOT_ALLOWED',
+      });
+    for (const a of ['127.0.0.1', '10.0.0.1', '::1', '::ffff:127.0.0.1'])
+      await expect(mk(a, false).get('/v2/account')).rejects.toMatchObject({
+        code: 'PROVIDER_API_NOT_ALLOWED',
+      });
+    for (const m of ['POST', 'DELETE', 'PUT'])
+      await expect(mk('203.0.113.1', false).request(m, '/v2/droplets')).rejects.toMatchObject({
+        code: 'PROVIDER_API_NOT_ALLOWED',
+      });
+  });
+
+  it('http.probe params: Host/SNI only from a strict hostname, fixed resolveTo, no userinfo/port tricks', () => {
+    const h = JOB_TYPES['http.probe'].params;
+    for (const url of [
+      'http://169.254.169.254/',
+      'http://a.example@169.254.169.254/',
+      'http://a.example:22/',
+      'http://a.example/%0d%0aHost:x',
+      'gopher://a.example/',
+    ])
+      expect(h.safeParse({ url, resolveTo: '10.0.0.1' }).success, url).toBe(false);
+    expect(h.safeParse({ url: 'http://a.example/', resolveTo: 'a.example' }).success).toBe(false);
   });
 });

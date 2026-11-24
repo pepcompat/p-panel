@@ -1,5 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  type ConnectionPath,
+  DEFAULT_DO_API_BASE,
+  type GatewayEndpoint,
+} from '@ppanel/shared-contracts';
 import { z } from 'zod';
 import { type BuildInfo, deriveMinAgentVersion, resolveBuildInfo } from '../version/build-info';
 
@@ -134,6 +139,27 @@ const envSchema = z.object({
       .refine((u) => u.startsWith('https://'), 'PPANEL_AGENT_DOWNLOAD_BASE must be https://')
       .optional(),
   ),
+  // ---------------------------------------------------------------- P9 networking
+  /**
+   * One gateway listener per management path: `public=0.0.0.0:4443,private=0.0.0.0:4444`. Unset = one
+   * `public` listener on AGENT_GATEWAY_HOST:AGENT_GATEWAY_PORT (pre-P9 behaviour).
+   */
+  PPANEL_GATEWAY_LISTENERS: emptyAsUnset(z.string().max(500).optional()),
+  /** Advertised private-path gateway URL (optional; enables the `private` endpoint for agents). */
+  PPANEL_PRIVATE_GATEWAY_URL: emptyAsUnset(
+    z
+      .string()
+      .url()
+      .refine((u) => u.startsWith('https://'), 'PPANEL_PRIVATE_GATEWAY_URL must be https://')
+      .optional(),
+  ),
+  /**
+   * Comma list of extra provider API bases a DigitalOcean integration may use (lab fake API). The
+   * official https://api.digitalocean.com is always allowed. Listed bases are exempt from the
+   * private-address block (cloud metadata addresses stay blocked); http only outside production.
+   */
+  PPANEL_DO_API_BASE: z.string().default(''),
+  PPANEL_PROVIDER_TIMEOUT_MS: z.coerce.number().int().min(500).max(60_000).default(10_000),
   PPANEL_MIN_AGENT_VERSION: emptyAsUnset(
     z
       .string()
@@ -156,7 +182,53 @@ export type AppConfig = z.infer<typeof envSchema> & {
   isProduction: boolean;
   build: BuildInfo;
   minAgentVersion: string;
+  /** P9: gateway listeners (label = management path of every request arriving on it) */
+  gatewayListeners: GatewayListener[];
+  /** P9: advertised endpoints (public always, private when PPANEL_PRIVATE_GATEWAY_URL is set) */
+  gatewayEndpoints: GatewayEndpoint[];
+  /** P9: allowed provider API bases (normalised, no trailing slash) */
+  doApiBases: string[];
 };
+
+export interface GatewayListener {
+  label: ConnectionPath;
+  host: string;
+  port: number;
+}
+
+/** Parses `public=0.0.0.0:4443,private=[::]:4444` (labels unique, public/private only). */
+export function parseGatewayListeners(raw: string): GatewayListener[] {
+  const out: GatewayListener[] = [];
+  for (const part of raw
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)) {
+    const m = /^(public|private)=(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+):(\d{1,5})$/.exec(part);
+    if (!m) throw new Error(`Invalid configuration: PPANEL_GATEWAY_LISTENERS entry "${part}"`);
+    const port = Number(m[3]);
+    if (port > 65535)
+      throw new Error(`Invalid configuration: PPANEL_GATEWAY_LISTENERS port ${port} out of range`);
+    const label = m[1] as ConnectionPath;
+    if (out.some((l) => l.label === label))
+      throw new Error(`Invalid configuration: PPANEL_GATEWAY_LISTENERS label ${label} repeated`);
+    out.push({ label, host: m[2]!.replace(/^\[|\]$/g, ''), port });
+  }
+  if (out.length === 0) throw new Error('Invalid configuration: PPANEL_GATEWAY_LISTENERS is empty');
+  return out;
+}
+
+/** Canonical form of a provider API base: origin + path without trailing slash, no query/credentials. */
+export function normalizeApiBase(raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.username || u.password) return null;
+  if (u.search || u.hash) return null;
+  return `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}`;
+}
 
 let loaded = false;
 function loadDotEnv(): void {
@@ -226,7 +298,32 @@ export function loadConfig(overrides: Record<string, string | undefined> = {}): 
     minAgentVersion:
       c.PPANEL_MIN_AGENT_VERSION ??
       (c.NODE_ENV === 'production' ? deriveMinAgentVersion(build.version) : '0.0.0'),
+    gatewayListeners: c.PPANEL_GATEWAY_LISTENERS
+      ? parseGatewayListeners(c.PPANEL_GATEWAY_LISTENERS)
+      : [{ label: 'public', host: c.AGENT_GATEWAY_HOST, port: c.AGENT_GATEWAY_PORT }],
+    gatewayEndpoints: [
+      { path: 'public', url: c.PPANEL_PUBLIC_GATEWAY_URL },
+      ...(c.PPANEL_PRIVATE_GATEWAY_URL
+        ? [{ path: 'private' as const, url: c.PPANEL_PRIVATE_GATEWAY_URL }]
+        : []),
+    ],
+    doApiBases: doApiBases(c.PPANEL_DO_API_BASE, c.NODE_ENV === 'production'),
   };
+}
+
+function doApiBases(raw: string, production: boolean): string[] {
+  const out = [DEFAULT_DO_API_BASE];
+  for (const entry of raw
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean)) {
+    const n = normalizeApiBase(entry);
+    if (!n) throw new Error(`Invalid configuration: PPANEL_DO_API_BASE entry "${entry}"`);
+    if (production && n.startsWith('http:'))
+      throw new Error('Invalid configuration: PPANEL_DO_API_BASE must be https:// in production');
+    if (!out.includes(n)) out.push(n);
+  }
+  return out;
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');

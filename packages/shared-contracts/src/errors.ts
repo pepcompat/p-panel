@@ -128,5 +128,42 @@ export const ERROR_CODES = {
   RESTORE_STATE_INVALID: 'RESTORE_STATE_INVALID',
   IMPACT_CONFIRMATION_REQUIRED: 'IMPACT_CONFIRMATION_REQUIRED',
   VERIFY_IN_PROGRESS: 'VERIFY_IN_PROGRESS',
+  // P9 networking / gateway
+  /** request arrived on a gateway listener whose path the server's connection policy forbids (403) */
+  CONNECTION_PATH_NOT_ALLOWED: 'CONNECTION_PATH_NOT_ALLOWED',
+  /** private_only needs a healthy private probe reported within the last 5 min (422) */
+  PRIVATE_PATH_UNVERIFIED: 'PRIVATE_PATH_UNVERIFIED',
+  /** server group still has servers (409) */
+  GROUP_NOT_EMPTY: 'GROUP_NOT_EMPTY',
+  /** target server has no known private IPv4 (422) */
+  NO_PRIVATE_ADDRESS: 'NO_PRIVATE_ADDRESS',
+  /** diagnostics target address / port outside the allowed set (422) */
+  DIAGNOSE_TARGET_NOT_ALLOWED: 'DIAGNOSE_TARGET_NOT_ALLOWED',
+  /** provider api_base not in the allowlist / blocked by the SSRF policy (422) */
+  PROVIDER_API_NOT_ALLOWED: 'PROVIDER_API_NOT_ALLOWED',
+  /** provider rejected the token (401/403 from the provider API) (422) */
+  PROVIDER_AUTH_FAILED: 'PROVIDER_AUTH_FAILED',
+  /** provider API unreachable / timed out / malformed answer (502) */
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  /** a sync of this integration is already running (409) */
+  PROVIDER_SYNC_IN_PROGRESS: 'PROVIDER_SYNC_IN_PROGRESS',
+  /** inventory row matched no / several servers (422) */
+  INVENTORY_SERVER_UNRESOLVED: 'INVENTORY_SERVER_UNRESOLVED',
+  /** the server already is a gateway / gateway name taken (409) */
+  GATEWAY_EXISTS: 'GATEWAY_EXISTS',
+  /** gateway still has routes (409) */
+  GATEWAY_NOT_EMPTY: 'GATEWAY_NOT_EMPTY',
+  /** route domain already routed by this or another gateway (409) */
+  ROUTE_DOMAIN_TAKEN: 'ROUTE_DOMAIN_TAKEN',
+  /** backend address is not one of the backend server's known addresses (422) */
+  BACKEND_ADDRESS_UNKNOWN: 'BACKEND_ADDRESS_UNKNOWN',
+  /** more routes than one plan can render (422) */
+  GATEWAY_TOO_MANY_ROUTES: 'GATEWAY_TOO_MANY_ROUTES',
+  /** gateway plan is in a state that does not allow this action (409) */
+  GATEWAY_PLAN_STATE_INVALID: 'GATEWAY_PLAN_STATE_INVALID',
+  /** production approval needs a completed shadow test (409) */
+  SHADOW_TEST_REQUIRED: 'SHADOW_TEST_REQUIRED',
+  /** probe target outside the plan's domains / known addresses (422) */
+  PROBE_TARGET_NOT_ALLOWED: 'PROBE_TARGET_NOT_ALLOWED',
 } as const;
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];

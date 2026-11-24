@@ -1,0 +1,348 @@
+{
+  "ranAt": "2026-11-24T08:11:05Z",
+  "suite": "p9-e2e",
+  "steps": [
+    {
+      "step": "Center up with public :4443 + private :4444 listeners; operator with TOTP",
+      "ok": true,
+      "operator": "p9-operator-7563@ppanel.local",
+      "retiredPreviousServers": 3
+    },
+    {
+      "step": "three agents enrolled + online; enrollment advertised public + private endpoints (connection.json 0600)",
+      "ok": true,
+      "servers": {
+        "node-a": "01a20c97-a5a7-74d1-b123-2d871016f09c",
+        "node-b": "01a20c97-a9df-7c34-8e92-e437adf574ee",
+        "gateway": "01a20c97-aef8-79f4-8c35-5a73f4647307"
+      },
+      "endpoints": [
+        {
+          "path": "public",
+          "url": "https://host.docker.internal:4443"
+        },
+        {
+          "path": "private",
+          "url": "https://lab-center-private:4444"
+        }
+      ]
+    },
+    {
+      "step": "probes every 60 s: private endpoint healthy, auto policy uses the private path",
+      "ok": true,
+      "connection": {
+        "node-a": {
+          "activePath": "private",
+          "endpoints": [
+            {
+              "path": "public",
+              "ok": true,
+              "latencyMs": 86,
+              "checkedAt": "2026-11-24T08:06:35.182Z"
+            },
+            {
+              "path": "private",
+              "ok": true,
+              "latencyMs": 95,
+              "checkedAt": "2026-11-24T08:06:35.181Z"
+            }
+          ]
+        },
+        "node-b": {
+          "activePath": "private",
+          "endpoints": [
+            {
+              "path": "public",
+              "ok": true,
+              "latencyMs": 38,
+              "checkedAt": "2026-11-24T08:06:36.148Z"
+            },
+            {
+              "path": "private",
+              "ok": true,
+              "latencyMs": 56,
+              "checkedAt": "2026-11-24T08:06:36.148Z"
+            }
+          ]
+        },
+        "gateway": {
+          "activePath": "private",
+          "endpoints": [
+            {
+              "path": "public",
+              "ok": true,
+              "latencyMs": 100,
+              "checkedAt": "2026-11-24T08:06:37.503Z"
+            },
+            {
+              "path": "private",
+              "ok": true,
+              "latencyMs": 316,
+              "checkedAt": "2026-11-24T08:06:37.501Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "step": "agent DigitalOcean metadata facts reported; VPC unknown before provider sync (agent facts never set a VPC)",
+      "ok": true,
+      "network": {
+        "node-a": {
+          "provider": {
+            "name": "digitalocean",
+            "region": "lab1",
+            "dropletId": "910001",
+            "vpcUuid": null
+          },
+          "network": {
+            "region": "lab1",
+            "vpcUuid": null,
+            "vpcName": null,
+            "vpcSource": null
+          }
+        },
+        "node-b": {
+          "provider": {
+            "name": "digitalocean",
+            "region": "lab1",
+            "dropletId": "910002",
+            "vpcUuid": null
+          },
+          "network": {
+            "region": "lab1",
+            "vpcUuid": null,
+            "vpcName": null,
+            "vpcSource": null
+          }
+        },
+        "gateway": {
+          "provider": {
+            "name": "digitalocean",
+            "region": "lab1",
+            "dropletId": "910003",
+            "vpcUuid": null
+          },
+          "network": {
+            "region": "lab1",
+            "vpcUuid": null,
+            "vpcName": null,
+            "vpcSource": null
+          }
+        }
+      }
+    },
+    {
+      "step": "provider integration validated with GET /v2/account; wrong token refused; token never returned",
+      "ok": true,
+      "badStatus": 422,
+      "badCode": "PROVIDER_AUTH_FAILED",
+      "integration": "01a20c98-81ea-7cd6-98ee-e701c2bd4afb"
+    },
+    {
+      "step": "P9-T1 provider sync: one region lab1, node-a + gateway in vpc-a, node-b in vpc-b; finding SAME_REGION_DIFFERENT_VPC",
+      "ok": true,
+      "summary": {
+        "vpcs": 2,
+        "matched": 3,
+        "droplets": 4,
+        "unmatched": 1
+      },
+      "vpcs": {
+        "node-a": "ppanel-lab-vpc-a",
+        "node-b": "ppanel-lab-vpc-b",
+        "gateway": "ppanel-lab-vpc-a"
+      },
+      "finding": {
+        "code": "SAME_REGION_DIFFERENT_VPC",
+        "serverIds": [
+          "01a20c97-a5a7-74d1-b123-2d871016f09c",
+          "01a20c97-a9df-7c34-8e92-e437adf574ee",
+          "01a20c97-aef8-79f4-8c35-5a73f4647307"
+        ],
+        "message": "Region lab1 has 2 VPCs (ppanel-lab-vpc-a, ppanel-lab-vpc-b); private traffic does not cross VPCs without peering."
+      }
+    },
+    {
+      "step": "P9-T1 pair connectivity: node-b -> node-a:80 fails across VPCs, gateway -> node-a:80 passes within vpc-a",
+      "ok": true,
+      "target": "10.110.0.11",
+      "across": {
+        "status": "succeeded",
+        "tcp": [
+          {
+            "ok": false,
+            "host": "10.110.0.11",
+            "port": 80,
+            "error": "DIAL_TIMEOUT",
+            "latencyMs": null
+          }
+        ]
+      },
+      "within": {
+        "status": "succeeded",
+        "tcp": [
+          {
+            "ok": true,
+            "host": "10.110.0.11",
+            "port": 80,
+            "latencyMs": 0
+          }
+        ]
+      }
+    },
+    {
+      "step": "P9-T2 Center enforces the listener path: public request of a private_only server -> 403 CONNECTION_PATH_NOT_ALLOWED",
+      "ok": true,
+      "response": "403 {\"error\":{\"code\":\"CONNECTION_PATH_NOT_ALLOWED\",\"message\":\"The public management path is not allowed by this server's connection policy\",\"details\":{\"path\":\"public\",\"policy\":\"private_only\"}},\"meta\":"
+    },
+    {
+      "step": "P9-T2 private network cut: agent never dials public (no new socket to :4443 in 75 s, no public URL in its log)",
+      "ok": true,
+      "samples": 47,
+      "publicSockets": [],
+      "privateRetriesLogged": true,
+      "serverStatus": "stale"
+    },
+    {
+      "step": "P9-T2 private network restored: node-a reconnects over the private path",
+      "ok": true,
+      "connection": {
+        "policy": "private_only",
+        "activePath": "private",
+        "endpoints": [
+          {
+            "path": "private",
+            "ok": true,
+            "latencyMs": 8,
+            "checkedAt": "2026-11-24T08:09:35.288Z"
+          }
+        ],
+        "reportedAt": "2026-11-24T08:09:49.487Z"
+      }
+    },
+    {
+      "step": "P9-T4 plan rendered under /etc/nginx/ppanel-gateway/ and validated with nginx -t (nothing left on the gateway)",
+      "ok": true,
+      "status": "validated",
+      "rendered": [
+        "/etc/nginx/conf.d/ppanel-gateway.conf",
+        "/etc/nginx/ppanel-gateway/static.example.lab.conf"
+      ],
+      "validation": {
+        "valid": true,
+        "nginxTestOutput": "nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful"
+      }
+    },
+    {
+      "step": "P9-T4 pre-apply shadow test via Host/SNI override (http.probe, no DNS change): direct origin answers 200",
+      "ok": true,
+      "shadowResults": [
+        {
+          "url": "http://static.example.lab/",
+          "match": false,
+          "direct": {
+            "status": 200,
+            "latencyMs": 4,
+            "bodySha256": "30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1"
+          },
+          "domain": "static.example.lab",
+          "viaGateway": {
+            "error": "REFUSED",
+            "status": null,
+            "latencyMs": 0,
+            "bodySha256": null
+          }
+        }
+      ]
+    },
+    {
+      "step": "P9-T4 production gateway: apply before approval refused, creator cannot approve, second person approves (step-up)",
+      "ok": true,
+      "applyBefore": [403, "STEP_UP_REQUIRED"],
+      "creatorApprove": [403, "APPROVER_IS_CREATOR"]
+    },
+    {
+      "step": "P9-T4 apply: nginx revision applied with postchecks; gateway serves the hybrid route like the origin",
+      "ok": true,
+      "status": "applied",
+      "viaGateway": "200 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1",
+      "direct": "200 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1",
+      "nginxRevision": "applied"
+    },
+    {
+      "step": "P9-T4 post-apply shadow test matches (status + body hash); cutover documents DNS, TTL, verification, rollback",
+      "ok": true,
+      "verification": [
+        {
+          "url": "http://static.example.lab/",
+          "match": true,
+          "direct": {
+            "status": 200,
+            "latencyMs": 0,
+            "bodySha256": "30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1"
+          },
+          "domain": "static.example.lab",
+          "viaGateway": {
+            "status": 200,
+            "latencyMs": 0,
+            "bodySha256": "30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1"
+          }
+        }
+      ],
+      "cutover": {
+        "dnsChanges": [
+          {
+            "domain": "static.example.lab",
+            "mode": "hybrid",
+            "recordType": "A",
+            "target": "203.0.113.11",
+            "directTarget": "203.0.113.11",
+            "action": "none"
+          }
+        ],
+        "ttlAdvice": "Lower the TTL of every record you will change to 60 s at least one old-TTL period (e.g. 24 h) before the change; raise it again after the new target is verified.",
+        "verification": [
+          "curl -sS -o /dev/null -w '%{http_code}\\n' --resolve static.example.lab:80:203.0.113.20 http://static.example.lab/",
+          "dig +short A static.example.lab"
+        ],
+        "rollback": [
+          "Point each changed DNS record back to its directTarget (the app server).",
+          "Keep the direct origin serving the domain (do not stop or reconfigure its Nginx) until the old TTL has expired everywhere.",
+          "Then remove the gateway config: POST /api/v1/gateway-plans/01a20c9a-a5ee-7fd3-bb7d-fcd529ef2435/rollback (reverts the Nginx revision on the gateway)."
+        ],
+        "note": "pPanel never edits DNS. Make the DNS changes by hand at your DNS provider."
+      }
+    },
+    {
+      "step": "P9-T3 Center stopped: gateway still serves the hybrid route; route files + nginx master unchanged",
+      "ok": true,
+      "responses": [
+        "200 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1",
+        "200 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1",
+        "200 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1",
+        "200 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1",
+        "200 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1"
+      ],
+      "gateway": {
+        "files": "static.example.lab.conf\nedc22d3440f8fed9",
+        "masterPid": "7"
+      }
+    },
+    {
+      "step": "P9-T3 Center back: routes unchanged, plan still applied, gateway agent reconnected",
+      "ok": true,
+      "routes": 1
+    },
+    {
+      "step": "P9-T4 rollback: nginx revision reverted, the gateway no longer serves the route (direct origin untouched)",
+      "ok": true,
+      "status": "rolled_back",
+      "viaGatewayAfter": "000 30d387c499780ef840deb82f51230303c0312ece6c48321043fec55d673bcbc1",
+      "gateway": {
+        "files": "e3b0c44298fc1c14",
+        "masterPid": "7"
+      }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import type { AuthUser } from '../common/principal';
 import { buildWhere, type FieldMap, paginate, type ParsedQuery } from '../common/query-builder';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { JobNotifier } from '../jobs/job-notifier';
+import { hasHealthyPrivateProbe } from '../network/network-common';
 import { serverInclude, type ServerRow, statusWhere, toServer } from './server-view';
 
 const FIELDS: FieldMap = {
@@ -26,6 +27,7 @@ const FIELDS: FieldMap = {
   hostname: { prop: 'hostname', type: 'string' },
   created_at: { prop: 'createdAt', type: 'date' },
   last_heartbeat_at: { prop: 'lastHeartbeatAt', type: 'date' },
+  connection_policy: { prop: 'connectionPolicy', type: 'string' },
 };
 
 export function scopeOf(s: { id: string; environment: string }): ResourceScope {
@@ -71,7 +73,19 @@ export class ServersService {
   async list(user: AuthUser, pq: ParsedQuery) {
     const scope = this.authz.serverWhere(user, 'fleet.read');
     if (!scope) throw AppError.forbidden();
-    const and: Prisma.ServerWhereInput[] = [scope, buildWhere(pq, FIELDS, ['status'])];
+    const and: Prisma.ServerWhereInput[] = [scope, buildWhere(pq, FIELDS, ['status', 'tags'])];
+    // P9: `tags[contains]=x` / `tags=x` (has) and `tags[in]=a,b` (has some)
+    for (const f of pq.filters.filter((x) => x.field === 'tags')) {
+      const values = f.value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      if (values.some((v) => v.length > 32)) throw AppError.badRequest('tags: value too long');
+      if ((f.op === 'contains' || f.op === 'eq') && values.length === 1)
+        and.push({ tags: { has: values[0]! } });
+      else if (f.op === 'in' && values.length > 0) and.push({ tags: { hasSome: values } });
+      else throw AppError.badRequest('tags supports contains (one value), eq and in');
+    }
     for (const f of pq.filters.filter((x) => x.field === 'status')) {
       const values = f.op === 'in' ? f.value.split(',') : [f.value];
       if (f.op !== 'eq' && f.op !== 'in') throw AppError.badRequest('status supports eq and in');
@@ -134,10 +148,36 @@ export class ServersService {
     id: string,
     input: UpdateServerInput,
     ifMatch: number | undefined,
+    stepUpHeader?: string,
   ): Promise<Server> {
     const row = await this.load(user, id, 'servers.operate', 'servers.update');
     if (row.status === 'revoked')
       throw AppError.conflict('Server is revoked', ERROR_CODES.SERVER_REVOKED);
+    if (input.connectionPolicy !== undefined && input.connectionPolicy !== row.connectionPolicy) {
+      // P9: management path changes are privileged in production; private_only fails closed, so
+      // it needs proof that the private path works right now
+      if (row.environment === 'production' || input.environment === 'production')
+        this.auth.assertStepUp(user, stepUpHeader);
+      if (input.connectionPolicy === 'private_only' && !hasHealthyPrivateProbe(row.connection)) {
+        await this.audit.record({
+          actorId: user.id,
+          action: 'servers.connection_policy',
+          targetType: 'server',
+          targetId: id,
+          result: 'denied',
+          metadata: { reason: 'private_path_unverified', to: input.connectionPolicy },
+        });
+        throw new AppError(
+          422,
+          ERROR_CODES.PRIVATE_PATH_UNVERIFIED,
+          'private_only needs a healthy private-path probe reported within the last 5 minutes',
+          {
+            reportedAt: row.connection?.reportedAt.toISOString() ?? null,
+            maxAgeSec: 300,
+          },
+        );
+      }
+    }
     if (input.environment && input.environment !== row.environment) {
       // moving a server between environments requires operate rights on the destination too
       await this.authz.enforce(

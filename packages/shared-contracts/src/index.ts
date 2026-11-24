@@ -17,3 +17,4 @@ export * from './build';
 export * from './redaction';
 export * from './observability';
 export * from './backup';
+export * from './network';

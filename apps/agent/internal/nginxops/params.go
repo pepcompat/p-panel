@@ -25,6 +25,11 @@ const (
 	// ManagedIncludeFile is the ONE file outside ManagedDir that may be created
 	// ("enable managed routing": `include /etc/nginx/ppanel-managed/*/*.conf;`).
 	ManagedIncludeFile = "/etc/nginx/conf.d/ppanel-managed.conf"
+	// GatewayDir (P9) holds the Gateway route files rendered by the Center
+	// (one <domain>.conf each, depth 1 only). GatewayIncludeFile is the one
+	// include file for it (`include /etc/nginx/ppanel-gateway/*.conf;`).
+	GatewayDir         = "/etc/nginx/ppanel-gateway"
+	GatewayIncludeFile = "/etc/nginx/conf.d/ppanel-gateway.conf"
 	MaxFileBytes       = 262144
 	MaxFiles           = 20
 	MaxPostchecks      = 10
@@ -75,10 +80,14 @@ func ValidPath(p string) error {
 }
 
 // CreatableLogical is the lexical creation rule: new files only under
-// ManagedDir, plus exactly ManagedIncludeFile.
+// ManagedDir (depth <= 2) or GatewayDir (depth 1), plus exactly
+// ManagedIncludeFile and GatewayIncludeFile.
 func CreatableLogical(p string) bool {
-	return strings.HasPrefix(p, ManagedDir+"/") || p == ManagedIncludeFile
+	return managedDepthOK(p) || p == ManagedIncludeFile || p == GatewayIncludeFile
 }
+
+// createRule is the text used in "creating X is not allowed" errors.
+const createRule = "new files only under " + ManagedDir + "/ or " + GatewayDir + "/ (or " + ManagedIncludeFile + ", " + GatewayIncludeFile + ")"
 
 // ValidContent enforces size / UTF-8 / NUL rules for new file content.
 func ValidContent(path, c string) error {
@@ -191,7 +200,7 @@ func decodeFiles(ws []fileChangeWire) ([]FileChange, error) {
 			return nil, err
 		}
 		if sha == nil && !CreatableLogical(*w.Path) {
-			return nil, pathErr("creating %s is not allowed: new files only under %s/ (or %s)", *w.Path, ManagedDir, ManagedIncludeFile)
+			return nil, pathErr("creating %s is not allowed: %s", *w.Path, createRule)
 		}
 		out = append(out, FileChange{Path: *w.Path, ExpectedSha256Before: sha, Content: *w.Content})
 	}

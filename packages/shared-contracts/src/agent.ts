@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  agentProviderFactsSchema,
+  type GatewayEndpoint,
+  heartbeatConnectionSchema,
+  type HeartbeatConnectionDirective,
+} from './network';
 
 export const AGENT_PROTOCOL_VERSION = '1';
 
@@ -37,6 +43,8 @@ export const agentEnrollSchema = z.object({
     .object({
       os: osFacts.optional(),
       agentVersion: z.string().max(64).optional(),
+      /** P9: DigitalOcean metadata facts (null/absent = not a DO droplet or metadata unreachable) */
+      provider: agentProviderFactsSchema.nullish().catch(null),
     })
     .strip()
     .optional(),
@@ -48,6 +56,8 @@ export interface AgentEnrollResponse {
   certificatePem: string;
   caPem: string;
   gatewayUrl: string;
+  /** P9: every advertised management path (public always; private when configured) */
+  gatewayEndpoints: GatewayEndpoint[];
   heartbeatIntervalSec: number;
 }
 
@@ -144,6 +154,11 @@ export const heartbeatSchema = z.object({
   ),
   runningJobIds: z.preprocess(nullAsEmpty, z.array(z.string().uuid()).max(100).default([])),
   os: osFacts.optional(),
+  /** P9: per-endpoint probe results (absent = agent does not probe yet) */
+  // a malformed P9 block is ignored (never fails the heartbeat → the server would look offline)
+  connection: heartbeatConnectionSchema.optional().catch(undefined),
+  /** P9: DigitalOcean metadata facts (null = metadata absent; undefined = not reported) */
+  provider: agentProviderFactsSchema.nullish().catch(undefined),
 });
 export type HeartbeatInput = z.infer<typeof heartbeatSchema>;
 
@@ -152,6 +167,8 @@ export interface HeartbeatResponse {
   heartbeatIntervalSec: number;
   /** ISO time after which the agent should call /agent/v1/certificate/rotate. */
   certRenewAfter: string;
+  /** P9: connection policy + advertised endpoints (agent persists it as connection.json, 0600) */
+  connection: HeartbeatConnectionDirective;
 }
 
 export const certificateRotateSchema = z

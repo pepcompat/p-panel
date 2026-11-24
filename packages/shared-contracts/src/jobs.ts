@@ -23,6 +23,12 @@ export const nginxPathSchema = z.string().regex(NGINX_PATH_RE).refine(isCanonica
 });
 /** Files pPanel may create (never pre-existing operator files). */
 export const NGINX_MANAGED_DIR = '/etc/nginx/ppanel-managed/';
+/** P9: managed Gateway reverse-proxy files (one `<domain>.conf` each), created only by gateway plans. */
+export const NGINX_GATEWAY_DIR = '/etc/nginx/ppanel-gateway/';
+/** P9: the one conf.d file a gateway plan creates: `include /etc/nginx/ppanel-gateway/*.conf;`. */
+export const GATEWAY_INCLUDE_CONF_PATH = '/etc/nginx/conf.d/ppanel-gateway.conf';
+export const GATEWAY_INCLUDE_CONF_CONTENT =
+  '# Managed by pPanel (P9 gateway routing). Do not edit.\ninclude /etc/nginx/ppanel-gateway/*.conf;\n';
 export const NGINX_MAX_FILE_BYTES = 262144;
 export const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -492,6 +498,88 @@ export const restoreRunParams = z
   })
   .strict();
 
+// ---- P9: network diagnostics + HTTP probes (read-only; see docs/P9_NETWORK_CONTRACT.md §4, §5) ----
+
+/** Same rule as deploy.ts HOSTNAME_RE (duplicated here to avoid a circular import). */
+export const PROBE_HOSTNAME_RE =
+  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+/** Ports `network.diagnose` may dial without an explicit `allowedPorts` entry. */
+export const DIAGNOSE_DEFAULT_PORTS = [22, 80, 443, 4443, 4444, 5432, 6379, 3306] as const;
+
+function v4Int(ip: string): number {
+  return ip.split('.').reduce((a, o) => (a << 8) + Number(o), 0) >>> 0;
+}
+function v4In(ip: string, base: string, bits: number): boolean {
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return (v4Int(ip) & mask) === (v4Int(base) & mask);
+}
+const IPV4_LITERAL_RE =
+  /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+export function isIpv4Literal(v: string): boolean {
+  return IPV4_LITERAL_RE.test(v);
+}
+/**
+ * Private targets `network.diagnose` may dial: RFC 1918, CGNAT 100.64/10 and IPv6 fd00::/8.
+ * (Loopback, link-local, metadata and public addresses are refused unless they are a Center endpoint.)
+ */
+export function isDiagnosePrivateAddress(ip: string): boolean {
+  if (isIpv4Literal(ip))
+    return (
+      v4In(ip, '10.0.0.0', 8) ||
+      v4In(ip, '172.16.0.0', 12) ||
+      v4In(ip, '192.168.0.0', 16) ||
+      v4In(ip, '100.64.0.0', 10)
+    );
+  return /^fd[0-9a-f]{2}:/i.test(ip);
+}
+
+export const networkDiagnoseParams = z
+  .object({
+    resolve: z.array(z.string().max(253).regex(PROBE_HOSTNAME_RE)).max(10).default([]),
+    tcp: z
+      .array(z.object({ host: z.string().ip(), port: z.number().int().min(1).max(65535) }).strict())
+      .max(20)
+      .default([]),
+    includeRoutes: z.boolean().default(false),
+    /** App host ports the Center explicitly allows for this run (besides DIAGNOSE_DEFAULT_PORTS). */
+    allowedPorts: z.array(z.number().int().min(1).max(65535)).max(20).default([]),
+  })
+  .strict();
+export type NetworkDiagnoseParams = z.infer<typeof networkDiagnoseParams>;
+
+/** Ports `http.probe` may target without an `allowedPorts` entry (agent ProbePorts). */
+export const HTTP_PROBE_DEFAULT_PORTS = [80, 443, 8080, 8443] as const;
+/** `http://<hostname>[/path]` (or https) — the hostname is only the Host/SNI; the agent dials `resolveTo`. */
+export const HTTP_PROBE_URL_RE =
+  /^https?:\/\/(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\/[A-Za-z0-9._~\/?=&%-]{0,200})?$/;
+export const httpProbeParams = z
+  .object({
+    url: z.string().max(470).regex(HTTP_PROBE_URL_RE),
+    /**
+     * The ONLY address the agent connects to (Host/SNI come from `url`; no DNS lookup). The agent
+     * requires a private-range literal (RFC 1918, 100.64/10, fd00::/8).
+     */
+    resolveTo: z.string().ip(),
+    /** Port on `resolveTo` (default 80 / 443 by scheme). */
+    port: z.number().int().min(1).max(65535).optional(),
+    method: z.enum(['GET', 'HEAD']).default('GET'),
+    expectStatus: z.array(z.number().int().min(100).max(599)).min(1).max(10).default([200]),
+    timeoutSec: z.number().int().min(1).max(10).default(10),
+    /** Ports the Center allows for this probe besides HTTP_PROBE_DEFAULT_PORTS (e.g. a backend port). */
+    allowedPorts: z.array(z.number().int().min(1).max(65535)).max(20).default([]),
+  })
+  .strict();
+export type HttpProbeParams = z.infer<typeof httpProbeParams>;
+/** `http.probe` output (body read ≤ 1 MiB, redirects never followed). */
+export interface HttpProbeResult {
+  status: number | null;
+  latencyMs: number | null;
+  bodySha256: string | null;
+  bytesRead?: number;
+  truncated?: boolean;
+  error?: string;
+}
+
 export const DISCOVERY_SOURCES = ['nginx', 'docker', 'systemd', 'php-fpm', 'ports'] as const;
 
 export const JOB_STATUSES = [
@@ -644,6 +732,10 @@ export const JOB_TYPES = {
   },
   /** Restore a snapshot (staging/scratch by default; in_place only after Center approval). */
   'restore.run': { mutating: true, params: restoreRunParams },
+  /** P9 read-only: interfaces, routes, DNS and TCP reachability (never changes OS config). */
+  'network.diagnose': { mutating: false, params: networkDiagnoseParams },
+  /** P9 read-only: GET/HEAD with Host/SNI override to a fixed address (no redirects, ≤ 1 MiB). */
+  'http.probe': { mutating: false, params: httpProbeParams },
 } as const;
 
 /** Agent result error codes added in P6. */

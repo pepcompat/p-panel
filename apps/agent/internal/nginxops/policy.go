@@ -110,7 +110,7 @@ func (m *Manager) resolve(logical string, write bool) (*target, error) {
 				break
 			}
 			missing = append([]string{base}, missing...)
-			if base == ManagedDir {
+			if base == ManagedDir || base == GatewayDir {
 				base = LogicalRoot
 				break
 			}
@@ -126,6 +126,12 @@ func (m *Manager) resolve(logical string, write bool) (*target, error) {
 		t.CreateDirs = missing
 		rel, _ := filepath.Rel(base, filepath.Dir(logical))
 		rparent = filepath.Join(rbase, rel)
+	case errors.Is(err, fs.ErrNotExist) && !write && managedDepthOK(logical):
+		// read_files of a managed file whose directory does not exist yet (e.g. the
+		// first gateway plan): report it as absent instead of refusing the read.
+		// Nothing is read; the resolved path is the lexical one under the real root.
+		return &target{Logical: logical, Phys: t.Phys, ResolvedLogical: logical,
+			ResolvedPhys: filepath.Join(rroot, strings.TrimPrefix(logical, LogicalRoot+"/"))}, nil
 	default:
 		return nil, pathErr("%s: parent directory does not exist or is not accessible", logical)
 	}
@@ -144,7 +150,12 @@ func (m *Manager) resolve(logical string, write bool) (*target, error) {
 
 	// Creation is only allowed when the parent really resolves under ppanel-managed
 	// (catches a ppanel-managed symlinked to another directory).
-	t.ResolvedInManaged = under(rparent, filepath.Join(rroot, filepath.Base(ManagedDir)))
+	if strings.HasPrefix(logical, GatewayDir+"/") {
+		// P9 gateway files: the resolved parent must be exactly the real ppanel-gateway dir (depth 1).
+		t.ResolvedInManaged = rparent == filepath.Join(rroot, filepath.Base(GatewayDir))
+	} else {
+		t.ResolvedInManaged = under(rparent, filepath.Join(rroot, filepath.Base(ManagedDir)))
+	}
 	li, err := os.Lstat(t.Phys)
 	if errors.Is(err, fs.ErrNotExist) {
 		return t, nil
@@ -177,20 +188,31 @@ func (m *Manager) resolve(logical string, write bool) (*target, error) {
 	return t, nil
 }
 
-// managedDepthOK: logical is ppanel-managed/<file> or ppanel-managed/<dir>/<file>.
+// managedDepthOK: logical is ppanel-managed/<file>, ppanel-managed/<dir>/<file>
+// or (P9) ppanel-gateway/<file> (depth 1 only).
 func managedDepthOK(logical string) bool {
-	rest, ok := strings.CutPrefix(logical, ManagedDir+"/")
-	return ok && strings.Count(rest, "/") <= 1
+	if rest, ok := strings.CutPrefix(logical, ManagedDir+"/"); ok {
+		return rest != "" && strings.Count(rest, "/") <= 1
+	}
+	if rest, ok := strings.CutPrefix(logical, GatewayDir+"/"); ok {
+		return rest != "" && !strings.Contains(rest, "/")
+	}
+	return false
 }
 
 // creatable is the filesystem creation rule: the resolved parent is really
 // ppanel-managed (or a direct subdirectory of it), or the target is exactly
 // ManagedIncludeFile in the real conf.d directory (not reached via a symlink).
 func (t *target) creatable() bool {
-	if strings.HasPrefix(t.Logical, ManagedDir+"/") && managedDepthOK(t.Logical) {
+	if managedDepthOK(t.Logical) {
 		return t.ResolvedInManaged
 	}
-	return t.Logical == ManagedIncludeFile && t.ResolvedLogical == ManagedIncludeFile && !t.IsSymlink
+	for _, inc := range []string{ManagedIncludeFile, GatewayIncludeFile} {
+		if t.Logical == inc && t.ResolvedLogical == inc && !t.IsSymlink {
+			return true
+		}
+	}
+	return false
 }
 
 // load reads an existing regular file. It opens the RESOLVED physical path

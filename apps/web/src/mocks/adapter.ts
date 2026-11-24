@@ -24,6 +24,13 @@ import { registerP4Routes, resetP4State } from './p4-routes';
 import { registerP4bRoutes, resetP4bState } from './p4b-routes';
 import { registerP5Routes, resetP5State } from './p5-routes';
 import { registerP6Routes, resetP6State } from './p6-routes';
+import {
+  beforeServerPatch,
+  decorateP9,
+  filterP9,
+  registerP9Routes,
+  resetP9State,
+} from './p9-routes';
 
 const SESSION_KEY = 'ppanel.mock.session';
 const NOT_BOOTSTRAPPED_KEY = 'ppanel.mock.notBootstrapped';
@@ -66,6 +73,7 @@ export function resetMockState() {
   resetP4bState();
   resetP5State();
   resetP6State();
+  resetP9State();
   safeSession()?.removeItem(SESSION_KEY);
 }
 
@@ -165,7 +173,8 @@ function withAllowedActions(u: MockUser, s: Server): Server {
     if (hasPermFor(u, 'servers.revoke', s)) actions.push('revoke');
     if (live && hasPermFor(u, 'ssh.connect', s)) actions.push('open_terminal');
   }
-  return { ...s, allowedActions: actions };
+  // P9: groupName / connection probes / network view (additive fields)
+  return { ...decorateP9(s), allowedActions: actions };
 }
 
 function currentUser(req: Request): MockUser {
@@ -396,18 +405,21 @@ on('GET', '/servers', ({ req, url, requestId }) => {
   const env = url.searchParams.get('environment');
   const status = url.searchParams.get('status');
   const q = url.searchParams.get('q')?.toLowerCase();
-  const items = db()
-    .servers.filter((s) => hasPermFor(u, 'fleet.read', s))
-    .filter((s) => !env || s.environment === env)
-    .filter((s) => !status || s.status === status)
-    .filter(
-      (s) =>
-        !q ||
-        s.name.includes(q) ||
-        s.tags.some((t) => t.includes(q)) ||
-        s.addresses.some((a) => a.address.includes(q)),
-    )
-    .map((s) => withAllowedActions(u, s));
+  const items = filterP9(
+    db()
+      .servers.filter((s) => hasPermFor(u, 'fleet.read', s))
+      .filter((s) => !env || s.environment === env)
+      .filter((s) => !status || s.status === status)
+      .filter(
+        (s) =>
+          !q ||
+          s.name.includes(q) ||
+          s.tags.some((t) => t.includes(q)) ||
+          s.addresses.some((a) => a.address.includes(q)),
+      )
+      .map((s) => withAllowedActions(u, s)),
+    url,
+  );
   const { slice, paginate: p } = paginate(items, url);
   return ok(requestId, slice, 200, p);
 });
@@ -455,6 +467,8 @@ on('PATCH', '/servers/:id', ({ req, params, body, requestId }) => {
         'The agent does not report the build capability (enable builds in its local config).',
     });
   if (details.length) throw new HttpError(422, 'VALIDATION_FAILED', 'Validation failed', details);
+  // P9: production policy change needs step-up; private_only needs a fresh private probe; groupId.
+  beforeServerPatch(u, s, body, req, requestId);
   Object.assign(s, {
     ...(body.buildNode !== undefined ? { buildNode: body.buildNode } : {}),
     ...(body.name !== undefined ? { name: body.name, hostname: s.hostname } : {}),
@@ -625,6 +639,8 @@ registerP4bRoutes(p3ctx);
 registerP5Routes(p3ctx);
 // ---------- P6: backups / snapshots / restores ----------
 registerP6Routes(p3ctx);
+// ---------- P9: groups / network inventory / diagnostics / gateways ----------
+registerP9Routes(p3ctx);
 
 /** fetch-compatible entry point. */
 export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

@@ -7,6 +7,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/ppanel/ppanel/apps/agent/internal/provider"
 )
 
 // OS describes the host operating system.
@@ -22,6 +24,9 @@ type OS struct {
 type Facts struct {
 	OS           OS     `json:"os"`
 	AgentVersion string `json:"agentVersion"`
+	// Provider (P9) is the cloud-provider fact from the DigitalOcean metadata
+	// service; null when absent or disabled.
+	Provider *provider.Info `json:"provider"`
 }
 
 // OSReleasePath is overridable for tests.

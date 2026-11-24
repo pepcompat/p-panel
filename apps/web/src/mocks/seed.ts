@@ -299,6 +299,12 @@ export function seedServers(): Server[] {
       provider: { name: 'digitalocean', region: 'sgp1', dropletId: s.droplet, vpcUuid: s.vpc },
       addresses,
       connectionPolicy: s.policy,
+      // P9 fields: filled in by the P9 mock (mocks/p9-routes.ts decorateP9) on every read.
+      groupName: null,
+      publicIpv4: s.pub,
+      privateIpv4: s.priv,
+      connection: { policy: s.policy, activePath: null, endpoints: [], reportedAt: null },
+      network: { region: 'sgp1', vpcUuid: null, vpcName: null, vpcSource: null },
       metrics: s.metrics
         ? {
             cpuPct: s.metrics[0],

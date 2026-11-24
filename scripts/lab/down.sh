@@ -10,6 +10,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 remove_images=0
 [[ "${1:-}" == "--images" ]] && remove_images=1
 
+# P9 (profile p9): detach the nodes from the VPC networks and remove the p9 services first (no-op if not up)
+if docker ps -a -q --filter "name=^ppanel-lab-(center-private|do-fake|gateway)$" | grep -q .; then
+  "$(dirname "${BASH_SOURCE[0]}")/p9-net.sh" down
+fi
 log "stopping project ${LAB_PROJECT} (containers + network + project volumes)"
 lab_compose down --volumes --remove-orphans --timeout 10
 

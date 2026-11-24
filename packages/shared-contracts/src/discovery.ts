@@ -131,6 +131,8 @@ export const APPLICATION_KINDS = [
   'container',
   /** P4b: managed Compose application (normalised plan executed by compose.apply). */
   'compose',
+  /** P9: Gateway reverse-proxy config (files rendered by gateway plans only). */
+  'gateway',
 ] as const;
 export type ApplicationKind = (typeof APPLICATION_KINDS)[number];
 

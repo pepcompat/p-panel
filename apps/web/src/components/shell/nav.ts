@@ -44,7 +44,6 @@ export const NAV: NavItem[] = [
     href: '/network',
     label: 'nav.network',
     section: 'nav.section.infrastructure',
-    preview: true,
   },
   {
     id: 'firewall',

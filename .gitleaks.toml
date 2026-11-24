@@ -6,7 +6,8 @@ useDefault = true
 [allowlist]
 description = "pPanel non-secret identifiers and redaction fixtures"
 # Nginx server-block IDs produced by the agent's discovery scanner (srv_ + 12 hex), e.g. in mock data.
-regexes = ['''^srv_[0-9a-f]{12}$''']
+# P9 web: TanStack query keys (p9k.*) and i18n keys (p9.*) look like `key: …` assignments.
+regexes = ['''^srv_[0-9a-f]{12}$''', '''^p9k?\.[A-Za-z][A-Za-z0-9.]*$''']
 regexTarget = "secret"
 # Redaction test fixtures: these exact files intentionally contain FAKE secrets to prove they get
 # redacted (P5-T03). Keep this list to exact files, never directories.
@@ -20,4 +21,6 @@ paths = [
   '''^tests/security/authz/probes\.ts$''',
   '''^tests/security/lib/world\.ts$''',
   '''^tests/security/ssrf/ssrf\.spec\.ts$''',
+  '''^apps/web/tests/e2e/p9\.spec\.ts$''',
+  '''^apps/web/tests/unit/p9-mock\.test\.ts$''',
 ]

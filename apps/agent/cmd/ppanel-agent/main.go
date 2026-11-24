@@ -24,6 +24,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/backupops"
 	"github.com/ppanel/ppanel/apps/agent/internal/buildops"
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
+	"github.com/ppanel/ppanel/apps/agent/internal/connpath"
 	"github.com/ppanel/ppanel/apps/agent/internal/containerops"
 	"github.com/ppanel/ppanel/apps/agent/internal/docker"
 	"github.com/ppanel/ppanel/apps/agent/internal/enroll"
@@ -35,6 +36,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/logship"
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/nginxops"
+	"github.com/ppanel/ppanel/apps/agent/internal/provider"
 	"github.com/ppanel/ppanel/apps/agent/internal/redact"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/transport"
@@ -157,13 +159,33 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	id, err := enroll.Run(ctx, enroll.Options{CenterURL: *center, Token: *token, StateDir: cfg.StateDir, CAFile: *caFile, Force: *force})
+	id, err := enroll.Run(ctx, enroll.Options{CenterURL: *center, Token: *token, StateDir: cfg.StateDir, CAFile: *caFile, Force: *force,
+		Provider: providerFacts(cfg, nil)})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	fmt.Fprintf(stdout, "enrolled: serverId=%s gateway=%s stateDir=%s\n", id.ServerID, id.GatewayURL, cfg.StateDir)
 	return 0
+}
+
+// providerFacts returns the P9 provider fact source (DigitalOcean metadata,
+// link-local, 2 s, no redirects), or nil when disabled in the local config.
+func providerFacts(cfg *config.Config, log *slog.Logger) func(ctx context.Context) *provider.Info {
+	if cfg.Provider.MetadataDisabled {
+		return nil
+	}
+	cl := provider.NewDO(cfg.Provider.MetadataURL)
+	return func(ctx context.Context) *provider.Info {
+		in, err := cl.Fetch(ctx)
+		if err != nil {
+			if log != nil {
+				log.Debug("no provider metadata", "error", err.Error())
+			}
+			return nil
+		}
+		return in
+	}
 }
 
 func loadCfg(args []string, name string, stderr io.Writer) (*config.Config, *flag.FlagSet, bool) {
@@ -290,7 +312,12 @@ func cmdRun(args []string, stderr io.Writer) int {
 	var a *agent.Agent
 	ctr := containerops.New(containerops.Options{Engine: docker.NewEngine(cfg.DockerSocket), Log: log.With("component", "containers"),
 		Secrets: func(ctx context.Context) (*transport.JobSecrets, error) { return fetchSecrets(ctx, a) }})
-	deps := &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx, Containers: ctr}
+	deps := &handlers.Deps{Host: env, Sampler: sampler, OwnedUnits: cfg.OwnedUnitSet, Nginx: ngx, Containers: ctr,
+		// P9 network.diagnose / http.probe: Center endpoints come from the agent's connection manager.
+		Network: &handlers.NetworkDeps{
+			Endpoints:   func() []connpath.Endpoint { return a.Conn().Endpoints() },
+			ProbeCenter: func(ctx context.Context) []connpath.ProbeResult { return a.Conn().ProbeNow(ctx) },
+		}}
 	// image.build / source.inspect: only when the operator enabled builds in the LOCAL
 	// config. Only then does the agent hold an Engine that may call /build and push.
 	if cfg.Build.Enabled {
@@ -328,7 +355,7 @@ func cmdRun(args []string, stderr io.Writer) int {
 	}
 	handlers.RegisterAll(reg, deps)
 	opts := agent.Options{Config: cfg, Registry: reg, Host: env, Sampler: sampler, Logger: log,
-		Containers: &logship.Collector{Docker: docker.New(cfg.DockerSocket)}}
+		Containers: &logship.Collector{Docker: docker.New(cfg.DockerSocket)}, Provider: providerFacts(cfg, log)}
 	if pipe != nil {
 		opts.Logs = pipe
 	}

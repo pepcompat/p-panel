@@ -15,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ppanel/ppanel/apps/agent/internal/connpath"
 	"github.com/ppanel/ppanel/apps/agent/internal/facts"
+	"github.com/ppanel/ppanel/apps/agent/internal/provider"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
@@ -37,6 +39,8 @@ type Options struct {
 	Force bool
 	// HTTPClient overrides the client (tests).
 	HTTPClient *http.Client
+	// Provider returns the P9 provider fact (nil func or nil result = null).
+	Provider func(ctx context.Context) *provider.Info
 }
 
 // Request is the enrollment request body.
@@ -54,6 +58,9 @@ type Response struct {
 	CAPem                string `json:"caPem"`
 	GatewayURL           string `json:"gatewayUrl"`
 	HeartbeatIntervalSec int    `json:"heartbeatIntervalSec"`
+	// GatewayEndpoints (P9) lists every advertised management path; absent
+	// from older Centers (gatewayUrl alone = the public path).
+	GatewayEndpoints []connpath.Endpoint `json:"gatewayEndpoints,omitempty"`
 }
 
 // ValidateCenterURL enforces https unless PPANEL_DEV_INSECURE_ENROLL=1.
@@ -122,6 +129,9 @@ func Run(ctx context.Context, o Options) (*state.Identity, error) {
 	cl := &transport.Client{BaseURL: u.String(), HTTP: hc}
 	req := Request{Token: o.Token, CSRPem: string(csr), Hostname: host,
 		Facts: facts.Facts{OS: facts.Collect(), AgentVersion: version.Version}}
+	if o.Provider != nil {
+		req.Facts.Provider = o.Provider(ctx)
+	}
 	var resp Response
 	if err := cl.Do(ctx, http.MethodPost, "/api/v1/agent/enroll", req, &resp); err != nil {
 		return nil, fmt.Errorf("enroll: %w", err)
@@ -141,6 +151,10 @@ func Run(ctx context.Context, o Options) (*state.Identity, error) {
 	}
 	id := &state.Identity{ServerID: resp.ServerID, GatewayURL: strings.TrimRight(resp.GatewayURL, "/"),
 		HeartbeatIntervalSec: resp.HeartbeatIntervalSec, EnrolledAt: time.Now().UTC()}
+	// P9: fresh management-path state (replaces any state of a previous enrollment).
+	if err := connpath.SaveEnrollment(o.StateDir, id.GatewayURL, resp.GatewayEndpoints); err != nil {
+		return nil, fmt.Errorf("enroll: %w", err)
+	}
 	if err := dir.SaveIdentity(id); err != nil {
 		return nil, err
 	}
@@ -154,6 +168,11 @@ func verifyResponse(r *Response, key crypto.Signer) error {
 	gu, err := url.Parse(r.GatewayURL)
 	if err != nil || gu.Scheme != "https" || gu.Host == "" {
 		return fmt.Errorf("enroll: gatewayUrl must be https, got %q", r.GatewayURL)
+	}
+	if len(r.GatewayEndpoints) > 0 {
+		if _, err := connpath.ValidateEndpoints(r.GatewayEndpoints); err != nil {
+			return fmt.Errorf("enroll: gatewayEndpoints: %w", err)
+		}
 	}
 	leaf, err := state.ParseCert([]byte(r.CertificatePem))
 	if err != nil {

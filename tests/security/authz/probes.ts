@@ -557,6 +557,92 @@ export const PROBES: Probe[] = [
   r('POST /api/v1/server-groups', () => '/api/v1/server-groups', {
     body: () => ({ name: 'probe-group' }),
   }),
+  r('GET /api/v1/server-groups/:id', (i) => `/api/v1/server-groups/${i.groupA}`, {
+    globalRead: 'server groups are global, non-secret metadata (SEC-P7-A1)',
+  }),
+  r('PATCH /api/v1/server-groups/:id', (i) => `/api/v1/server-groups/${i.groupA}`, {
+    body: () => ({ name: 'pwned-group' }),
+  }),
+  r('DELETE /api/v1/server-groups/:id', (i) => `/api/v1/server-groups/${i.groupA}`),
+
+  // ------------------------------------------------------------------ P9 provider / network
+  r('GET /api/v1/provider-integrations', () => '/api/v1/provider-integrations'),
+  r('POST /api/v1/provider-integrations', () => '/api/v1/provider-integrations', {
+    body: () => ({ provider: 'digitalocean', name: 'probe', token: 'TEST_FAKE_PROBE_TOKEN' }),
+  }),
+  r(
+    'DELETE /api/v1/provider-integrations/:id',
+    (i) => `/api/v1/provider-integrations/${i.provider}`,
+  ),
+  r(
+    'POST /api/v1/provider-integrations/:id/sync',
+    (i) => `/api/v1/provider-integrations/${i.provider}/sync`,
+    { body: () => ({}) },
+  ),
+  r('POST /api/v1/network/inventory', () => '/api/v1/network/inventory', {
+    body: (i) => ({ rows: [{ serverId: i.serverA, vpcUuid: 'pwned' }] }),
+    scopedValidationOk:
+      'a server of another scope resolves like an unknown one (422 INVENTORY_SERVER_UNRESOLVED, no oracle, nothing written)',
+  }),
+  r('GET /api/v1/network/topology', () => '/api/v1/network/topology'),
+  r('POST /api/v1/network/connectivity-tests', () => '/api/v1/network/connectivity-tests', {
+    body: (i) => ({ fromServerId: i.serverA, toServerId: i.serverB, port: 22 }),
+  }),
+  r(
+    'POST /api/v1/servers/:id/network-diagnostics',
+    (i) => `/api/v1/servers/${i.serverA}/network-diagnostics`,
+    { body: () => ({ tcp: [{ host: '10.77.0.2', port: 22 }] }) },
+  ),
+  r(
+    'GET /api/v1/servers/:id/network-diagnostics',
+    (i) => `/api/v1/servers/${i.serverA}/network-diagnostics`,
+  ),
+  r('GET /api/v1/network-diagnostics/:testId', (i) => `/api/v1/network-diagnostics/${i.diagTestA}`),
+
+  // ------------------------------------------------------------------ P9 gateways
+  r('GET /api/v1/gateways', () => '/api/v1/gateways'),
+  r('POST /api/v1/gateways', () => '/api/v1/gateways', {
+    body: (i) => ({ serverId: i.serverA, name: 'probe-gw' }),
+    scopedValidationOk:
+      'a server of another scope looks like an unknown server (422 VALIDATION_FAILED, no oracle)',
+  }),
+  r('GET /api/v1/gateways/:id', (i) => `/api/v1/gateways/${i.gatewayA}`),
+  r('DELETE /api/v1/gateways/:id', (i) => `/api/v1/gateways/${i.gatewayA}`),
+  r('GET /api/v1/gateways/:id/routes', (i) => `/api/v1/gateways/${i.gatewayA}/routes`),
+  r('POST /api/v1/gateways/:id/routes', (i) => `/api/v1/gateways/${i.gatewayA}/routes`, {
+    body: (i) => ({ domain: 'probe.example.test', backends: [{ serverId: i.serverB, port: 80 }] }),
+  }),
+  r(
+    'PATCH /api/v1/gateways/:id/routes/:routeId',
+    (i) => `/api/v1/gateways/${i.gatewayA}/routes/${i.routeA}`,
+    { body: () => ({ mode: 'gateway' }) },
+  ),
+  r(
+    'DELETE /api/v1/gateways/:id/routes/:routeId',
+    (i) => `/api/v1/gateways/${i.gatewayA}/routes/${i.routeA}`,
+  ),
+  r('GET /api/v1/gateways/:id/plans', (i) => `/api/v1/gateways/${i.gatewayA}/plans`),
+  r('POST /api/v1/gateways/:id/plans', (i) => `/api/v1/gateways/${i.gatewayA}/plans`, {
+    body: () => ({}),
+  }),
+  r('GET /api/v1/gateway-plans/:id', (i) => `/api/v1/gateway-plans/${i.planA}`),
+  r(
+    'POST /api/v1/gateway-plans/:id/shadow-test',
+    (i) => `/api/v1/gateway-plans/${i.planA}/shadow-test`,
+    { body: () => ({}) },
+  ),
+  r('POST /api/v1/gateway-plans/:id/approve', (i) => `/api/v1/gateway-plans/${i.planA}/approve`, {
+    body: () => ({ planHash: H('7') }),
+  }),
+  r('POST /api/v1/gateway-plans/:id/apply', (i) => `/api/v1/gateway-plans/${i.planA}/apply`, {
+    body: () => ({}),
+  }),
+  r('POST /api/v1/gateway-plans/:id/rollback', (i) => `/api/v1/gateway-plans/${i.planA}/rollback`, {
+    body: () => ({}),
+  }),
+  r('POST /api/v1/gateway-plans/:id/cancel', (i) => `/api/v1/gateway-plans/${i.planA}/cancel`, {
+    body: () => ({}),
+  }),
   r('GET /api/v1/servers', () => '/api/v1/servers'),
   r('GET /api/v1/servers/:id', (i) => `/api/v1/servers/${i.serverA}`),
   r('PATCH /api/v1/servers/:id', (i) => `/api/v1/servers/${i.serverA}`, {

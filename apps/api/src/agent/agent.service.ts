@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   type AgentEnrollInput,
   type AgentEnrollResponse,
+  type ConnectionPolicy,
   ERROR_CODES,
   HEARTBEAT_INTERVAL_SEC,
   type HeartbeatInput,
@@ -18,6 +19,7 @@ import { APP_CONFIG, type AppConfig } from '../config/config';
 import { JobsService } from '../jobs/jobs.service';
 import { CaService, normalizeSerial } from '../pki/ca.service';
 import { TelemetryService } from '../observability/telemetry.service';
+import { agentProviderJson, upsertAgentInventory } from '../network/network-common';
 
 export interface AgentIdentity {
   serverId: string;
@@ -25,6 +27,8 @@ export interface AgentIdentity {
   serial: string;
   notBefore: Date;
   notAfter: Date;
+  /** P9: the server's connection policy at request time (gateway path enforcement) */
+  connectionPolicy: ConnectionPolicy;
 }
 
 const DEGRADED_PCT = 95;
@@ -73,11 +77,14 @@ export class AgentService {
           tags: enrollment.tags,
           status: 'enrolling',
           os: (input.facts?.os ?? undefined) as Prisma.InputJsonValue | undefined,
+          provider: agentProviderJson(input.facts?.provider ?? null),
           agentVersion: input.facts?.agentVersion ?? null,
           enrollmentId: enrollment.id,
         },
       });
       await tx.agentEnrollment.update({ where: { id: enrollment.id }, data: { serverId } });
+      if (input.facts?.provider)
+        await upsertAgentInventory(tx, serverId, input.facts.provider, now);
       const cert = await this.ca.issueAgentCert(csr, serverId);
       await tx.agentCertificate.create({
         data: {
@@ -121,6 +128,7 @@ export class AgentService {
       certificatePem: result.cert.certPem,
       caPem: this.ca.caPem,
       gatewayUrl: this.config.PPANEL_PUBLIC_GATEWAY_URL,
+      gatewayEndpoints: this.config.gatewayEndpoints,
       heartbeatIntervalSec: HEARTBEAT_INTERVAL_SEC,
     };
   }
@@ -138,7 +146,7 @@ export class AgentService {
     if (!serialRaw) throw fail();
     const cert = await this.prisma.agentCertificate.findUnique({
       where: { serial: normalizeSerial(serialRaw) },
-      include: { server: { select: { status: true } } },
+      include: { server: { select: { status: true, connectionPolicy: true } } },
     });
     if (!cert || cert.revokedAt || cert.notAfter <= new Date() || cert.server.status === 'revoked')
       throw fail();
@@ -149,6 +157,7 @@ export class AgentService {
       serial: cert.serial,
       notBefore: cert.notBefore,
       notAfter: cert.notAfter,
+      connectionPolicy: cert.server.connectionPolicy as ConnectionPolicy,
     };
   }
 
@@ -173,7 +182,7 @@ export class AgentService {
     const degraded = [m.cpuPct, m.memPct, m.diskPct].some(
       (v) => v !== undefined && v >= DEGRADED_PCT,
     );
-    await this.prisma.$transaction(async (tx) => {
+    const policy = await this.prisma.$transaction(async (tx) => {
       await tx.agentHeartbeat.create({
         data: {
           serverId: id.serverId,
@@ -184,8 +193,9 @@ export class AgentService {
           metrics: metrics as Prisma.InputJsonValue,
         },
       });
-      await tx.server.update({
+      const srv = await tx.server.update({
         where: { id: id.serverId },
+        select: { connectionPolicy: true },
         data: {
           status: degraded ? 'degraded' : 'online',
           lastHeartbeatAt: now,
@@ -194,8 +204,12 @@ export class AgentService {
           metrics: metrics as Prisma.InputJsonValue,
           metricsSampledAt: new Date(Math.min(new Date(hb.sentAt).getTime(), now.getTime())),
           ...(hb.os ? { os: hb.os as Prisma.InputJsonValue } : {}),
+          // P9: provider facts — null = metadata absent (cleared), undefined = not reported (kept)
+          ...(hb.provider !== undefined ? { provider: agentProviderJson(hb.provider) } : {}),
         },
       });
+      if (hb.provider !== undefined) await upsertAgentInventory(tx, id.serverId, hb.provider, now);
+      if (hb.connection) await this.storeConnection(tx, id.serverId, hb.connection, now);
       // detected addresses mirror the latest report; operator overrides are untouched
       const seen = hb.addresses.map((a) => a.address);
       await tx.serverAddress.deleteMany({
@@ -232,6 +246,7 @@ export class AgentService {
           skipDuplicates: true,
         });
       }
+      return srv.connectionPolicy as ConnectionPolicy;
     });
     await this.jobs.renewRunning(id.serverId, hb.runningJobIds);
     await this.telemetry.recordHeartbeat(id.serverId, hb, now);
@@ -240,7 +255,35 @@ export class AgentService {
       serverTime: now.toISOString(),
       heartbeatIntervalSec: HEARTBEAT_INTERVAL_SEC,
       certRenewAfter: new Date(id.notBefore.getTime() + Math.floor((life * 2) / 3)).toISOString(),
+      connection: { policy, endpoints: this.config.gatewayEndpoints },
     };
+  }
+
+  /** P9: latest endpoint probe report (only advertised paths are kept; urls are informational). */
+  private async storeConnection(
+    tx: Prisma.TransactionClient,
+    serverId: string,
+    c: NonNullable<HeartbeatInput['connection']>,
+    now: Date,
+  ): Promise<void> {
+    const endpoints = c.endpoints.map((e) => ({
+      path: e.path,
+      url: e.url,
+      ok: e.ok,
+      latencyMs: e.latencyMs ?? null,
+      checkedAt: new Date(e.checkedAt).toISOString(),
+      ...(e.error ? { error: e.error } : {}),
+    }));
+    const data = {
+      activePath: c.activePath ?? null,
+      endpoints: endpoints as Prisma.InputJsonValue,
+      reportedAt: now,
+    };
+    await tx.serverConnection.upsert({
+      where: { serverId },
+      create: { serverId, ...data },
+      update: data,
+    });
   }
 
   /** Issues a new cert for the same server identity; the old one stays valid until expiry unless revoked. */

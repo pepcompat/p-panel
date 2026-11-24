@@ -3,21 +3,16 @@
 import Link from 'next/link';
 import type { Server } from '@ppanel/shared-contracts';
 import { useT } from '@/i18n/provider';
-import { toneBorderTop } from '@/components/ui/badge';
+import { EnvBadge, OutlineTag, toneBorderTop } from '@/components/ui/badge';
 import { CopyButton } from '@/components/ui/copy-button';
 import { GatedButton } from '@/components/ui/gated-button';
-import { address, osLabel, providerLabel } from '@/lib/servers';
+import { AddressValue, ConnectionSummary, VpcLabel } from '@/components/p9/net-bits';
+import { regionOf } from '@/lib/p9-gates';
+import { address, envBadgeKey, osLabel, providerLabel } from '@/lib/servers';
 import { relativeTime } from '@/lib/time';
 import { AlertFiringBadge } from '@/components/p5/bits';
 import { cn } from '@/lib/utils';
-import {
-  PathBadge,
-  ServerMeters,
-  StatusBadge,
-  proposedOrOffline,
-  serverTone,
-  whyKey,
-} from './server-bits';
+import { ServerMeters, StatusBadge, proposedOrOffline, serverTone, whyKey } from './server-bits';
 
 export function ServerCard({
   server,
@@ -33,12 +28,7 @@ export function ServerCard({
   const pub = address(server, 'public');
   const priv = address(server, 'private');
   const why = whyKey(server);
-  const sub = [
-    providerLabel(server),
-    server.provider?.region,
-    osLabel(server),
-    server.tags.join(', '),
-  ]
+  const sub = [providerLabel(server), regionOf(server), osLabel(server), server.tags.join(', ')]
     .filter(Boolean)
     .join(' · ');
   const disk = server.metrics?.diskPct ?? null;
@@ -70,16 +60,40 @@ export function ServerCard({
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-1.5">
+        <EnvBadge
+          env={server.environment}
+          label={t(envBadgeKey(server.environment))}
+          className="px-1.5 py-0 text-[10.5px]"
+        />
+        {server.groupName ? (
+          <OutlineTag className="text-[11px]">
+            <span className="sr-only">{t('p9.group')}: </span>
+            <span data-testid="card-group">{server.groupName}</span>
+          </OutlineTag>
+        ) : (
+          <span className="text-[11px] text-fg-subtle">{t('p9.group.none')}</span>
+        )}
+      </div>
+
       <div className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-[3px] text-[12px]">
         <span className="text-fg-muted">{t('servers.col.public')}</span>
-        <span className="truncate font-mono">{pub?.address ?? t('card.noPublic')}</span>
+        <span className="min-w-0">
+          {pub || server.publicIpv4 ? (
+            <AddressValue server={server} scope="public" />
+          ) : (
+            <span className="font-mono">{t('card.noPublic')}</span>
+          )}
+        </span>
         {pub ? (
           <CopyButton text={pub.address} ariaLabel={t('card.copyPublic', { name: server.name })} />
         ) : (
           <span />
         )}
         <span className="text-fg-muted">{t('servers.col.private')}</span>
-        <span className="truncate font-mono">{priv?.address ?? '—'}</span>
+        <span className="min-w-0">
+          <AddressValue server={server} scope="private" />
+        </span>
         {priv ? (
           <CopyButton
             text={priv.address}
@@ -90,13 +104,15 @@ export function ServerCard({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <PathBadge server={server} className="text-[11.5px]" />
-        {server.provider?.vpcUuid && (
-          <span className="font-mono text-[11.5px] text-fg-muted" title={server.provider.vpcUuid}>
-            vpc {server.provider.vpcUuid.slice(0, 8)}
-          </span>
-        )}
+      <div className="flex flex-col gap-1.5 text-[12px]">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="w-[52px] shrink-0 text-fg-muted">{t('p9.card.path')}</span>
+          <ConnectionSummary server={server} now={now} />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="w-[52px] shrink-0 text-fg-muted">{t('p9.card.vpc')}</span>
+          <VpcLabel server={server} />
+        </div>
       </div>
 
       {diskAlert && <div className="text-[12px] font-medium text-crit">▲ {diskAlert}</div>}

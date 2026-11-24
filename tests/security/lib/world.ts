@@ -55,6 +55,12 @@ export interface WorldIds {
   targetUser: string;
   targetBinding: string;
   groupA: string;
+  // P9
+  provider: string;
+  gatewayA: string;
+  routeA: string;
+  planA: string;
+  diagTestA: string;
 }
 
 export interface World {
@@ -493,6 +499,93 @@ export async function buildWorld(
     },
   });
 
+  // ---------------------------------------------------------------- P9 network / gateway on A
+  const provider = uuidv7();
+  await db.providerIntegration.create({
+    data: {
+      id: provider,
+      provider: 'digitalocean',
+      name: 'do-global',
+      tokenEnc: encryptSecret(
+        t.config.masterKey,
+        `TEST_FAKE_DO_${MARK_A}`,
+        `provider_integration:${provider}`,
+      ),
+      apiBase: 'https://api.digitalocean.com',
+      status: 'ok',
+      createdBy: ownerId,
+    },
+  });
+  await db.serverNetworkInventory.create({
+    data: {
+      id: uuidv7(),
+      serverId: serverA,
+      source: 'inventory',
+      region: 'lab1',
+      vpcUuid: `vpc-${MARK_A.toLowerCase()}`,
+      vpcName: `vpcname-${MARK_A}`,
+      privateIpv4: '10.77.0.1',
+      observedAt: now,
+    },
+  });
+  const gwApp = uuidv7();
+  await db.application.create({
+    data: {
+      id: gwApp,
+      serverId: serverA,
+      name: 'ppanel-gateway',
+      kind: 'gateway',
+      ownershipMode: 'managed',
+      sourceFindingFingerprint: `gateway:server:${serverA}`,
+    },
+  });
+  const gatewayA = uuidv7();
+  await db.gateway.create({
+    data: {
+      id: gatewayA,
+      serverId: serverA,
+      name: `gw-${MARK_A.toLowerCase()}`,
+      applicationId: gwApp,
+      createdBy: ownerId,
+    },
+  });
+  const routeA = uuidv7();
+  await db.gatewayRoute.create({
+    data: {
+      id: routeA,
+      gatewayId: gatewayA,
+      domain: `r-${MARK_A.toLowerCase()}.example.test`,
+      mode: 'hybrid',
+      backends: [{ serverId: serverA, address: '10.77.0.1', port: 8080 }],
+    },
+  });
+  const planA = uuidv7();
+  await db.gatewayChangePlan.create({
+    data: {
+      id: planA,
+      gatewayId: gatewayA,
+      status: 'awaiting_approval',
+      routesSnapshot: [],
+      rendered: [],
+      planHash: hex64('7'),
+      shadowResults: [],
+      createdBy: ownerId,
+    },
+  });
+  const diagTestA = uuidv7();
+  await db.networkConnectivityTest.create({
+    data: {
+      id: diagTestA,
+      serverId: serverA,
+      kind: 'diagnose',
+      params: { mark: MARK_A },
+      result: { mark: MARK_A },
+      status: 'succeeded',
+      requestedBy: ownerId,
+      finishedAt: now,
+    },
+  });
+
   // ---------------------------------------------------------------- enrollment / users
   const en = await t.http
     .post('/api/v1/enrollments')
@@ -550,6 +643,11 @@ export async function buildWorld(
     targetUser,
     targetBinding,
     groupA,
+    provider,
+    gatewayA,
+    routeA,
+    planA,
+    diagTestA,
   };
   void sha256Hex;
   // server-B principals must never see any of these (global admin objects included: they need a
@@ -558,7 +656,7 @@ export async function buildWorld(
   // scoped principal legitimately needs, accepted in SECURITY_TEST_REPORT.md SEC-P7-A1): server group
   // ids/names, GitHub integration ids/names, backup repository ids/names/baseUrl. The repository's
   // per-server access entries (restUser, url) of server A stay in the set via MARK_A.
-  const GLOBAL_OK = new Set(['serverB', 'groupA', 'integration', 'repo']);
+  const GLOBAL_OK = new Set(['serverB', 'groupA', 'integration', 'repo', 'provider']);
   const aSecrets = [
     MARK_A,
     MARK_A.toLowerCase(),

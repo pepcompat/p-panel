@@ -176,7 +176,7 @@ func FuzzResolve(f *testing.F) {
 			}
 		}
 		if write && !tg.Exists && tg.creatable() {
-			if !CreatableLogical(logical) || !(tg.ResolvedInManaged || tg.ResolvedLogical == ManagedIncludeFile) {
+			if !CreatableLogical(logical) || !(tg.ResolvedInManaged || tg.ResolvedLogical == ManagedIncludeFile || tg.ResolvedLogical == GatewayIncludeFile) {
 				t.Fatalf("creatable outside the creation rule: %q -> %s", logical, tg.ResolvedLogical)
 			}
 			if strings.HasPrefix(tg.ResolvedPhys, out) {

@@ -218,3 +218,24 @@ func TestBackupConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderSection(t *testing.T) {
+	cfg := Default()
+	if err := Parse([]byte("provider:\n  metadataUrl: http://lab-do-fake:8080/metadata/node-a/v1.json\n"), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Validate(); err != nil || cfg.Provider.MetadataURL == "" || cfg.Provider.MetadataDisabled {
+		t.Fatalf("%v %+v", err, cfg.Provider)
+	}
+	for _, bad := range []string{"ftp://x/", "http://u:p@x/", "http:///x", "http://x/#f", "not a url"} {
+		c := Default()
+		c.Provider.MetadataURL = bad
+		if err := c.Validate(); err == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+	c := Default()
+	if err := Parse([]byte("provider:\n  metadataDisabled: true\n  bogus: 1\n"), c); err == nil {
+		t.Fatal("unknown provider key accepted")
+	}
+}

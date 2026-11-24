@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Server } from '@ppanel/shared-contracts';
 import { useT } from '@/i18n/provider';
-import { address, envLabelKey } from '@/lib/servers';
+import { envLabelKey } from '@/lib/servers';
 import { relativeTime } from '@/lib/time';
-import { PathBadge, StatusBadge } from './server-bits';
+import { AddressValue, ConnectionSummary, VpcLabel } from '@/components/p9/net-bits';
+import { StatusBadge } from './server-bits';
 
 function metricsCell(s: Server, noData: string) {
   if (!s.metrics) return <span className="text-fg-subtle">{noData}</span>;
@@ -27,7 +28,7 @@ export function ServerTable({ servers, now }: { servers: Server[]; now: number }
   const th = 'px-2 py-[9px] font-medium';
   return (
     <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-      <table className="w-full min-w-[980px] border-collapse text-[13px]">
+      <table className="w-full min-w-[1180px] border-collapse text-[13px]">
         <thead>
           <tr className="bg-surface-2 text-left text-[12px] text-fg-muted">
             <th scope="col" className={`${th} pl-4`}>
@@ -35,6 +36,9 @@ export function ServerTable({ servers, now }: { servers: Server[]; now: number }
             </th>
             <th scope="col" className={th}>
               {t('servers.col.env')}
+            </th>
+            <th scope="col" className={th}>
+              {t('p9.group')}
             </th>
             <th scope="col" className={th}>
               {t('servers.col.status')}
@@ -47,6 +51,9 @@ export function ServerTable({ servers, now }: { servers: Server[]; now: number }
             </th>
             <th scope="col" className={th}>
               {t('servers.col.path')}
+            </th>
+            <th scope="col" className={th}>
+              {t('p9.card.vpc')}
             </th>
             <th scope="col" className={th}>
               {t('servers.col.metrics')}
@@ -73,15 +80,21 @@ export function ServerTable({ servers, now }: { servers: Server[]; now: number }
                 </Link>
               </td>
               <td className="px-2 text-[12px]">{t(envLabelKey(s.environment))}</td>
+              <td className="px-2 text-[12px]">{s.groupName ?? t('common.dash')}</td>
               <td className="px-2">
                 <StatusBadge status={s.status} />
               </td>
-              <td className="px-2 font-mono text-[12px]">{address(s, 'public')?.address ?? '—'}</td>
-              <td className="px-2 font-mono text-[12px]">
-                {address(s, 'private')?.address ?? '—'}
+              <td className="px-2 text-[12px]">
+                <AddressValue server={s} scope="public" />
+              </td>
+              <td className="px-2 text-[12px]">
+                <AddressValue server={s} scope="private" />
+              </td>
+              <td className="px-2" onClick={(e) => e.stopPropagation()}>
+                <ConnectionSummary server={s} now={now} />
               </td>
               <td className="px-2">
-                <PathBadge server={s} className="text-[11.5px]" />
+                <VpcLabel server={s} />
               </td>
               <td className="px-2 font-mono text-[12px]">{metricsCell(s, t('common.noData'))}</td>
               <td className="py-[9px] pr-4 pl-2 text-[12px]">

@@ -9,11 +9,15 @@ import {
 } from '@ppanel/shared-contracts';
 import type { Prisma } from '@prisma/client';
 import { isAgentOutdated } from '../version/build-info';
+import { connectionView, networkView, preferredIpv4 } from '../network/network-common';
 
 export const serverInclude = {
   addresses: { orderBy: { address: 'asc' } },
   capabilities: { orderBy: { name: 'asc' } },
   certificates: { where: { revokedAt: null }, orderBy: { notAfter: 'desc' }, take: 1 },
+  group: { select: { name: true } },
+  connection: true,
+  networkInventory: true,
 } satisfies Prisma.ServerInclude;
 
 export type ServerRow = Prisma.ServerGetPayload<{ include: typeof serverInclude }>;
@@ -76,13 +80,18 @@ export function toServer(
     hostname: row.hostname,
     environment: row.environment as Environment,
     groupId: row.groupId,
+    groupName: row.group?.name ?? null,
     tags: row.tags,
     status,
     lastHeartbeatAt: row.lastHeartbeatAt?.toISOString() ?? null,
     agentVersion: row.agentVersion,
     agentOutdated: isAgentOutdated(row.agentVersion, minAgentVersion),
     os: (row.os as Server['os']) ?? null,
-    provider: (row.provider as Server['provider']) ?? null,
+    provider: providerView(row.provider),
+    publicIpv4: preferredIpv4(row.addresses, row.networkInventory, 'public'),
+    privateIpv4: preferredIpv4(row.addresses, row.networkInventory, 'private'),
+    connection: connectionView(row.connectionPolicy, row.connection),
+    network: networkView(row.networkInventory),
     addresses: row.addresses.map((a): ServerAddress => ({
       family: a.family as ServerAddress['family'],
       scope: a.scope as ServerAddress['scope'],
@@ -113,5 +122,17 @@ export function toServer(
     updatedAt: row.updatedAt.toISOString(),
     version: row.version,
     ...({ ownedUnits: row.ownedUnits } as object),
+  };
+}
+
+function providerView(raw: unknown): Server['provider'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const p = raw as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : null);
+  return {
+    name: str(p.name),
+    region: str(p.region),
+    dropletId: str(p.dropletId),
+    vpcUuid: str(p.vpcUuid),
   };
 }

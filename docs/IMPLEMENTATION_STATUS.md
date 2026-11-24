@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P8 complete (0.8.0-rc.1, MVP-B release candidate); next P9
+Current phase: P9 complete (lab); next P10
 Last verified revision: (no commits yet)
 
 ## P0
@@ -122,15 +122,15 @@ Phase tests: P8-T01, P8-T02, P8-T03 (see `TEST_REPORT.md`) · Gate: PASS as MVP-
 
 ## P9
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                                 |
-| ------- | ------ | --------- | ------------ | -------- | --------------------------------------------------------------------------------------------------------------------- |
-| P9-01   | TODO   |           |              |          | Inventory real private/public endpoints, VPC UUID and public DNS; optional read-only DO provider integration.         |
-| P9-02   | TODO   |           |              |          | Build `ServerGroup` (Production/UAT/Development) + tags and server card API fields.                                   |
-| P9-03   | TODO   |           |              |          | Build connection preference policy with verified private/public health and fail-closed Private-only.                  |
-| P9-04   | TODO   |           |              |          | Network diagnostics without modifying OS configuration, public IP or routes.                                          |
-| P9-05   | TODO   |           |              |          | Per-domain Direct/Hybrid/Gateway routing plan and dedicated Gateway config adapter (shadow test only before cutover). |
+| Task ID | Status | Change/PR | Test command                              | Evidence                                                                                                                               | Notes                                                                                                                 |
+| ------- | ------ | --------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| P9-01   | PASS   |           | e2e_p9.py + p9-network.spec               | docs/evidence/2026-11-24/p9-e2e.json; provider integration (GET-only) + inventory + topology findings; real DO VPCs BLOCKED (no token) | Inventory real private/public endpoints, VPC UUID and public DNS; optional read-only DO provider integration.         |
+| P9-02   | PASS   |           | p9-network.spec + web p9.spec             | server card fields, groups CRUD, filters; docs/guides/network-and-gateway.md                                                           | Build `ServerGroup` (Production/UAT/Development) + tags and server card API fields.                                   |
+| P9-03   | PASS   |           | e2e_p9.py (P9-T2) + p9-gateway-paths.spec | path-labelled listeners, fail-closed private_only, 403 CONNECTION_PATH_NOT_ALLOWED                                                     | Build connection preference policy with verified private/public health and fail-closed Private-only.                  |
+| P9-04   | PASS   |           | e2e_p9.py (P9-T1) + Go netdiag tests      | read-only network.diagnose; pair connectivity tests                                                                                    | Network diagnostics without modifying OS configuration, public IP or routes.                                          |
+| P9-05   | PASS   |           | e2e_p9.py (P9-T3/T4) + p9-gateways.spec   | gateway plans as Nginx revisions, http.probe shadow test, approval, apply/rollback, cutover block (no DNS edits)                       | Per-domain Direct/Hybrid/Gateway routing plan and dedicated Gateway config adapter (shadow test only before cutover). |
 
-Phase tests: P9-T1, P9-T2, P9-T3, P9-T4 (see `TEST_REPORT.md`) · Gate: TODO
+Phase tests: P9-T1, P9-T2, P9-T3, P9-T4 (see `TEST_REPORT.md`) · Gate: PASS (lab; no production route changes)
 
 ## P10
 

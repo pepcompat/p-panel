@@ -1,7 +1,7 @@
 // Package handlers contains the allowlisted, typed job handlers:
 // inventory.collect, discovery.scan (read-only), service.restart (mutating,
 // owned units only), the P3 nginx.* jobs (see nginx_jobs.go) the P4 container.* jobs (container_jobs.go) and the P4b image.build /
-// source.inspect / compose.* jobs (build_jobs.go) and the P6 backup.* / restore.run jobs (backup_jobs.go). There is no generic command handler by design.
+// source.inspect / compose.* jobs (build_jobs.go), the P6 backup.* / restore.run jobs (backup_jobs.go) and the P9 read-only network.diagnose / http.probe jobs (network_jobs.go). There is no generic command handler by design.
 package handlers
 
 import (
@@ -47,6 +47,9 @@ type Deps struct {
 	// Backups runs backup.* / restore.run; nil unless the local config sets
 	// backup.enabled and a host restic >= 0.17 was verified (→ RESTIC_UNAVAILABLE).
 	Backups *backupops.Manager
+	// Network wires the P9 network.diagnose / http.probe jobs to the
+	// agent's connection manager (nil: no Center endpoints known).
+	Network *NetworkDeps
 }
 
 // RegisterAll registers every allowlisted handler.
@@ -73,6 +76,8 @@ func RegisterAll(r *jobs.Registry, d *Deps) {
 	r.Register(&BackupSnapshots{d})
 	r.Register(&BackupVerify{d})
 	r.Register(&RestoreRun{d})
+	r.Register(&NetworkDiagnose{d})
+	r.Register(&HTTPProbe{d})
 }
 
 // ---------------- inventory.collect ----------------

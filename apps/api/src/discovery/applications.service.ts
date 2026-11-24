@@ -304,9 +304,9 @@ export class ApplicationsService {
     stepUpHeader: string | undefined,
   ): Promise<Application> {
     const app = await this.load(user, id);
-    if (app.kind === 'container' || app.kind === 'compose')
+    if (app.kind === 'container' || app.kind === 'compose' || app.kind === 'gateway')
       throw AppError.conflict(
-        'Container applications are always managed by pPanel',
+        'Container and gateway applications are always managed by pPanel',
         ERROR_CODES.OWNERSHIP_STEP_INVALID,
       );
     const from = app.ownershipMode as OwnershipMode;

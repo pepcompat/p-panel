@@ -64,6 +64,13 @@ export async function bootApp(overrides: Record<string, string> = {}): Promise<T
 }
 
 const TABLES = [
+  'gateway_change_plans',
+  'gateway_routes',
+  'gateways',
+  'network_connectivity_tests',
+  'provider_integrations',
+  'server_network_inventory',
+  'server_connections',
   'restore_steps',
   'restores',
   'backup_verifications',

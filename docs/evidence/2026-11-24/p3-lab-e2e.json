@@ -1,15 +1,15 @@
 {
-  "ranAt": "2026-11-24T04:46:40Z",
+  "ranAt": "2026-11-24T08:20:10Z",
   "steps": [
     {
       "step": "approver user with TOTP",
       "ok": true,
-      "email": "e2e-approver-1795495571@ppanel.local"
+      "email": "e2e-approver-1795508360@ppanel.local"
     },
     {
       "step": "enroll + online",
       "ok": true,
-      "serverId": "01a20be0-2fad-79a8-b573-17fb683dc739"
+      "serverId": "01a20ca3-5df9-7d61-8f4f-2886da9c07f0"
     },
     {
       "step": "P3-T01 scan completed, nginx config + master PID unchanged",
@@ -49,7 +49,7 @@
     {
       "step": "import Observe; managed via import refused; host unchanged",
       "ok": true,
-      "appId": "01a20be0-3cee-7d30-81fb-559d85f3cf4d",
+      "appId": "01a20ca3-71c9-791f-be24-d9d56b8d8924",
       "refusedCode": "IMPORT_MODE_NOT_ALLOWED"
     },
     {
@@ -70,7 +70,7 @@
     {
       "step": "P3-T03 broken config: validate invalid, apply refused, host unchanged",
       "ok": true,
-      "nginxTest": "40#84840: unknown directive \"p3_broken_directive\" in /etc/nginx/sites-enabled/01-static-multi.conf:7\nnginx: configuration file /etc/nginx/nginx.conf test failed",
+      "nginxTest": "3#105643: unknown directive \"p3_broken_directive\" in /etc/nginx/sites-enabled/01-static-multi.conf:7\nnginx: configuration file /etc/nginx/nginx.conf test failed",
       "applyCode": "REVISION_STATE_INVALID"
     },
     {
@@ -96,7 +96,7 @@
     {
       "step": "second user approves with step-up (planHash-bound)",
       "ok": true,
-      "planHash": "9f16d4b3185b3566"
+      "planHash": "f0adfd60c21689bc"
     },
     {
       "step": "apply: nginx -t + reload + postchecks, master PID kept",

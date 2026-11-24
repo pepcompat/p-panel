@@ -4,6 +4,7 @@ package fakecenter
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -132,12 +133,33 @@ type Center struct {
 	gwAddr     string
 	gwCert     tls.Certificate
 	GatewayURL string
+
+	// P9 management paths. Every gateway listener carries a path label; the
+	// default listener is "public". Connection (if set) is returned in every
+	// heartbeat response; EnrollEndpoints in the enrollment response.
+	// AllowedPaths (if non-nil) makes requests on other labels answer 403
+	// CONNECTION_PATH_NOT_ALLOWED (ping excepted).
+	Connection      map[string]any
+	EnrollEndpoints []map[string]any
+	AllowedPaths    map[string]bool
+	// PathRequests counts requests per listener label (any route); Pings
+	// counts ping requests per label; HeartbeatPaths is the label of each heartbeat.
+	PathRequests   map[string]int
+	Pings          map[string]int
+	HeartbeatPaths []string
+	extra          map[string]*extraListener
+}
+
+type extraListener struct {
+	addr string
+	srv  *http.Server
 }
 
 // New creates a fake center with enrollment (plain HTTP or TLS) and a gateway.
 func New(t testing.TB, serverID string) *Center {
 	c := &Center{t: t, CA: NewCA(t, "pPanel Test Agent CA"), ServerID: serverID, tokens: map[string]bool{},
 		Results: map[string][]map[string]any{}, tasks: make(chan []map[string]any, 100),
+		PathRequests: map[string]int{}, Pings: map[string]int{}, extra: map[string]*extraListener{},
 		LeafValidity: 7 * 24 * time.Hour, LeafNotBefore: func() time.Time { return time.Now().Add(-time.Minute) }}
 	c.gwCert = c.CA.ServerCert(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -226,23 +248,134 @@ func (c *Center) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, "CSR_INVALID", err.Error())
 		return
 	}
-	writeOK(w, 201, map[string]any{"serverId": c.ServerID, "certificatePem": string(certPEM), "caPem": string(c.CA.PEM),
-		"gatewayUrl": c.GatewayURL, "heartbeatIntervalSec": 15})
+	resp := map[string]any{"serverId": c.ServerID, "certificatePem": string(certPEM), "caPem": string(c.CA.PEM),
+		"gatewayUrl": c.GatewayURL, "heartbeatIntervalSec": 15}
+	c.mu.Lock()
+	if c.EnrollEndpoints != nil {
+		resp["gatewayEndpoints"] = c.EnrollEndpoints
+	}
+	c.mu.Unlock()
+	writeOK(w, 201, resp)
+}
+
+type pathKey struct{}
+
+func pathOf(r *http.Request) string {
+	p, _ := r.Context().Value(pathKey{}).(string)
+	return p
 }
 
 func (c *Center) startGatewayOn(ln net.Listener) {
+	srv := c.newGatewayServer("public", ln)
+	c.mu.Lock()
+	c.gwSrv = srv
+	c.mu.Unlock()
+}
+
+// AddListener starts another gateway listener labelled path (e.g. "private")
+// and returns its URL.
+func (c *Center) AddListener(path string) string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	srv := c.newGatewayServer(path, ln)
+	c.mu.Lock()
+	c.extra[path] = &extraListener{addr: ln.Addr().String(), srv: srv}
+	c.mu.Unlock()
+	return "https://" + ln.Addr().String()
+}
+
+// StopListener closes the listener labelled path ("private offline").
+func (c *Center) StopListener(path string) {
+	c.mu.Lock()
+	x := c.extra[path]
+	c.mu.Unlock()
+	if x != nil {
+		x.srv.Close()
+	}
+}
+
+// StartListener re-listens on the address of the labelled listener.
+func (c *Center) StartListener(path string) {
+	c.mu.Lock()
+	x := c.extra[path]
+	c.mu.Unlock()
+	var ln net.Listener
+	var err error
+	for i := 0; i < 50; i++ {
+		if ln, err = net.Listen("tcp", x.addr); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	srv := c.newGatewayServer(path, ln)
+	c.mu.Lock()
+	x.srv = srv
+	c.mu.Unlock()
+}
+
+// SetPolicy sets the heartbeat `connection` block and the enforced paths.
+func (c *Center) SetPolicy(policy string, endpoints []map[string]any, allowed ...string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Connection = map[string]any{"policy": policy, "endpoints": endpoints}
+	c.AllowedPaths = map[string]bool{}
+	for _, a := range allowed {
+		c.AllowedPaths[a] = true
+	}
+}
+
+// PathCount returns the number of requests received on listener label path.
+func (c *Center) PathCount(path string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.PathRequests[path]
+}
+
+// HeartbeatPathsCopy returns the listener label of every heartbeat.
+func (c *Center) HeartbeatPathsCopy() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.HeartbeatPaths...)
+}
+
+func (c *Center) newGatewayServer(path string, ln net.Listener) *http.Server {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/agent/v1/ping", func(w http.ResponseWriter, r *http.Request) {
+		c.mu.Lock()
+		c.Pings[pathOf(r)]++
+		c.mu.Unlock()
+		writeOK(w, 200, map[string]any{"pong": true, "path": pathOf(r)})
+	})
 	mux.HandleFunc("/agent/v1/heartbeat", c.handleHeartbeat)
 	mux.HandleFunc("/agent/v1/tasks", c.handleTasks)
 	mux.HandleFunc("/agent/v1/tasks/", c.handleTaskAction)
 	mux.HandleFunc("/agent/v1/certificate/rotate", c.handleRotate)
 	mux.HandleFunc("/agent/v1/logs", c.handleLogs)
 	cfg := &tls.Config{Certificates: []tls.Certificate{c.gwCert}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: c.CA.Pool(), MinVersion: tls.VersionTLS12}
-	srv := &http.Server{Handler: c.peerCheck(mux), TLSConfig: cfg}
-	c.mu.Lock()
-	c.gwSrv = srv
-	c.mu.Unlock()
+	srv := &http.Server{Handler: c.labelled(path, c.peerCheck(mux)), TLSConfig: cfg}
 	go srv.Serve(tls.NewListener(ln, cfg))
+	return srv
+}
+
+// labelled tags requests with the listener's path and enforces AllowedPaths.
+func (c *Center) labelled(path string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(context.WithValue(r.Context(), pathKey{}, path))
+		c.mu.Lock()
+		c.PathRequests[path]++
+		allowed := c.AllowedPaths == nil || c.AllowedPaths[path]
+		c.mu.Unlock()
+		if !allowed && r.URL.Path != "/agent/v1/ping" {
+			writeErr(w, 403, "CONNECTION_PATH_NOT_ALLOWED", "path not allowed by policy")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (c *Center) peerCheck(next http.Handler) http.Handler {
@@ -272,11 +405,16 @@ func (c *Center) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	c.mu.Lock()
 	c.Heartbeats = append(c.Heartbeats, hb)
+	c.HeartbeatPaths = append(c.HeartbeatPaths, pathOf(r))
 	ra := c.RenewAfter
+	conn := c.Connection
 	c.mu.Unlock()
 	data := map[string]any{"serverTime": time.Now().UTC().Format(time.RFC3339Nano), "heartbeatIntervalSec": 15}
 	if ra != nil {
 		data["certRenewAfter"] = ra.UTC().Format(time.RFC3339)
+	}
+	if conn != nil {
+		data["connection"] = conn
 	}
 	writeOK(w, 200, data)
 }
@@ -423,9 +561,16 @@ func (c *Center) LastPeer() (cn, serial string) {
 func (c *Center) Close() {
 	c.mu.Lock()
 	gw, en := c.gwSrv, c.enrollSrv
+	var xs []*http.Server
+	for _, x := range c.extra {
+		xs = append(xs, x.srv)
+	}
 	c.mu.Unlock()
 	if gw != nil {
 		gw.Close()
+	}
+	for _, x := range xs {
+		x.Close()
 	}
 	if en != nil {
 		en.Close()

@@ -1,10 +1,10 @@
 {
-  "ranAt": "2026-11-24T07:02:37Z",
+  "ranAt": "2026-11-24T08:21:58Z",
   "steps": [
     {
       "step": "enroll node-b online with docker capability",
       "ok": true,
-      "serverId": "01a20c5b-8e3a-7bcd-8019-355a8cc6a7db",
+      "serverId": "01a20ca4-2bf7-7494-afda-990be3784ac8",
       "caps": ["backup", "build", "docker", "nginx"]
     },
     {
@@ -33,7 +33,7 @@
       "status": "succeeded",
       "body": "ppanel-test web v1",
       "container": {
-        "name": "ppanel-web-3653-51a870f9",
+        "name": "ppanel-web-8410-c8829368",
         "hostPort": 20000
       }
     },
@@ -58,8 +58,8 @@
     {
       "step": "restart keeps container (no deployment); redeploy creates a fresh container",
       "ok": true,
-      "restartContainer": "ppanel-web-3653-51a870f9",
-      "redeployContainer": "ppanel-web-3653-9e0a6791",
+      "restartContainer": "ppanel-web-8410-c8829368",
+      "redeployContainer": "ppanel-web-8410-76d8c022",
       "deploymentsBeforeRedeploy": 4
     },
     {
@@ -82,7 +82,7 @@
       "wrongBranch": "ignored",
       "sameCommitAgain": ["already_deployed"],
       "deployedImage": "127.0.0.1:55000/ppanel-test/web@sha256:e0fd25c5a53e0b5e27413d5fe23cc00e2a07d3ca292512ef7929fcff686c773c",
-      "commit": "40717c7cc8bdc1b62e59d36ce95664461c42b182"
+      "commit": "f6c972317c030eabb9be60096b1894cd70befe61"
     },
     {
       "step": "viewer cannot deploy",

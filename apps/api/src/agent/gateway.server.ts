@@ -7,8 +7,10 @@ import {
 import {
   AGENT_PROTOCOL_VERSION,
   certificateRotateSchema,
+  type ConnectionPath,
   ERROR_CODES,
   heartbeatSchema,
+  policyAllowsPath,
   taskAckSchema,
   taskResultSchema,
 } from '@ppanel/shared-contracts';
@@ -16,14 +18,16 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import type { TLSSocket } from 'node:tls';
+import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
+import { RateLimiter } from '../common/rate-limiter';
 import { successEnvelope } from '../common/envelope';
 import { toErrorResponse } from '../common/exception.filter';
 import { UUID_RE } from '../common/ids';
 import { logger } from '../common/logger';
 import { requestIdMiddleware } from '../common/request-id.middleware';
 import { parseWith } from '../common/zod.pipe';
-import { APP_CONFIG, type AppConfig } from '../config/config';
+import { APP_CONFIG, type AppConfig, type GatewayListener } from '../config/config';
 import { JobNotifier } from '../jobs/job-notifier';
 import { JobsService } from '../jobs/jobs.service';
 import { SecretsService } from '../deploy/secrets.service';
@@ -40,15 +44,22 @@ export const GATEWAY_CERT_RENEW_BEFORE_DAYS = 30;
 export const GATEWAY_CERT_ALERT_DAYS = 14;
 /** How often the gateway checks its certificate's remaining lifetime. */
 export const GATEWAY_CERT_CHECK_INTERVAL_MS = 6 * 3_600_000;
+/** P9: a forbidden-path request is audited at most once per server+path per window. */
+export const PATH_DENIED_AUDIT_WINDOW_MS = 10 * 60_000;
 
 /**
- * mTLS Agent Gateway: separate HTTPS listener in the API process.
+ * mTLS Agent Gateway: separate HTTPS listener(s) in the API process — one per management path
+ * (P9: `PPANEL_GATEWAY_LISTENERS`). The path of a request is the label of the listener it arrived
+ * on, never a client claim.
  * TLS layer: requestCert + rejectUnauthorized against the internal CA only (spoofed CAs fail the handshake).
- * App layer: serial/revocation/CN check against agent_certificates on every request.
+ * App layer: serial/revocation/CN check against agent_certificates on every request, then the
+ * server's connection policy must allow the listener's path (403 CONNECTION_PATH_NOT_ALLOWED).
  */
 @Injectable()
 export class AgentGatewayServer implements OnApplicationBootstrap, OnApplicationShutdown {
-  private server: https.Server | undefined;
+  private readonly servers = new Map<ConnectionPath, https.Server>();
+  private tlsMaterial: { keyPem: string; certPem: string; caPem: string } | undefined;
+  private readonly pathDeniedAt = new Map<string, number>();
   private renewTimer: NodeJS.Timeout | undefined;
   private renewing = false;
   /** notAfter of the certificate currently served (F-13). */
@@ -61,24 +72,49 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
     private readonly ca: CaService,
     private readonly secrets: SecretsService,
     private readonly logIngest: LogIngestService,
+    private readonly audit: AuditService,
+    private readonly limiter: RateLimiter,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     if (this.config.PPANEL_DISABLE_GATEWAY) return;
-    await this.start(this.config.AGENT_GATEWAY_PORT, this.config.AGENT_GATEWAY_HOST);
+    await this.startAll(this.config.gatewayListeners);
+  }
+
+  /** Starts every configured listener (on failure the ones already started are stopped). */
+  async startAll(listeners: GatewayListener[]): Promise<Record<string, number>> {
+    const out: Record<string, number> = {};
+    try {
+      for (const l of listeners) out[l.label] = await this.start(l.port, l.host, l.label);
+    } catch (e) {
+      await this.stop();
+      throw e;
+    }
+    return out;
   }
 
   async onApplicationShutdown(): Promise<void> {
     await this.stop();
   }
 
+  /** Port of the `public` listener (or the first one started). */
   get port(): number | undefined {
-    return (this.server?.address() as AddressInfo | null)?.port;
+    return this.portOf('public') ?? this.portOf('private');
   }
 
-  async start(port: number, host: string): Promise<number> {
-    const tls = await this.ca.issueGatewayCert(this.config.gatewayHostnames);
+  portOf(label: ConnectionPath): number | undefined {
+    return (this.servers.get(label)?.address() as AddressInfo | null)?.port;
+  }
+
+  async start(port: number, host: string, label: ConnectionPath = 'public'): Promise<number> {
+    if (this.servers.has(label)) throw new Error(`gateway listener ${label} already started`);
+    if (!this.tlsMaterial) {
+      const issued = await this.ca.issueGatewayCert(this.config.gatewayHostnames);
+      this.tlsMaterial = issued;
+      this.certNotAfter = issued.notAfter;
+    }
+    const tls = this.tlsMaterial;
     const server = https.createServer(
       {
         key: tls.keyPem,
@@ -88,15 +124,15 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
         rejectUnauthorized: true,
         minVersion: 'TLSv1.2',
       },
-      this.buildApp(),
+      this.buildApp(label),
     );
-    this.certNotAfter = tls.notAfter;
     server.requestTimeout = 60_000;
     server.headersTimeout = 30_000;
     server.keepAliveTimeout = 65_000;
     server.on('tlsClientError', (err) =>
       logger.emit('warn', 'agent gateway TLS handshake rejected', {
         component: 'gateway',
+        path: label,
         reason: err.message,
       }),
     );
@@ -104,16 +140,19 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
       server.once('error', reject);
       server.listen(port, host, () => resolve());
     });
-    this.server = server;
+    this.servers.set(label, server);
     logger.emit('info', 'agent gateway listening (mTLS)', {
       component: 'gateway',
-      port: this.port,
+      path: label,
+      port: this.portOf(label),
       host,
-      certNotAfter: tls.notAfter.toISOString(),
+      certNotAfter: this.certNotAfter?.toISOString() ?? null,
     });
-    this.renewTimer = setInterval(() => void this.renewIfDue(), GATEWAY_CERT_CHECK_INTERVAL_MS);
-    this.renewTimer.unref();
-    return this.port!;
+    if (!this.renewTimer) {
+      this.renewTimer = setInterval(() => void this.renewIfDue(), GATEWAY_CERT_CHECK_INTERVAL_MS);
+      this.renewTimer.unref();
+    }
+    return this.portOf(label)!;
   }
 
   /**
@@ -122,19 +161,20 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
    * connections (long polls) are not dropped. Returns true when a new certificate was installed.
    */
   async renewIfDue(now = new Date(), force = false): Promise<boolean> {
-    const server = this.server;
-    if (!server || this.renewing) return false;
+    if (this.servers.size === 0 || this.renewing) return false;
     const remainingMs = (this.certNotAfter?.getTime() ?? 0) - now.getTime();
     if (!force && remainingMs > GATEWAY_CERT_RENEW_BEFORE_DAYS * DAY_MS) return false;
     this.renewing = true;
     try {
       const tls = await this.ca.issueGatewayCert(this.config.gatewayHostnames);
-      server.setSecureContext({
-        key: tls.keyPem,
-        cert: tls.certPem,
-        ca: [tls.caPem],
-        minVersion: 'TLSv1.2',
-      });
+      for (const server of this.servers.values())
+        server.setSecureContext({
+          key: tls.keyPem,
+          cert: tls.certPem,
+          ca: [tls.caPem],
+          minVersion: 'TLSv1.2',
+        });
+      this.tlsMaterial = tls;
       const previous = this.certNotAfter;
       this.certNotAfter = tls.notAfter;
       logger.emit('info', 'agent gateway certificate renewed', {
@@ -159,14 +199,56 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
   async stop(): Promise<void> {
     if (this.renewTimer) clearInterval(this.renewTimer);
     this.renewTimer = undefined;
-    const s = this.server;
-    this.server = undefined;
-    if (!s) return;
-    s.closeAllConnections();
-    await new Promise<void>((resolve) => s.close(() => resolve()));
+    const all = [...this.servers.values()];
+    this.servers.clear();
+    this.tlsMaterial = undefined;
+    await Promise.all(
+      all.map((s) => {
+        s.closeAllConnections();
+        return new Promise<void>((resolve) => s.close(() => resolve()));
+      }),
+    );
   }
 
-  buildApp(): express.Express {
+  /**
+   * P9: the server's policy forbids this listener's path → 403 CONNECTION_PATH_NOT_ALLOWED. Audited
+   * once per server+path per PATH_DENIED_AUDIT_WINDOW_MS; a misbehaving agent is throttled (429).
+   */
+  private async denyPath(id: AgentIdentity, path: ConnectionPath): Promise<never> {
+    const key = `${id.serverId}:${path}`;
+    const now = Date.now();
+    const last = this.pathDeniedAt.get(key);
+    if (last === undefined || now - last >= PATH_DENIED_AUDIT_WINDOW_MS) {
+      this.pathDeniedAt.set(key, now);
+      if (this.pathDeniedAt.size > 10_000)
+        for (const [k, at] of this.pathDeniedAt)
+          if (now - at >= PATH_DENIED_AUDIT_WINDOW_MS) this.pathDeniedAt.delete(k);
+      await this.audit.record({
+        actorId: id.serverId,
+        actorType: 'agent',
+        action: 'agent.connection_path_denied',
+        targetType: 'server',
+        targetId: id.serverId,
+        result: 'denied',
+        metadata: { path, policy: id.connectionPolicy },
+      });
+      logger.emit('warn', 'agent request on a forbidden management path', {
+        component: 'gateway',
+        serverId: id.serverId,
+        path,
+        policy: id.connectionPolicy,
+      });
+    }
+    this.limiter.hit(`gateway-path-denied:${key}`, 60, 60_000);
+    throw new AppError(
+      403,
+      ERROR_CODES.CONNECTION_PATH_NOT_ALLOWED,
+      `The ${path} management path is not allowed by this server's connection policy`,
+      { path, policy: id.connectionPolicy },
+    );
+  }
+
+  buildApp(label: ConnectionPath = 'public'): express.Express {
     const app = express();
     app.disable('x-powered-by');
     app.set('trust proxy', false);
@@ -206,6 +288,30 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
 
     const ok = (res: Response, data: unknown, status = 200) =>
       res.status(status).json(successEnvelope(data));
+
+    /**
+     * P9 endpoint probe: TLS + identity only (DB read, no write), answered on every path so the agent
+     * can measure reachability even where its policy forbids traffic (`policyAllows` tells it).
+     */
+    app.get('/agent/v1/ping', (req: AgentRequest, res: Response) => {
+      res.setHeader('Cache-Control', 'no-store');
+      ok(res, {
+        path: label,
+        serverTime: new Date().toISOString(),
+        policyAllows: policyAllowsPath(req.agent!.connectionPolicy, label),
+      });
+    });
+
+    // P9: fail-closed path enforcement for everything else
+    app.use(async (req: AgentRequest, _res: Response, next: NextFunction) => {
+      try {
+        if (!policyAllowsPath(req.agent!.connectionPolicy, label))
+          await this.denyPath(req.agent!, label);
+        next();
+      } catch (e) {
+        next(e);
+      }
+    });
 
     /** P5 log batches: own body reader (gzip, ≤ 1 MiB compressed / 8 MiB decompressed → 413). */
     app.post('/agent/v1/logs', async (req: AgentRequest, res: Response) => {

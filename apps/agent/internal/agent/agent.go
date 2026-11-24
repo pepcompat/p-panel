@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,11 +24,13 @@ import (
 	"time"
 
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
+	"github.com/ppanel/ppanel/apps/agent/internal/connpath"
 	"github.com/ppanel/ppanel/apps/agent/internal/host"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
 	"github.com/ppanel/ppanel/apps/agent/internal/logship"
 	"github.com/ppanel/ppanel/apps/agent/internal/metrics"
 	"github.com/ppanel/ppanel/apps/agent/internal/netaddr"
+	"github.com/ppanel/ppanel/apps/agent/internal/provider"
 	"github.com/ppanel/ppanel/apps/agent/internal/state"
 	"github.com/ppanel/ppanel/apps/agent/internal/transport"
 	"github.com/ppanel/ppanel/apps/agent/internal/version"
@@ -54,6 +57,15 @@ type Options struct {
 	Containers *logship.Collector
 	// Logs is the P5 log pipeline (shipped over the gateway); nil = disabled.
 	Logs *logship.Pipeline
+	// Provider returns the P9 provider fact (DigitalOcean metadata); nil =
+	// the heartbeat carries no provider field.
+	Provider func(ctx context.Context) *provider.Info
+	// ProviderRefresh is how often Provider is re-read (default 10 min).
+	ProviderRefresh time.Duration
+	// ProbeInterval is the P9 endpoint probe cadence (default 60 s).
+	ProbeInterval time.Duration
+	// Prober overrides the endpoint prober (tests).
+	Prober func(ctx context.Context, ep connpath.Endpoint) connpath.ProbeResult
 }
 
 // Agent is a running agent instance.
@@ -85,6 +97,8 @@ type Agent struct {
 	hbOK     atomic.Uint64
 	hbFail   atomic.Uint64
 	executed atomic.Uint64
+	conn     *connpath.Manager
+	prov     atomic.Pointer[json.RawMessage]
 }
 
 // New loads identity/TLS from cfg.StateDir and prepares the agent.
@@ -143,9 +157,28 @@ func New(o Options) (*Agent, error) {
 		return nil, err
 	}
 	a.reportInterrupted()
+	if o.ProbeInterval <= 0 {
+		o.ProbeInterval = 60 * time.Second
+	}
+	if o.ProviderRefresh <= 0 {
+		o.ProviderRefresh = 10 * time.Minute
+	}
+	a.o = o
 	pollTimeout := time.Duration(o.Config.PollWaitSec+10) * time.Second
-	a.hc = transport.NewHTTPClient(transport.MTLSConfig(pool, &a.certs), pollTimeout)
-	a.client = &transport.Client{BaseURL: id.GatewayURL, HTTP: a.hc}
+	mtls := transport.MTLSConfig(pool, &a.certs)
+	a.hc = transport.NewHTTPClient(mtls, pollTimeout)
+	probe := o.Prober
+	if probe == nil {
+		probe = (&connpath.Prober{TLS: func() *tls.Config { return mtls }}).Probe
+	}
+	// P9: management paths (connection.json; falls back to gatewayUrl = public).
+	a.conn, err = connpath.Load(connpath.Options{StateDir: o.Config.StateDir, FallbackURL: id.GatewayURL, Probe: probe,
+		Log: o.Logger.With("component", "connection")})
+	if err != nil {
+		return nil, err
+	}
+	a.conn.SetOnSwitch(func(string, string) { a.hc.CloseIdleConnections() })
+	a.client = &transport.Client{HTTP: a.hc, Base: a.conn.BaseURL, Observe: a.conn.Observe}
 	iv := time.Duration(o.Config.HeartbeatIntervalSec) * time.Second
 	if id.HeartbeatIntervalSec > 0 {
 		iv = time.Duration(id.HeartbeatIntervalSec) * time.Second
@@ -166,6 +199,27 @@ func (a *Agent) FetchJobSecrets(ctx context.Context) (*transport.JobSecrets, err
 // ServerID returns the enrolled server id.
 func (a *Agent) ServerID() string { return a.id.ServerID }
 
+// Conn returns the P9 management-path manager.
+func (a *Agent) Conn() *connpath.Manager { return a.conn }
+
+func (a *Agent) refreshProvider(ctx context.Context) {
+	if a.o.Provider == nil {
+		return
+	}
+	b, err := json.Marshal(a.o.Provider(ctx))
+	if err != nil {
+		return
+	}
+	raw := json.RawMessage(b)
+	a.prov.Store(&raw)
+}
+
+func (a *Agent) providerLoop(ctx context.Context) {
+	for sleep(ctx, a.o.ProviderRefresh) {
+		a.refreshProvider(ctx)
+	}
+}
+
 // Stats is a snapshot of counters (tests/diagnostics).
 type Stats struct {
 	HeartbeatsOK, HeartbeatsFailed, Executed uint64
@@ -183,9 +237,20 @@ func (a *Agent) now() time.Time { return a.o.Now().Add(time.Duration(a.skew.Load
 // Run blocks until ctx is cancelled. In-flight handlers get a grace period.
 func (a *Agent) Run(ctx context.Context) error {
 	a.log.Info("agent starting", "serverId", a.id.ServerID, "gateway", a.id.GatewayURL, "version", version.Version,
-		"handlers", a.reg.Types())
+		"handlers", a.reg.Types(), "endpoints", len(a.conn.Endpoints()), "policy", a.conn.Policy())
+	// P9: provider facts and a first endpoint probe before the first heartbeat
+	// (both bounded: 2 s metadata timeout, 5 s probe timeout, run in parallel).
+	var pre sync.WaitGroup
+	pre.Add(2)
+	go func() { defer pre.Done(); a.refreshProvider(ctx) }()
+	go func() { defer pre.Done(); a.conn.ProbeAll(ctx) }()
+	pre.Wait()
 	var loops sync.WaitGroup
-	loopsFns := []func(context.Context){a.heartbeatLoop, a.pollLoop, a.resultLoop}
+	loopsFns := []func(context.Context){a.heartbeatLoop, a.pollLoop, a.resultLoop,
+		func(ctx context.Context) { a.conn.Run(ctx, a.o.ProbeInterval) }}
+	if a.o.Provider != nil {
+		loopsFns = append(loopsFns, a.providerLoop)
+	}
 	if a.o.Logs != nil {
 		loopsFns = append(loopsFns, func(ctx context.Context) { a.o.Logs.Run(ctx, a.SendLogs) })
 	}
@@ -241,6 +306,9 @@ type HeartbeatRequest struct {
 	// P5 (omitted when unknown/disabled)
 	Containers  *[]logship.ContainerStat `json:"containers,omitempty"`
 	LogShipping *logship.ShippingStatus  `json:"logShipping,omitempty"`
+	// P9: management-path probe report and provider fact (null = absent).
+	Connection *connpath.Report `json:"connection,omitempty"`
+	Provider   json.RawMessage  `json:"provider,omitempty"`
 }
 
 // SendLogs POSTs one gzip batch to /agent/v1/logs over the mTLS gateway.
@@ -253,6 +321,8 @@ type HeartbeatResponse struct {
 	ServerTime           *time.Time `json:"serverTime"`
 	HeartbeatIntervalSec int        `json:"heartbeatIntervalSec"`
 	CertRenewAfter       *time.Time `json:"certRenewAfter"`
+	// Connection (P9) is the server's policy and advertised endpoints.
+	Connection *connpath.Block `json:"connection"`
 }
 
 func (a *Agent) capabilities() []string {
@@ -322,6 +392,10 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	if a.o.Logs != nil {
 		req.LogShipping = a.o.Logs.Status()
 	}
+	req.Connection = a.conn.Report()
+	if p := a.prov.Load(); p != nil {
+		req.Provider = *p
+	}
 	if u := req.Metrics.UptimeSec; u != nil {
 		v := math.Floor(*u)
 		req.Metrics.UptimeSec = &v
@@ -342,6 +416,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		t := *resp.CertRenewAfter
 		a.renewAt.Store(&t)
 	}
+	a.conn.Apply(resp.Connection)
 	return nil
 }
 

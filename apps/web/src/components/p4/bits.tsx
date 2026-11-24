@@ -400,7 +400,10 @@ export function PlanApproval({
   onApprove,
   onApproved,
   testId = 'approval-panel',
+  copy,
 }: {
+  /** P9 reuse: override the deployment-specific wording (rule / waiting / not required). */
+  copy?: { rule?: MessageKey; waiting?: MessageKey; notRequired?: MessageKey };
   planHash: string | null;
   required: boolean;
   awaiting: boolean;
@@ -427,7 +430,11 @@ export function PlanApproval({
     },
   });
   if (!required)
-    return <p className="m-0 text-[12.5px] text-fg-muted">{t('dep.approval.notRequired')}</p>;
+    return (
+      <p className="m-0 text-[12.5px] text-fg-muted">
+        {t(copy?.notRequired ?? 'dep.approval.notRequired')}
+      </p>
+    );
   const expired = approvalExpiredAt(expiresAt);
   return (
     <section className="flex flex-col gap-2 rounded-md border border-line p-3" data-testid={testId}>
@@ -438,7 +445,7 @@ export function PlanApproval({
           {planHash ?? t('common.dash')}
         </dd>
         <dt className="text-fg-muted">{t('approval.rule')}</dt>
-        <dd className="m-0">{t('dep.approval.rule')}</dd>
+        <dd className="m-0">{t(copy?.rule ?? 'dep.approval.rule')}</dd>
         {approvedByLabel && (
           <>
             <dt className="text-fg-muted">{t('approval.approvedBy')}</dt>
@@ -457,7 +464,7 @@ export function PlanApproval({
       {awaiting &&
         (isCreator ? (
           <Notice tone="warn" glyph="◐" role="status">
-            <span data-testid="waiting-approver">{t('dep.approval.waiting')}</span>
+            <span data-testid="waiting-approver">{t(copy?.waiting ?? 'dep.approval.waiting')}</span>
           </Notice>
         ) : gate.allowed ? (
           <div className="flex flex-wrap items-end gap-2">

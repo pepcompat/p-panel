@@ -70,7 +70,7 @@ func grant(typ string, params any) *jobs.Grant {
 func TestRegistryIsAllowlist(t *testing.T) {
 	reg, _, _ := setup(t)
 	got := strings.Join(reg.Types(), ",")
-	if got != "backup.run,backup.snapshots,backup.verify,compose.apply,compose.stop,container.list,container.logs,container.remove,container.restart,container.run_candidate,container.start,container.stop,discovery.scan,image.build,inventory.collect,nginx.apply,nginx.read_files,nginx.revert,nginx.validate,restore.run,service.restart,source.inspect" {
+	if got != "backup.run,backup.snapshots,backup.verify,compose.apply,compose.stop,container.list,container.logs,container.remove,container.restart,container.run_candidate,container.start,container.stop,discovery.scan,http.probe,image.build,inventory.collect,network.diagnose,nginx.apply,nginx.read_files,nginx.revert,nginx.validate,restore.run,service.restart,source.inspect" {
 		t.Fatalf("registered handlers: %s", got)
 	}
 }
@@ -222,5 +222,30 @@ func TestUseDiskChecksums(t *testing.T) {
 	}
 	if files[1].Sha256 != "dump2" || files[1].ShaSource != "nginx-T" {
 		t.Fatalf("fallback wrong: %+v", files[1])
+	}
+}
+
+// P9: network.diagnose / http.probe are read-only and validate before ack.
+func TestNetworkJobsValidateBeforeAck(t *testing.T) {
+	reg, _, _ := setup(t)
+	for _, typ := range []string{"network.diagnose", "http.probe"} {
+		h, ok := reg.Get(typ)
+		if !ok || h.Mutating() {
+			t.Fatalf("%s: registered=%v mutating", typ, ok)
+		}
+	}
+	bad := map[string]any{
+		"network.diagnose": map[string]any{"tcp": []any{map[string]any{"host": "8.8.8.8", "port": 443}}},
+		"http.probe":       map[string]any{"url": "http://shop.example.lab/", "resolveTo": "169.254.169.254"},
+	}
+	for typ, p := range bad {
+		_, _, rej := reg.Validate(grant(typ, p), "s", time.Now())
+		if rej == nil || rej.Code != jobs.RejectedInvalidParams {
+			t.Fatalf("%s: %v", typ, rej)
+		}
+	}
+	_, params, rej := reg.Validate(grant("network.diagnose", map[string]any{"tcp": []any{map[string]any{"host": "10.110.0.20", "port": 22}}}), "s", time.Now())
+	if rej != nil || params == nil {
+		t.Fatalf("valid diagnose rejected: %v", rej)
 	}
 }

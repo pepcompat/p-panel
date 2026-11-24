@@ -1,0 +1,4 @@
+go test fuzz v1
+string("pa55wordghp_00000000000000000000")
+string("55word")
+string("")

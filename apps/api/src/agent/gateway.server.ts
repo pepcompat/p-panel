@@ -33,6 +33,13 @@ import { type AgentIdentity, AgentService } from './agent.service';
 
 type AgentRequest = Request & { agent?: AgentIdentity };
 const MAX_WAIT_SEC = 25;
+const DAY_MS = 86_400_000;
+/** F-13: the gateway certificate (90 days) is re-issued when fewer than this many days remain. */
+export const GATEWAY_CERT_RENEW_BEFORE_DAYS = 30;
+/** Below this, every failed renewal attempt is logged at `fatal` (agents would all drop at expiry). */
+export const GATEWAY_CERT_ALERT_DAYS = 14;
+/** How often the gateway checks its certificate's remaining lifetime. */
+export const GATEWAY_CERT_CHECK_INTERVAL_MS = 6 * 3_600_000;
 
 /**
  * mTLS Agent Gateway: separate HTTPS listener in the API process.
@@ -42,6 +49,10 @@ const MAX_WAIT_SEC = 25;
 @Injectable()
 export class AgentGatewayServer implements OnApplicationBootstrap, OnApplicationShutdown {
   private server: https.Server | undefined;
+  private renewTimer: NodeJS.Timeout | undefined;
+  private renewing = false;
+  /** notAfter of the certificate currently served (F-13). */
+  certNotAfter: Date | undefined;
 
   constructor(
     private readonly agent: AgentService,
@@ -79,6 +90,7 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
       },
       this.buildApp(),
     );
+    this.certNotAfter = tls.notAfter;
     server.requestTimeout = 60_000;
     server.headersTimeout = 30_000;
     server.keepAliveTimeout = 65_000;
@@ -97,11 +109,56 @@ export class AgentGatewayServer implements OnApplicationBootstrap, OnApplication
       component: 'gateway',
       port: this.port,
       host,
+      certNotAfter: tls.notAfter.toISOString(),
     });
+    this.renewTimer = setInterval(() => void this.renewIfDue(), GATEWAY_CERT_CHECK_INTERVAL_MS);
+    this.renewTimer.unref();
     return this.port!;
   }
 
+  /**
+   * F-13: re-issue the gateway server certificate when < GATEWAY_CERT_RENEW_BEFORE_DAYS remain and
+   * hot-swap it with `setSecureContext` — new handshakes get the new certificate, established
+   * connections (long polls) are not dropped. Returns true when a new certificate was installed.
+   */
+  async renewIfDue(now = new Date(), force = false): Promise<boolean> {
+    const server = this.server;
+    if (!server || this.renewing) return false;
+    const remainingMs = (this.certNotAfter?.getTime() ?? 0) - now.getTime();
+    if (!force && remainingMs > GATEWAY_CERT_RENEW_BEFORE_DAYS * DAY_MS) return false;
+    this.renewing = true;
+    try {
+      const tls = await this.ca.issueGatewayCert(this.config.gatewayHostnames);
+      server.setSecureContext({
+        key: tls.keyPem,
+        cert: tls.certPem,
+        ca: [tls.caPem],
+        minVersion: 'TLSv1.2',
+      });
+      const previous = this.certNotAfter;
+      this.certNotAfter = tls.notAfter;
+      logger.emit('info', 'agent gateway certificate renewed', {
+        component: 'gateway',
+        previousNotAfter: previous?.toISOString() ?? null,
+        notAfter: tls.notAfter.toISOString(),
+      });
+      return true;
+    } catch (err) {
+      const daysLeft = Math.floor(remainingMs / DAY_MS);
+      logger.emit(
+        daysLeft < GATEWAY_CERT_ALERT_DAYS ? 'fatal' : 'error',
+        'agent gateway certificate renewal failed',
+        { component: 'gateway', daysLeft, err },
+      );
+      return false;
+    } finally {
+      this.renewing = false;
+    }
+  }
+
   async stop(): Promise<void> {
+    if (this.renewTimer) clearInterval(this.renewTimer);
+    this.renewTimer = undefined;
     const s = this.server;
     this.server = undefined;
     if (!s) return;

@@ -70,6 +70,9 @@ func (m *Manager) Backup(ctx context.Context, p BackupParams) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.checkRepo(); err != nil {
+		return nil, s.redactErr(err)
+	}
 	if p.NeedsHelper() {
 		if err := s.prepareHelper(p.HelperImage); err != nil {
 			return nil, s.redactErr(err)

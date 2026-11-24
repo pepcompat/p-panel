@@ -292,6 +292,29 @@ export type AlertScopeType = (typeof ALERT_SCOPE_TYPES)[number];
 export const THRESHOLD_METRICS = ['cpu', 'memory', 'disk', 'load1'] as const;
 export type ThresholdMetric = (typeof THRESHOLD_METRICS)[number];
 export const ALERT_EVAL_INTERVAL_SEC = 15;
+/**
+ * P7 (F-14): agents reconnect up to ~60 s (+ jitter) after a Center outage, so a `server_offline`
+ * rule must wait at least this long before firing, or every server alerts after any outage.
+ */
+export const SERVER_OFFLINE_MIN_FOR_SEC = 90;
+/** Default `forSec` per kind when omitted (server_offline needs the larger minimum). */
+export const DEFAULT_ALERT_FOR_SEC = 60;
+/**
+ * P7 (F-14): after the Center starts, `server_offline` evaluates stale servers as unknown (no new
+ * pending state) for this long, so agents get time to reconnect (heartbeat interval × 3 + backoff).
+ */
+export const SERVER_OFFLINE_STARTUP_GRACE_SEC = 90;
+
+/** Effective forSec used by the evaluator: legacy server_offline rules are clamped to the minimum. */
+export function effectiveForSec(kind: AlertKind, forSec: number): number {
+  return kind === 'server_offline' ? Math.max(forSec, SERVER_OFFLINE_MIN_FOR_SEC) : forSec;
+}
+
+function forSecIssue(kind: AlertKind, forSec: number | undefined): string | null {
+  if (kind === 'server_offline' && forSec !== undefined && forSec < SERVER_OFFLINE_MIN_FOR_SEC)
+    return `server_offline rules need forSec >= ${SERVER_OFFLINE_MIN_FOR_SEC} (agents may take up to ~60 s to reconnect after a Center restart)`;
+  return null;
+}
 
 export const alertParamsSchemas = {
   server_offline: z.object({}).strict(),
@@ -338,7 +361,8 @@ const alertRuleBase = {
   scopeId: z.string().max(64).nullish(),
   params: z.record(z.unknown()).default({}),
   severity: z.enum(ALERT_SEVERITIES).default('warning'),
-  forSec: z.number().int().min(0).max(86_400).default(60),
+  /** omitted → 60, or SERVER_OFFLINE_MIN_FOR_SEC for server_offline */
+  forSec: z.number().int().min(0).max(86_400).optional(),
   channelIds: z.array(z.string().uuid()).max(10).default([]),
 };
 
@@ -398,7 +422,15 @@ export const createAlertRuleSchema = z
     if (!p.success)
       for (const i of p.issues)
         ctx.addIssue({ code: 'custom', path: i.path.split('.'), message: i.message });
-  });
+    const f = forSecIssue(v.kind, v.forSec);
+    if (f) ctx.addIssue({ code: 'custom', path: ['forSec'], message: f });
+  })
+  .transform((v) => ({
+    ...v,
+    forSec:
+      v.forSec ??
+      (v.kind === 'server_offline' ? SERVER_OFFLINE_MIN_FOR_SEC : DEFAULT_ALERT_FOR_SEC),
+  }));
 export type CreateAlertRuleInput = z.infer<typeof createAlertRuleSchema>;
 
 /** PATCH: any field except `kind` (scope/params re-validated against the stored kind). */
@@ -422,6 +454,8 @@ export function validateAlertRule(v: {
   scopeType: AlertScopeType;
   scopeId?: string | null;
   params: unknown;
+  /** validated only when given (a PATCH that changes it) */
+  forSec?: number;
 }): Array<{ path: string; message: string }> {
   const issues: Array<{ path: string; message: string }> = [];
   const ctx = {
@@ -432,6 +466,8 @@ export function validateAlertRule(v: {
   refineScope(v, v.kind, ctx);
   const p = parseAlertParams(v.kind, v.params);
   if (!p.success) issues.push(...p.issues);
+  const f = forSecIssue(v.kind, v.forSec);
+  if (f) issues.push({ path: 'forSec', message: f });
   return issues;
 }
 

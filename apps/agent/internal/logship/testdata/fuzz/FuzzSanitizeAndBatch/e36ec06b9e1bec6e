@@ -1,0 +1,4 @@
+go test fuzz v1
+[]byte("0E[\x05\U000ebce9")
+string("0E[\x05\xf3\xab")
+byte('\x17')

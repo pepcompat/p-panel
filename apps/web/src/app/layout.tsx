@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import { IBM_Plex_Mono, IBM_Plex_Sans_Thai } from 'next/font/google';
 import { AppProviders } from '@/components/providers/app-providers';
 import { themeInitScript } from '@/components/providers/theme';
@@ -25,7 +26,9 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // per-request CSP nonce set by src/middleware.ts (P7.01: no 'unsafe-inline' scripts)
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html
       lang="en"
@@ -34,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${plexThai.variable} ${plexMono.variable}`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
         <AppProviders>{children}</AppProviders>

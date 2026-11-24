@@ -41,7 +41,9 @@ type Pipeline struct {
 	followers *Followers
 	shipper   *Shipper
 	lastWarn  atomic.Int64
-	running   atomic.Bool
+	// lastAppendWarn rate-limits the append-failure warning.
+	lastAppendWarn atomic.Int64
+	running        atomic.Bool
 }
 
 // ShippingStatus is heartbeat logShipping.
@@ -120,7 +122,7 @@ func (p *Pipeline) Redactor() *redact.Redactor { return p.o.Redactor }
 // Status is the heartbeat logShipping object.
 func (p *Pipeline) Status() *ShippingStatus {
 	st := p.buf.Stats()
-	s := &ShippingStatus{BufferedBytes: st.Bytes, BufferCapBytes: st.Cap, DroppedEntries: st.DroppedTotal}
+	s := &ShippingStatus{BufferedBytes: st.PendingBytes, BufferCapBytes: st.Cap, DroppedEntries: st.DroppedTotal}
 	if t := p.shipper.LastShippedAt(); t != nil {
 		v := FormatTS(*t)
 		s.LastShippedAt = &v
@@ -129,26 +131,56 @@ func (p *Pipeline) Status() *ShippingStatus {
 }
 
 // PollOnce runs one tailer pass (tests / Run).
+//
+// Every line gets a unique, strictly increasing timestamp per file (stream):
+// max(now, last+1ns). Loki silently de-duplicates entries with the same
+// stream, timestamp and line, so byte-identical lines (health checks, probes)
+// must never share a timestamp. The last stamp is committed with the file
+// position, so ordering stays monotonic across passes and restarts.
+//
+// The tail position advances only after the lines are durably appended to the
+// buffer; on an append failure (e.g. disk full) the tailer is rewound and the
+// same lines are read again on the next pass, so nothing is lost.
 func (p *Pipeline) PollOnce() {
 	for _, t := range p.tailers {
 		var es []Entry
-		now := FormatTS(p.o.Now())
+		last := p.pos.Stamp(t.Path)
+		now := p.o.Now().UnixNano()
 		pos, ok := t.Poll(func(raw []byte) {
+			ts := now
+			if ts <= last {
+				ts = last + 1
+			}
+			last = ts
 			line := Sanitize(p.o.Redactor, raw)
-			es = append(es, Entry{TS: now, Source: t.Source, File: strp(t.Path), Level: DetectLevel(t.Source, "", line), Line: line})
+			es = append(es, Entry{TS: FormatTS(time.Unix(0, ts)), Source: t.Source, File: strp(t.Path), Level: DetectLevel(t.Source, "", line), Line: line})
 		})
 		if !ok {
 			continue
 		}
 		if err := p.buf.Append(es...); err != nil {
-			p.o.Log.Warn("log buffer append failed", "file", t.Path, "error", err.Error())
-			continue // position not advanced: lines are re-read next poll
+			t.Rewind()
+			p.warnAppend(t.Path, len(es), err)
+			continue
 		}
 		p.pos.SetFile(t.Path, pos)
+		if len(es) > 0 {
+			p.pos.SetStamp(t.Path, last)
+		}
 	}
 	if err := p.pos.Save(); err != nil {
 		p.o.Log.Warn("saving log positions failed", "error", err.Error())
 	}
+}
+
+// warnAppend logs a failed buffer append at most once a minute.
+func (p *Pipeline) warnAppend(path string, n int, err error) {
+	now := p.o.Now().UnixNano()
+	if last := p.lastAppendWarn.Load(); last != 0 && now-last < int64(time.Minute) {
+		return
+	}
+	p.lastAppendWarn.Store(now)
+	p.o.Log.Warn("log buffer append failed; lines kept in the source and re-read next poll", "file", path, "lines", n, "error", err.Error())
 }
 
 // Run starts all sources and the shipper; blocks until ctx is cancelled.
@@ -218,7 +250,9 @@ func (p *Pipeline) drainAgent(ctx context.Context) {
 			flushDrops()
 			return
 		case r := <-s.ch:
-			_ = p.buf.Append(Entry{TS: FormatTS(r.t), Source: SourceAgent, Level: DetectLevel(SourceAgent, "", r.line), Line: r.line})
+			if err := p.buf.Append(Entry{TS: FormatTS(r.t), Source: SourceAgent, Level: DetectLevel(SourceAgent, "", r.line), Line: r.line}); err != nil {
+				p.buf.AddDropped(1) // the record exists nowhere else: count it
+			}
 			flushDrops()
 		}
 	}

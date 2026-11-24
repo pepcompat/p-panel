@@ -14,6 +14,8 @@ import {
 import {
   ACTIVE_ALERT_KINDS,
   type AlertKind,
+  effectiveForSec,
+  SERVER_OFFLINE_STARTUP_GRACE_SEC,
   type IncidentTargetType,
   STALE_AFTER_SEC,
   type ThresholdMetric,
@@ -68,6 +70,12 @@ interface ServerSnap {
 export class AlertEngineService implements OnApplicationBootstrap, OnApplicationShutdown {
   private timer: NodeJS.Timeout | undefined;
   private running = false;
+  /**
+   * F-14: until this instant, a stale server is `unknown` for server_offline (no new pending state):
+   * after a Center outage every agent's last heartbeat is old until it reconnects (≤ ~60 s backoff).
+   * Tests set it to the past.
+   */
+  serverOfflineGraceUntil: Date = new Date(Date.now() + SERVER_OFFLINE_STARTUP_GRACE_SEC * 1000);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -195,6 +203,10 @@ export class AlertEngineService implements OnApplicationBootstrap, OnApplication
         environment: s.environment,
       };
       if (kind === 'server_offline') {
+        if (!fresh && t < this.serverOfflineGraceUntil.getTime()) {
+          out.push({ ...base, condition: 'unknown', value: null });
+          continue;
+        }
         out.push({
           ...base,
           condition: !fresh,
@@ -342,6 +354,7 @@ export class AlertEngineService implements OnApplicationBootstrap, OnApplication
   }
 
   private async applyRule(tx: Tx, rule: RuleRow, targets: TargetEval[], now: Date) {
+    const forSec = effectiveForSec(rule.kind as AlertKind, rule.forSec);
     const states = await tx.alertState.findMany({ where: { ruleId: rule.id } });
     const stateByKey = new Map(states.map((s) => [`${s.targetType}/${s.targetId}`, s]));
     const seen = new Set<string>();
@@ -367,7 +380,7 @@ export class AlertEngineService implements OnApplicationBootstrap, OnApplication
       }
       // condition true
       if (!st) {
-        if (rule.forSec === 0) await this.fire(tx, rule, t, now, now);
+        if (forSec === 0) await this.fire(tx, rule, t, now, now);
         else
           await tx.alertState.create({
             data: {
@@ -383,7 +396,7 @@ export class AlertEngineService implements OnApplicationBootstrap, OnApplication
         continue;
       }
       if (st.status === 'pending') {
-        if (now.getTime() - st.since.getTime() >= rule.forSec * 1000)
+        if (now.getTime() - st.since.getTime() >= forSec * 1000)
           await this.fire(tx, rule, t, st.since, now);
         else await tx.alertState.update({ where, data: { lastValue: t.value, evaluatedAt: now } });
         continue;

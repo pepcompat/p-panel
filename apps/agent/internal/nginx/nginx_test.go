@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -235,10 +236,30 @@ func TestRecursiveIncludeGuard(t *testing.T) {
 	}
 }
 
+// FuzzParse: the nginx -T parser/analyzer never panics on arbitrary dumps
+// (the dump comes from a host the operator may not fully control), and a
+// successful parse yields a JSON-serialisable report.
 func FuzzParse(f *testing.F) {
 	f.Add("http { server { listen 80; server_name a; } }")
 	f.Add("a \"b\" 'c' ${d} # e\n{ }")
+	f.Add("# configuration file /etc/nginx/nginx.conf:\nhttp { include /etc/nginx/conf.d/*.conf; }\n# configuration file /etc/nginx/conf.d/a.conf:\nserver { listen 443 ssl; ssl_certificate /etc/ssl/x.pem; location / { proxy_pass http://127.0.0.1:3000; } }\n")
+	f.Add("server { location ~ ^/(a|b) { return 301 https://$host$request_uri; } }")
+	f.Add("http { server { server { server { } } } }")
+	f.Add("map $a $b { default 1; ~x 2; }\nupstream u { server 127.0.0.1:1 weight=2; }")
+	f.Add("\"unterminated")
+	f.Add("}}}}{{{{")
+	f.Add("# configuration file /etc/nginx/a:\ninclude /etc/nginx/a;")
+	if b, err := os.ReadFile(filepath.FromSlash("../../testdata/nginx/nginx-T.txt")); err == nil {
+		f.Add(string(b))
+	}
 	f.Fuzz(func(t *testing.T, s string) {
-		_, _ = ParseAndAnalyze(s, "fuzz")
+		rep, err := ParseAndAnalyze(s, "fuzz")
+		if err != nil {
+			return
+		}
+		if _, err := json.Marshal(rep); err != nil {
+			t.Fatalf("report not serialisable: %v", err)
+		}
+		_, _ = ParseDump(s, "fuzz")
 	})
 }

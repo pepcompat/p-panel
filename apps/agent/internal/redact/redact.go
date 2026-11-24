@@ -71,7 +71,9 @@ func (r *Redactor) Register(values ...string) (release func()) {
 	var added []string
 	r.mu.Lock()
 	for _, v := range values {
-		if len(v) < MinSecretLen {
+		if len(v) < MinSecretLen || strings.Contains(Replacement, v) {
+			// too short to redact verbatim, or a fragment of the marker itself
+			// (it could never be removed from a redacted line)
 			continue
 		}
 		if _, ok := r.refs[v]; !ok && len(r.refs) >= MaxKnownSecrets {
@@ -117,6 +119,19 @@ func (r *Redactor) rebuildLocked() {
 	})
 }
 
+// MaxKnownLen returns the length of the longest registered value (0 if none).
+func (r *Redactor) MaxKnownLen() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.ordered) == 0 {
+		return 0
+	}
+	return len(r.ordered[0])
+}
+
 // Known returns the number of registered secret values.
 func (r *Redactor) Known() int {
 	r.mu.RLock()
@@ -124,7 +139,19 @@ func (r *Redactor) Known() int {
 	return len(r.refs)
 }
 
-// Redact applies the shared patterns, then known secret values (longest first).
+// maxSecretPasses bounds the known-value fixpoint loop in Redact.
+const maxSecretPasses = 8
+
+// Redact applies the shared patterns, then known secret values.
+//
+// Known values are replaced by marking EVERY occurrence (overlapping ones
+// included) of every value in the current text, merging the marked ranges and
+// replacing each merged range once. Because a replacement could create a new
+// occurrence of another value that shares characters with the marker (for
+// example "ED]tail"), this is repeated until no value occurs. If that does not
+// converge within maxSecretPasses the whole line is replaced (fail closed).
+// The result therefore never contains a registered value, and Redact is
+// idempotent on its own output.
 func (r *Redactor) Redact(s string) string {
 	s = Line(s)
 	if r == nil {
@@ -132,10 +159,70 @@ func (r *Redactor) Redact(s string) string {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, v := range r.ordered {
-		if strings.Contains(s, v) {
-			s = strings.ReplaceAll(s, v, Replacement)
+	if len(r.ordered) == 0 {
+		return s // identical to the shared (TS-mirrored) pattern pass
+	}
+	// Fixpoint of (known values ∘ patterns): a replacement can create a new
+	// word boundary for a pattern ("pa[REDACTED]ghp_…") or a new occurrence
+	// of another value, so both are re-applied until nothing changes.
+	for pass := 0; pass < maxSecretPasses; pass++ {
+		out, changed := r.replaceOnce(s)
+		if changed {
+			out = Line(out)
 		}
+		if !changed || out == s {
+			return s
+		}
+		s = out
+	}
+	if out, changed := r.replaceOnce(s); changed || Line(out) != out {
+		return Replacement
 	}
 	return s
+}
+
+// replaceOnce marks all occurrences of all known values and replaces each
+// merged marked range with Replacement.
+func (r *Redactor) replaceOnce(s string) (string, bool) {
+	type span struct{ a, b int }
+	var spans []span
+	for _, v := range r.ordered {
+		if !strings.Contains(s, v) {
+			continue
+		}
+		for i := 0; i <= len(s)-len(v); {
+			j := strings.Index(s[i:], v)
+			if j < 0 {
+				break
+			}
+			spans = append(spans, span{i + j, i + j + len(v)})
+			i += j + 1
+		}
+	}
+	if len(spans) == 0 {
+		return s, false
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].a < spans[j].a })
+	var b strings.Builder
+	b.Grow(len(s))
+	cur := spans[0]
+	last := 0
+	flush := func(sp span) {
+		b.WriteString(s[last:sp.a])
+		b.WriteString(Replacement)
+		last = sp.b
+	}
+	for _, sp := range spans[1:] {
+		if sp.a <= cur.b { // overlapping or adjacent: merge
+			if sp.b > cur.b {
+				cur.b = sp.b
+			}
+			continue
+		}
+		flush(cur)
+		cur = sp
+	}
+	flush(cur)
+	b.WriteString(s[last:])
+	return b.String(), true
 }

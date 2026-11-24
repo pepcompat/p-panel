@@ -4,14 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
+	"github.com/ppanel/ppanel/apps/agent/internal/safefs"
 )
 
 // maxReadBytes caps how much of an existing file the agent reads for hashing /
@@ -194,43 +193,27 @@ func (t *target) creatable() bool {
 	return t.Logical == ManagedIncludeFile && t.ResolvedLogical == ManagedIncludeFile && !t.IsSymlink
 }
 
-// load reads an existing regular file (no symlink following for writes).
+// load reads an existing regular file. It opens the RESOLVED physical path
+// with no symlink in any component (internal/safefs), so a directory swapped
+// for a symlink after the policy check cannot redirect the read outside root.
+// For writes the target itself must not be a symlink (checked in resolve and
+// again here by O_NOFOLLOW).
 func (t *target) load(write bool) error {
-	flags := os.O_RDONLY
-	open := t.Phys
-	if write {
-		flags |= syscall.O_NOFOLLOW
-	} else {
-		open = t.ResolvedPhys
-	}
-	f, err := os.OpenFile(open, flags|syscall.O_NONBLOCK, 0)
+	_ = write
+	b, info, err := safefs.ReadFileNoFollow(t.ResolvedPhys, maxReadBytes)
 	if err != nil {
+		if info.Size > maxReadBytes {
+			return pathErr("%s is larger than %d bytes", t.Logical, maxReadBytes)
+		}
+		if info.Mode != 0 && !info.Mode.IsRegular() {
+			return pathErr("%s is not a regular file", t.Logical)
+		}
 		return pathErr("%s: cannot open: %v", t.Logical, err)
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return pathErr("%s: %v", t.Logical, err)
-	}
-	if !st.Mode().IsRegular() {
-		return pathErr("%s is not a regular file", t.Logical)
-	}
-	if st.Size() > maxReadBytes {
-		return pathErr("%s is larger than %d bytes", t.Logical, maxReadBytes)
-	}
-	b, err := io.ReadAll(io.LimitReader(f, maxReadBytes+1))
-	if err != nil {
-		return pathErr("%s: read: %v", t.Logical, err)
-	}
-	if len(b) > maxReadBytes {
-		return pathErr("%s is larger than %d bytes", t.Logical, maxReadBytes)
 	}
 	t.Exists = true
 	t.Content = b
 	t.Sha = strp(shaHex(b))
-	t.Mode = st.Mode().Perm()
-	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
-		t.UID, t.GID = int(sys.Uid), int(sys.Gid)
-	}
+	t.Mode = info.Mode.Perm()
+	t.UID, t.GID = info.UID, info.GID
 	return nil
 }

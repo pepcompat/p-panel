@@ -1,0 +1,50 @@
+{
+  "scenario": "setup-fleet",
+  "startedAt": "2026-11-23T10:15:21.087Z",
+  "meta": {
+    "center": null
+  },
+  "steps": [
+    {
+      "step": "snapshot Center started",
+      "result": "PASS",
+      "at": "2026-11-23T10:15:23.215Z",
+      "startSec": 0.81
+    },
+    {
+      "step": "node-a and node-b enrolled + online",
+      "result": "PASS",
+      "at": "2026-11-23T10:15:28.362Z",
+      "nodeA": "01a207e7-39e8-7338-afee-f4d0ac32beb5",
+      "nodeB": "01a207e7-4301-7bc8-b5f8-06d773da0fc4"
+    },
+    {
+      "step": "node-a static.example.lab imported + adopted",
+      "result": "PASS",
+      "at": "2026-11-23T10:15:30.612Z",
+      "appId": "01a207e7-5395-79ff-803f-f7cd02d9a25c",
+      "path": "/etc/nginx/sites-available/01-static-multi.conf"
+    },
+    {
+      "step": "node-b container + compose apps deployed; all sites 200",
+      "result": "PASS",
+      "at": "2026-11-23T10:15:45.295Z",
+      "managedRouting": true,
+      "web": "succeeded",
+      "stack": "succeeded",
+      "codes": {
+        "p7web-28921.lab.test": "200",
+        "p7stack-28921.lab.test": "200",
+        "shop.b.lab": "200",
+        "static.example.lab": "200",
+        "api.example.lab": "200",
+        "php.example.lab": "200"
+      },
+      "webBody": "ppanel-test web v1"
+    }
+  ],
+  "updatedAt": "2026-11-23T10:15:45.295Z",
+  "summary": {
+    "PASS": 4
+  }
+}

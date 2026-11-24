@@ -1,0 +1,77 @@
+{
+  "scenario": "disaster-aborted-deploy",
+  "startedAt": "2026-11-24T03:11:39.062Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "aborted deploy (short, Center SIGKILLed at 'pulling', down 20s): no half-switched route, deployment terminal, live version serving, no running orphan candidate",
+      "result": "PASS",
+      "at": "2026-11-24T03:12:43.337Z",
+      "killedAt": "pulling",
+      "final": "succeeded",
+      "error": null,
+      "steps": [
+        ["preflight", "succeeded"],
+        ["pull_start", "succeeded"],
+        ["health_check", "succeeded"],
+        ["route_switch", "succeeded"],
+        ["stop_previous", "succeeded"],
+        ["prune_remove", "running"]
+      ],
+      "liveBefore": "ppanel-test web v1",
+      "liveAfter": "ppanel-test web v2",
+      "servedDuringOutage": ["ppanel-test web v1"],
+      "route": "upstream ppanel_p7web_85919 { server 127.0.0.1:20000; keepalive 16; }\nserver {",
+      "containers": [
+        "ppanel-p7web-85919-30087ddd Up About a minute 01a20b89-a2af-763b-beb8-d01230087ddd",
+        "ppanel-p7web-85919-a7ca9675 Exited (137) 10 seconds ago 01a20b71-781c-782a-818e-1731a7ca9675",
+        "ppanel-p7web-85919-9715bbd9 Exited (137) 27 minutes ago 01a20b70-ded6-757d-9cad-8c229715bbd9"
+      ],
+      "orphanCandidatesRunning": [
+        "ppanel-p7web-85919-30087ddd Up About a minute 01a20b89-a2af-763b-beb8-d01230087ddd"
+      ]
+    },
+    {
+      "step": "aborted deploy (past-running-lease, Center SIGKILLed at 'pulling', down 150s): no half-switched route, deployment terminal, live version serving, no running orphan candidate",
+      "result": "FAIL",
+      "at": "2026-11-24T03:15:35.257Z",
+      "killedAt": "pulling",
+      "final": "failed",
+      "error": {
+        "code": "LEASE_EXPIRED",
+        "message": "job expired"
+      },
+      "steps": [
+        ["preflight", "succeeded"],
+        ["pull_start", "failed"]
+      ],
+      "liveBefore": "ppanel-test web v2",
+      "liveAfter": "ppanel-test web v2",
+      "servedDuringOutage": ["ppanel-test web v2"],
+      "route": "upstream ppanel_p7web_85919 { server 127.0.0.1:20000; keepalive 16; }\nserver {",
+      "containers": [
+        "ppanel-p7web-85919-e0f82ae6 Up 2 minutes 01a20b8a-9d84-7f61-9c24-113be0f82ae6",
+        "ppanel-p7web-85919-30087ddd Up 3 minutes 01a20b89-a2af-763b-beb8-d01230087ddd",
+        "ppanel-p7web-85919-a7ca9675 Exited (137) 3 minutes ago 01a20b71-781c-782a-818e-1731a7ca9675",
+        "ppanel-p7web-85919-9715bbd9 Exited (137) 30 minutes ago 01a20b70-ded6-757d-9cad-8c229715bbd9"
+      ],
+      "orphanCandidatesRunning": [
+        "ppanel-p7web-85919-e0f82ae6 Up 2 minutes 01a20b8a-9d84-7f61-9c24-113be0f82ae6"
+      ]
+    }
+  ],
+  "updatedAt": "2026-11-24T03:15:35.263Z",
+  "summary": {
+    "PASS": 1,
+    "FAIL": 1
+  }
+}

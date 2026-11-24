@@ -519,8 +519,12 @@ export class IntegrationsController {
 
   @Get('integrations/github/:id/deliveries')
   @RequirePermission('apps.deploy')
-  deliveries(@Param('id', uuid) id: string, @Req() req: Request) {
-    return this.webhooks.deliveries(id, parseQuery(req.originalUrl, { sortable: ['createdAt'] }));
+  deliveries(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string, @Req() req: Request) {
+    return this.webhooks.deliveries(
+      user,
+      id,
+      parseQuery(req.originalUrl, { sortable: ['createdAt'] }),
+    );
   }
 
   @Get('applications/:id/auto-deploy')

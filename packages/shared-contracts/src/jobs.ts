@@ -11,12 +11,16 @@ export const systemdUnitSchema = z
 
 /** Absolute nginx config path under /etc/nginx; no traversal, no NUL/newline, no glob. */
 export const NGINX_PATH_RE = /^\/etc\/nginx\/[A-Za-z0-9._\/-]{1,200}$/;
-export const nginxPathSchema = z
-  .string()
-  .regex(NGINX_PATH_RE)
-  .refine((p) => !p.split('/').includes('..') && !p.includes('//'), {
-    message: 'path must be canonical (no .. or //)',
-  });
+/** Canonical absolute path: no `.`/`..` segment, no `//`, no trailing `/` (Go filepath.Clean(p) == p). */
+export function isCanonicalAbsPath(p: string): boolean {
+  if (!p.startsWith('/') || p.includes('//')) return false;
+  if (p.length > 1 && p.endsWith('/')) return false;
+  return !p.split('/').some((s) => s === '.' || s === '..');
+}
+/** Mirrors the agent's nginxops.ValidPath (regex + no `//`, no `..`, filepath.Clean(p) == p). */
+export const nginxPathSchema = z.string().regex(NGINX_PATH_RE).refine(isCanonicalAbsPath, {
+  message: 'path must be canonical (no . or .. segments, no //, no trailing /)',
+});
 /** Files pPanel may create (never pre-existing operator files). */
 export const NGINX_MANAGED_DIR = '/etc/nginx/ppanel-managed/';
 export const NGINX_MAX_FILE_BYTES = 262144;
@@ -138,6 +142,12 @@ export const containerRunCandidateParams = z
 // ---- P4b: builds and compose execution (see docs/AGENT_PROTOCOL.md §Builds, §Compose) ----
 
 export const COMMIT_SHA_RE = /^[a-f0-9]{40}$/;
+/** Repository-relative path as the agent's buildops.relPathOK: not absolute, no `//`, no `..` or
+ * `.git` segment (empty = repository root). */
+export function isRepoRelPath(p: string): boolean {
+  if (p.startsWith('/') || p.includes('//')) return false;
+  return !p.split('/').some((s) => s === '..' || s.toLowerCase() === '.git');
+}
 /** Git source: https URL (or git:// in dev/lab when the agent's allowlist permits it). Host must be
  * in the agent's `build.gitHostsAllowlist`; no credentials in the URL. */
 export const GIT_URL_RE =
@@ -150,7 +160,10 @@ export const gitSourceSchema = z
     subdir: z
       .string()
       .regex(/^[A-Za-z0-9._\/-]{0,200}$/)
-      .refine((p) => !p.split('/').includes('..') && !p.startsWith('/'), 'subdir must be relative')
+      .refine(
+        isRepoRelPath,
+        'subdir must be a relative path inside the repository (no .., no .git)',
+      )
       .default(''),
     /** true → a git auth header is fetched via the job secrets call. */
     auth: z.boolean().default(false),
@@ -298,10 +311,19 @@ export const composeApplyParams = z
 
 /** Absolute host path for path backups/restores (no traversal, no NUL/newline). */
 export const HOST_PATH_RE = /^\/[A-Za-z0-9._@+\/-]{0,400}$/;
-export const hostPathSchema = z
+/** Canonical host path syntax (the agent's backupops.CheckHostPath minus the denied roots). Used by
+ * backup policy input, where the Center reports forbidden roots itself (BACKUP_TARGET_INVALID). */
+export const hostPathSyntaxSchema = z
   .string()
   .regex(HOST_PATH_RE)
-  .refine((p) => !p.split('/').includes('..') && !p.includes('//'), 'path must be canonical');
+  .refine(isCanonicalAbsPath, 'path must be canonical (no . or .. segments, no //, no trailing /)');
+/** Pseudo/runtime filesystems never backed up or restored (agent deniedRoots ∪ /run). */
+export const HOST_PATH_DENIED_ROOTS = ['/proc', '/sys', '/dev', '/run'] as const;
+/** Host path accepted by the agent's backup/restore jobs: canonical, not `/`, not under a denied root. */
+export const hostPathSchema = hostPathSyntaxSchema.refine(
+  (p) => p !== '/' && !HOST_PATH_DENIED_ROOTS.some((r) => p === r || p.startsWith(`${r}/`)),
+  'path must not be / or under /proc, /sys, /dev or /run',
+);
 /** restic snapshot id (full 64 hex or short 8 hex). */
 export const RESTIC_SNAPSHOT_RE = /^[a-f0-9]{8}([a-f0-9]{56})?$/;
 export const BACKUP_TAG_RE = /^[a-z0-9][a-z0-9_.=:-]{0,80}$/;

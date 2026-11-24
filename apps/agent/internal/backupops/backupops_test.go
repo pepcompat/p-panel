@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -254,10 +255,14 @@ func TestPathsBackupArgvEnvAndSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := fr.Calls()
-	if len(calls) != 1 {
+	if len(calls) != 2 {
 		t.Fatalf("calls: %d", len(calls))
 	}
-	c := calls[0]
+	// bounded repository preflight first (no lock, no secret in argv)
+	if pre := calls[0]; !slices.Equal(pre.Args, []string{"--no-lock", "-r", "rest:http://lab-backup:8000/node-b/", "cat", "config"}) || !pre.Interrupt {
+		t.Fatalf("preflight: %+v", pre.Args)
+	}
+	c := calls[1]
 	want := []string{"-r", "rest:http://lab-backup:8000/node-b/", "backup", "--json", "--quiet", "--tag", "ppanel", "--tag", "run=" + runID,
 		"--tag", "policy=" + policyID, "--tag", "target=0", "--tag", "env=lab", "--exclude", "*.tmp", "--exclude", state,
 		"--limit-upload", "512", "--", src}
@@ -345,6 +350,9 @@ func TestBackupPartialWhenSecondTargetFails(t *testing.T) {
 	os.WriteFile(filepath.Join(b, "y"), []byte("y"), 0o644)
 	n := 0
 	fr := &fakeRestic{fn: func(c execx.Cmd) (execx.Result, error) {
+		if subcmd(c.Args) != "backup" {
+			return execx.Result{}, nil // repository preflight
+		}
 		n++
 		if n == 2 {
 			return execx.Result{ExitCode: 1, Stdout: []byte(`{"message_type":"exit_error","code":1,"message":"Fatal: unable to save snapshot: password ` + repoPW + `"}`)}, nil
@@ -990,5 +998,47 @@ func TestRestoreInPlaceModes(t *testing.T) {
 	}
 	if q := MysqlCountQuery([]string{"items", "bad`name", "orders"}); q != "select 'items', count(*) from `items` union all select 'orders', count(*) from `orders`" {
 		t.Fatal(q)
+	}
+}
+
+// F-12: an unreachable repository fails fast with REPO_UNREACHABLE (bounded
+// preflight) instead of after restic's ~15 min of backend retries, and no
+// backup is attempted.
+func TestBackupUnreachableRepoFailsFast(t *testing.T) {
+	src := t.TempDir()
+	fr := &fakeRestic{fn: func(c execx.Cmd) (execx.Result, error) {
+		if subcmd(c.Args) == "cat" {
+			if c.Timeout > 2*time.Second {
+				return execx.Result{}, fmt.Errorf("preflight timeout %s not bounded by RepoCheckTimeout", c.Timeout)
+			}
+			time.Sleep(c.Timeout + 50*time.Millisecond) // restic stuck retrying the backend
+			return execx.Result{ExitCode: -1}, context.DeadlineExceeded
+		}
+		return execx.Result{Stdout: summary(snapFull)}, nil
+	}}
+	m, _ := newMgr(t, fr, nil)
+	m.o.RepoCheckTimeout = 200 * time.Millisecond
+	p, _ := DecodeBackup(mustJSON(backupRaw(map[string]any{"type": "paths", "paths": []string{src}})))
+	start := time.Now()
+	_, err := m.Backup(context.Background(), p)
+	je := asJobErr(t, err)
+	if je.Code != CodeRepoUnreachable || !strings.Contains(je.Message, "did not answer within") {
+		t.Fatalf("%s: %s", je.Code, je.Message)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("took %s", d)
+	}
+	for _, c := range fr.Calls() {
+		if subcmd(c.Args) == "backup" {
+			t.Fatal("backup attempted against an unreachable repo")
+		}
+	}
+	// a fast restic failure is classified as before (exit 10: repo does not exist)
+	fr.fn = func(c execx.Cmd) (execx.Result, error) {
+		return execx.Result{ExitCode: 10, Stderr: []byte("Fatal: repository does not exist: unable to open config file")}, nil
+	}
+	_, err = m.Backup(context.Background(), p)
+	if je := asJobErr(t, err); je.Code != CodeRepoUnreachable {
+		t.Fatalf("exit 10: %s", je.Code)
 	}
 }

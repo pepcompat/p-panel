@@ -14,7 +14,8 @@
     "build": "pnpm -r --if-present build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "test:security": "pnpm --filter @ppanel/api test:security"
   },
   "devDependencies": {
     "husky": "^9.1.7",
@@ -23,5 +24,11 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,json,md,yml,yaml}": "prettier --write"
+  },
+  "pnpm": {
+    "overrides": {
+      "next>postcss": "8.5.33",
+      "@prisma/config>effect": "^3.22.1"
+    }
   }
 }

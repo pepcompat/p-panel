@@ -35,6 +35,21 @@ type Tailer struct {
 	skipping bool // discarding the rest of an overlong line
 	opened   bool // a position exists (first open done)
 	atEnd    bool // first open without a saved position starts at EOF
+
+	// snap is the state at the start of the last Poll (see Rewind).
+	snap tailSnap
+	// openStart is where the last first-open (no saved position) started.
+	openStart *FilePos
+	// resume overrides the saved position at the next open (set by Rewind
+	// when the file it rewinds into was closed during the failed Poll).
+	resume *FilePos
+}
+
+type tailSnap struct {
+	f        *os.File
+	cur      FilePos
+	skipping bool
+	atEnd    bool
 }
 
 // NewTailer returns a tailer. startAtEnd: when no position is saved and the
@@ -88,6 +103,8 @@ func (t *Tailer) Close() {
 // not yet sanitized). It returns the position to persist AFTER the emitted
 // lines are durably buffered (call Commit with it).
 func (t *Tailer) Poll(emit func([]byte)) (FilePos, bool) {
+	t.snap = tailSnap{f: t.f, cur: t.cur, skipping: t.skipping, atEnd: t.atEnd}
+	t.openStart = nil
 	limit := t.ReadLimit
 	if limit <= 0 {
 		limit = DefaultReadLimit
@@ -134,6 +151,38 @@ func (t *Tailer) Poll(emit func([]byte)) (FilePos, bool) {
 	return t.cur, true
 }
 
+// Rewind undoes the last Poll: the lines it emitted were not durably buffered
+// (e.g. disk full), so the next Poll must emit them again. If that Poll
+// rotated to a new file or opened the file for the first time, the new handle
+// is closed and the next Poll re-opens through the normal restart logic,
+// resuming from the pre-Poll position (draining <path>.1 after a rotation).
+func (t *Tailer) Rewind() {
+	s := t.snap
+	if t.f != s.f {
+		t.Close()
+		switch {
+		case s.f != nil:
+			// rotated during the failed Poll: the old fd is gone; resume it via <path>.1
+			r := s.cur
+			t.resume = &r
+		case t.openStart != nil:
+			// first open without a saved position: start from the same place again
+			r := *t.openStart
+			t.resume = &r
+		}
+	}
+	t.cur, t.skipping, t.atEnd = s.cur, s.skipping, s.atEnd
+}
+
+// savedPos is the position to resume from at open: a pending Rewind target,
+// else the committed position.
+func (t *Tailer) savedPos() (FilePos, bool) {
+	if t.resume != nil {
+		return *t.resume, true
+	}
+	return t.pos.File(t.Path)
+}
+
 // truncated reports copytruncate on the open file: shrunk, or rewritten past
 // our offset with a different head.
 func (t *Tailer) truncated(size int64) bool {
@@ -172,7 +221,7 @@ func (t *Tailer) open(emit func([]byte), limit *int64) bool {
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// a file created later is new: read it from the start
-			if _, ok := t.pos.File(t.Path); !ok {
+			if _, ok := t.savedPos(); !ok {
 				t.atEnd = false
 			}
 		}
@@ -184,7 +233,8 @@ func (t *Tailer) open(emit func([]byte), limit *int64) bool {
 		return false
 	}
 	dev, ino := statID(fi)
-	saved, ok := t.pos.File(t.Path)
+	saved, ok := t.savedPos()
+	t.resume = nil
 	t.f = f
 	switch {
 	case ok && saved.Dev == dev && saved.Ino == ino:
@@ -216,6 +266,8 @@ func (t *Tailer) open(emit func([]byte), limit *int64) bool {
 			}
 			t.updateFp(f)
 		}
+		st := t.cur
+		t.openStart = &st
 	}
 	t.atEnd = false
 	return true

@@ -470,6 +470,13 @@ export class JobsService {
       if (job.status === 'succeeded' || job.status === 'failed') return 'ok' as const; // idempotent replay
       if (job.status === 'expired' || job.status === 'cancelled') return job.status;
       if (job.status !== 'leased' && job.status !== 'running') return 'not_leased' as const;
+      // The result may come from a fresh agent process (e.g. AGENT_INTERRUPTED reported at start
+      // with the persisted lease token) — accepted while the lease is valid; once it lapsed the
+      // job is expired (exactly like the sweeper would) and the result refused.
+      if (job.leaseUntil && job.leaseUntil <= now) {
+        await tx.job.update({ where: { id: jobId }, data: this.lapsedTransition(job, now) });
+        return 'expired' as const;
+      }
       const error =
         input.error == null
           ? null

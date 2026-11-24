@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // Budget is the remaining number of files a run's manifest may hold.
@@ -75,12 +77,18 @@ func HashPaths(ctx context.Context, roots []string, skipDir string, budget *Budg
 	return files, truncated, nil
 }
 
+// hashFile hashes the regular file p. The final component is opened with
+// O_NOFOLLOW (a file swapped for a symlink after the walk saw it is refused,
+// never followed) and O_NONBLOCK (a fifo cannot hang the job).
 func hashFile(p string) (string, int64, error) {
-	f, err := os.Open(p)
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return "", 0, err
 	}
 	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return "", 0, fmt.Errorf("%s is not a regular file", p)
+	}
 	h := sha256.New()
 	n, err := io.Copy(h, f)
 	if err != nil {

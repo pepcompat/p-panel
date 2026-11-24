@@ -1,6 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import {
   type AutoDeployPolicy,
+  DEPLOYMENT_ACTIVE_STATUSES,
   type AutoDeployPolicyInput,
   branchMatches,
   ERROR_CODES,
@@ -14,6 +15,7 @@ import type {
   Integration as IntegrationRow,
   WebhookDelivery as DeliveryRow,
 } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
 import { AuthzService } from '../auth/authz.service';
@@ -22,13 +24,14 @@ import { decryptSecret, encryptSecret } from '../common/crypto';
 import { Paginated } from '../common/envelope';
 import { uuidv7 } from '../common/ids';
 import { logger } from '../common/logger';
-import { isUniqueViolation, PrismaService } from '../common/prisma.service';
+import { isUniqueViolation, PrismaService, type Tx } from '../common/prisma.service';
 import type { AuthUser } from '../common/principal';
 import { paginate, type ParsedQuery } from '../common/query-builder';
 import { RateLimiter } from '../common/rate-limiter';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { ApplicationsService } from '../discovery/applications.service';
 import { appInclude, serverScope } from '../discovery/p3-common';
+import { JobHooks } from '../jobs/job-hooks';
 import { BuildsService } from './builds.service';
 import { DeploymentsService } from './deployments.service';
 import { parseTaggedRef, RegistryClient } from './registry.client';
@@ -37,6 +40,16 @@ import { loadContainerApp, SecretsService } from './secrets.service';
 const ZERO_SHA = /^0{40}$/;
 const API_PREFIX = 'api/v1';
 const DELIVERY_ID_RE = /^[A-Za-z0-9-]{1,100}$/;
+const ACTIVE = [...DEPLOYMENT_ACTIVE_STATUSES] as string[];
+/** Reason a delivery row carries while its request is still being processed. */
+const PROCESSING = 'processing';
+
+type QueueOutcome = 'queued' | 'already_deployed' | 'already_queued' | 'idle';
+interface DeliveryPatch {
+  result?: WebhookDeliveryResult;
+  reasons?: string[];
+  deploymentIds?: string[];
+}
 
 /** Constant-time check of `X-Hub-Signature-256: sha256=<hex>` over the raw body. */
 export function verifyGithubSignature(
@@ -57,8 +70,29 @@ interface PushPayload {
   repository?: { full_name?: unknown };
 }
 
+/** Interactive transaction options for the webhook queue (bursts contend for pool connections). */
+const TX_OPTS = { maxWait: 15_000, timeout: 20_000 } as const;
+
 @Injectable()
-export class WebhooksService {
+export class WebhooksService implements OnModuleInit {
+  /**
+   * F-7: per-app in-process serialization of webhook deploy/queue/drain work. Correctness across
+   * instances comes from the container_apps row lock; this only stops a delivery storm from piling
+   * up concurrent transactions (pool exhaustion) for one app.
+   */
+  private readonly appChains = new Map<string, Promise<unknown>>();
+
+  private withAppLock<T>(appId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.appChains.get(appId) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.catch(() => undefined);
+    this.appChains.set(appId, tail);
+    void tail.then(() => {
+      if (this.appChains.get(appId) === tail) this.appChains.delete(appId);
+    });
+    return run;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authz: AuthzService,
@@ -69,8 +103,16 @@ export class WebhooksService {
     private readonly secrets: SecretsService,
     private readonly registry: RegistryClient,
     private readonly builds: BuildsService,
+    private readonly hooks: JobHooks,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  onModuleInit(): void {
+    // F-7: start the app's pending (coalesced) webhook commit when its deployment ends; the
+    // reconcile pass (sweeper) repairs anything missed (API restart, cancel, approval failure).
+    this.deployments.onDeploymentSettled((appId) => this.drainPending(appId).then(() => undefined));
+    this.hooks.registerReconciler(() => this.drainAll());
+  }
 
   // ---------------------------------------------------------------- integrations
 
@@ -128,10 +170,28 @@ export class WebhooksService {
     return rows.map((r) => this.toIntegration(r));
   }
 
-  async deliveries(integrationId: string, pq: ParsedQuery) {
+  /**
+   * Delivery log. Global `apps.deploy` sees every delivery; a scoped principal only sees deliveries
+   * for repos wired (auto-deploy policy) to applications it can read, with deployment/build ids of
+   * other scopes removed (SEC-P7-03: deliveries used to leak repos/SHAs/ids across scopes).
+   */
+  async deliveries(user: AuthUser, integrationId: string, pq: ParsedQuery) {
     const exists = await this.prisma.integration.findUnique({ where: { id: integrationId } });
     if (!exists) throw AppError.notFound('Integration');
-    const where = { integrationId };
+    const global = this.authz.can(user, 'apps.deploy');
+    let where: Prisma.WebhookDeliveryWhereInput = { integrationId };
+    let visibleApps: Set<string> | null = null;
+    if (!global) {
+      const serverWhere = this.authz.serverWhere(user, 'apps.read');
+      const policies = serverWhere
+        ? await this.prisma.autoDeployPolicy.findMany({
+            where: { integrationId, application: { server: serverWhere } },
+            select: { repo: true, applicationId: true },
+          })
+        : [];
+      visibleApps = new Set(policies.map((p) => p.applicationId));
+      where = { integrationId, repo: { in: [...new Set(policies.map((p) => p.repo))] } };
+    }
     const [total, rows] = await Promise.all([
       this.prisma.webhookDelivery.count({ where }),
       this.prisma.webhookDelivery.findMany({
@@ -141,6 +201,27 @@ export class WebhooksService {
         take: pq.limit,
       }),
     ]);
+    if (visibleApps) {
+      const apps = [...visibleApps];
+      const depIds = rows.flatMap((r) => r.deploymentIds);
+      const buildIds = rows.flatMap((r) => r.buildIds);
+      const [deps, builds] = await Promise.all([
+        this.prisma.deployment.findMany({
+          where: { id: { in: depIds }, applicationId: { in: apps } },
+          select: { id: true },
+        }),
+        this.prisma.build.findMany({
+          where: { id: { in: buildIds }, applicationId: { in: apps } },
+          select: { id: true },
+        }),
+      ]);
+      const okDep = new Set(deps.map((d) => d.id));
+      const okBuild = new Set(builds.map((b) => b.id));
+      for (const r of rows) {
+        r.deploymentIds = r.deploymentIds.filter((id) => okDep.has(id));
+        r.buildIds = r.buildIds.filter((id) => okBuild.has(id));
+      }
+    }
     return new Paginated(rows.map(toDelivery), paginate(pq, total));
   }
 
@@ -172,7 +253,8 @@ export class WebhooksService {
   }
 
   private async assertTemplateHost(appId: string, template: string) {
-    const ref = parseTaggedRef(renderImageTemplate(template, 'a'.repeat(40), 'main'));
+    const rendered = renderImageTemplate(template, 'a'.repeat(40), 'main');
+    const ref = rendered ? parseTaggedRef(rendered) : null;
     const cred = await this.secrets.registryCredential(appId);
     const allowed = this.registry.allowedHosts(cred ? [cred.serveraddress] : []);
     if (!ref || !allowed.has(ref.host))
@@ -405,11 +487,9 @@ export class WebhooksService {
       after,
       integrationId,
       rowId,
+      deliveryId,
     );
-    const saved = await this.prisma.webhookDelivery.update({
-      where: { id: rowId },
-      data: { result, reasons, deploymentIds, buildIds },
-    });
+    const saved = await this.finalizeDelivery(rowId, { result, reasons, deploymentIds, buildIds });
     await this.audit.record({
       actorType: 'system',
       action: 'webhooks.github',
@@ -429,6 +509,7 @@ export class WebhooksService {
     after: string | null,
     integrationId: string,
     deliveryRowId: string,
+    deliveryId: string,
   ): Promise<{
     result: WebhookDeliveryResult;
     reasons: string[];
@@ -461,6 +542,7 @@ export class WebhooksService {
     const buildIds: string[] = [];
     const statuses: string[] = [];
     let errors = 0;
+    let queued = 0;
     for (const p of matching) {
       try {
         if (p.mode === 'build') {
@@ -469,45 +551,13 @@ export class WebhooksService {
           if (r.buildId) buildIds.push(r.buildId);
           continue;
         }
-        const done = await this.prisma.deployment.findFirst({
-          where: {
-            applicationId: p.applicationId,
-            commitSha: after,
-            status: { notIn: ['failed', 'cancelled', 'expired'] },
-          },
-          select: { id: true },
-        });
-        if (done) {
-          reasons.push('already_deployed');
-          continue;
-        }
-        const app = await this.prisma.application.findUniqueOrThrow({
-          where: { id: p.applicationId },
-          include: appInclude,
-        });
-        const container = await this.prisma.containerApp.findUniqueOrThrow({
-          where: { applicationId: app.id },
-        });
-        const cred = await this.secrets.registryCredential(app.id);
-        const image = await this.registry.resolveDigest(
-          renderImageTemplate(p.imageTemplate ?? '', after, branch),
-          {
-            auth: cred ? { username: cred.username, password: cred.password } : null,
-            extraAllowedHosts: cred ? [cred.serveraddress] : [],
-          },
+        const out = await this.withAppLock(p.applicationId, () =>
+          this.deployOrQueue(p, repo, branch, after, deliveryRowId, deliveryId),
         );
-        const { row } = await this.deployments.create(
-          { user: null, id: null },
-          { app, container },
-          {
-            image,
-            trigger: 'webhook',
-            sourceRef: { repo, commitSha: after, branch },
-            reason: `push ${branch}@${after.slice(0, 7)}`,
-            commitSha: after,
-            webhookDeliveryId: deliveryRowId,
-          },
-        );
+        if (out.reason) reasons.push(out.reason);
+        if (out.queued) queued++;
+        const row = out.row;
+        if (!row) continue;
         deploymentIds.push(row.id);
         statuses.push(row.status);
         if (row.status === 'failed')
@@ -523,12 +573,333 @@ export class WebhooksService {
     }
     let result: WebhookDeliveryResult;
     if (deploymentIds.length === 0 && buildIds.length > 0) result = 'building';
+    else if (deploymentIds.length === 0 && queued > 0) result = 'queued';
     else if (deploymentIds.length === 0) result = errors > 0 ? 'failed' : 'ignored';
     else if (statuses.every((s) => s === 'failed')) result = 'failed';
     else if (statuses.every((s) => s === 'awaiting_approval' || s === 'failed'))
       result = 'awaiting_approval';
     else result = 'deployed';
     return { result, reasons: [...new Set(reasons)], deploymentIds, buildIds };
+  }
+
+  // ---------------------------------------------------------------- F-7 coalescing queue
+
+  /** Image mode, one policy: deploy `after` now, or coalesce it behind the running deployment. */
+  private async deployOrQueue(
+    p: PolicyRow,
+    repo: string,
+    branch: string,
+    after: string,
+    deliveryRowId: string,
+    deliveryId: string,
+  ): Promise<{
+    row: Awaited<ReturnType<DeploymentsService['create']>>['row'] | null;
+    reason: string | null;
+    queued: boolean;
+  }> {
+    const done = await this.prisma.deployment.findFirst({
+      where: {
+        applicationId: p.applicationId,
+        commitSha: after,
+        status: { notIn: ['failed', 'cancelled', 'expired'] },
+      },
+      select: { id: true },
+    });
+    if (done) return { row: null, reason: 'already_deployed', queued: false };
+    // F-7: a deployment of the app is running → coalesce instead of failing ("latest wins");
+    // the queued commit starts when the running deployment ends
+    let row: Awaited<ReturnType<DeploymentsService['create']>>['row'] | null = null;
+    let queuedHere = false;
+    let reason: string | null = null;
+    for (let attempt = 0; attempt < 3 && !row; attempt++) {
+      const busy = await this.prisma.deployment.findFirst({
+        where: { applicationId: p.applicationId, status: { in: ACTIVE } },
+        select: { id: true },
+      });
+      if (!busy) {
+        try {
+          row = await this.deployCommit(p, repo, branch, after, deliveryRowId);
+          break;
+        } catch (e) {
+          if (!(e instanceof AppError) || e.code !== ERROR_CODES.DEPLOYMENT_IN_PROGRESS) throw e;
+        }
+      }
+      const q = await this.queueCommit(p, repo, branch, after, deliveryRowId, deliveryId);
+      if (q === 'idle') continue; // the running deployment just ended → try to deploy again
+      if (q === 'queued') {
+        queuedHere = true;
+        reason = 'queued_behind_deployment';
+      } else reason = q;
+      break;
+    }
+    // the active deployment may have ended between queueing and now: drain right away
+    if (!row && queuedHere) await this.drainPendingLocked(p.applicationId);
+    return { row, reason, queued: queuedHere };
+  }
+
+  /** Resolve the policy's image for `after` and create the webhook deployment. */
+  private async deployCommit(
+    p: PolicyRow,
+    repo: string,
+    branch: string,
+    after: string,
+    deliveryRowId: string,
+  ) {
+    const app = await this.prisma.application.findUniqueOrThrow({
+      where: { id: p.applicationId },
+      include: appInclude,
+    });
+    const container = await this.prisma.containerApp.findUniqueOrThrow({
+      where: { applicationId: app.id },
+    });
+    const ref = renderImageTemplate(p.imageTemplate ?? '', after, branch);
+    if (!ref)
+      throw new AppError(
+        422,
+        ERROR_CODES.IMAGE_RESOLVE_FAILED,
+        'imageTemplate does not render a valid image reference for this push',
+        { branch: branch.slice(0, 255) },
+      );
+    const cred = await this.secrets.registryCredential(app.id);
+    const image = await this.registry.resolveDigest(ref, {
+      auth: cred ? { username: cred.username, password: cred.password } : null,
+      extraAllowedHosts: cred ? [cred.serveraddress] : [],
+    });
+    const { row } = await this.deployments.create(
+      { user: null, id: null },
+      { app, container },
+      {
+        image,
+        trigger: 'webhook',
+        sourceRef: { repo, commitSha: after, branch },
+        reason: `push ${branch}@${after.slice(0, 7)}`,
+        commitSha: after,
+        webhookDeliveryId: deliveryRowId,
+      },
+    );
+    return row;
+  }
+
+  /** Same row lock as deployment creation: serializes queueing, draining and creating per app. */
+  private async lockApp(tx: Tx, appId: string): Promise<void> {
+    await tx.$queryRaw`SELECT application_id FROM container_apps WHERE application_id = ${appId}::uuid FOR UPDATE`;
+  }
+
+  /**
+   * Make `after` the app's pending commit while a deployment runs (latest wins: a queued older
+   * commit is superseded). Same-commit duplicates are reported, never queued twice. `idle` = no
+   * deployment is active any more (caller deploys directly).
+   */
+  private async queueCommit(
+    p: PolicyRow,
+    repo: string,
+    branch: string,
+    after: string,
+    deliveryRowId: string,
+    deliveryId: string,
+  ): Promise<QueueOutcome> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockApp(tx, p.applicationId);
+      const active = await tx.deployment.findFirst({
+        where: { applicationId: p.applicationId, status: { in: ACTIVE } },
+        select: { commitSha: true },
+      });
+      if (!active) return 'idle';
+      if (active.commitSha === after) return 'already_deployed';
+      const cur = await tx.pendingWebhookDeploy.findUnique({
+        where: { applicationId: p.applicationId },
+      });
+      if (cur?.commitSha === after) return 'already_queued';
+      const data = {
+        policyId: p.id,
+        deliveryRowId,
+        repo,
+        branch,
+        commitSha: after,
+        queuedAt: new Date(),
+      };
+      await tx.pendingWebhookDeploy.upsert({
+        where: { applicationId: p.applicationId },
+        create: { applicationId: p.applicationId, ...data },
+        update: data,
+      });
+      if (cur)
+        await this.amendDelivery(tx, cur.deliveryRowId, {
+          result: 'superseded',
+          reasons: [`superseded_by:${deliveryId}`],
+        });
+      logger.emit('info', 'webhook commit queued behind running deployment', {
+        component: 'webhooks',
+        applicationId: p.applicationId,
+        commitSha: after,
+        supersededCommit: cur?.commitSha ?? null,
+      });
+      return 'queued';
+    }, TX_OPTS);
+  }
+
+  /**
+   * Start the app's pending commit if no deployment is active (idempotent, safe concurrently: the
+   * deployment lock lets one caller create it; the others see DEPLOYMENT_IN_PROGRESS and leave the
+   * row for the next drain). Returns the created deployment id, if any.
+   */
+  async drainPending(appId: string): Promise<string | null> {
+    return this.withAppLock(appId, () => this.drainPendingLocked(appId));
+  }
+
+  private async drainPendingLocked(appId: string): Promise<string | null> {
+    const claim = await this.prisma.$transaction(async (tx) => {
+      await this.lockApp(tx, appId);
+      const pending = await tx.pendingWebhookDeploy.findUnique({ where: { applicationId: appId } });
+      if (!pending) return null;
+      const active = await tx.deployment.findFirst({
+        where: { applicationId: appId, status: { in: ACTIVE } },
+        select: { id: true },
+      });
+      return active ? null : pending;
+    }, TX_OPTS);
+    if (!claim) return null;
+    const drop = async (patch: DeliveryPatch) =>
+      this.prisma.$transaction(async (tx) => {
+        const del = await tx.pendingWebhookDeploy.deleteMany({
+          where: { applicationId: appId, deliveryRowId: claim.deliveryRowId },
+        });
+        if (del.count === 1) await this.amendDelivery(tx, claim.deliveryRowId, patch);
+        return del.count === 1;
+      }, TX_OPTS);
+    const p = await this.prisma.autoDeployPolicy.findUnique({ where: { id: claim.policyId } });
+    if (!p || !p.enabled || p.mode !== 'image') {
+      await drop({ result: 'ignored', reasons: ['dequeued', 'policy_disabled'] });
+      return null;
+    }
+    const done = await this.prisma.deployment.findFirst({
+      where: {
+        applicationId: appId,
+        commitSha: claim.commitSha,
+        status: { notIn: ['failed', 'cancelled', 'expired'] },
+      },
+      select: { id: true },
+    });
+    if (done) {
+      await drop({ result: 'ignored', reasons: ['dequeued', 'already_deployed'] });
+      return null;
+    }
+    let row;
+    try {
+      row = await this.deployCommit(
+        p,
+        claim.repo,
+        claim.branch,
+        claim.commitSha,
+        claim.deliveryRowId,
+      );
+    } catch (e) {
+      if (e instanceof AppError && e.code === ERROR_CODES.DEPLOYMENT_IN_PROGRESS) return null;
+      const code = e instanceof AppError ? String(e.code) : 'INTERNAL_ERROR';
+      if (!(e instanceof AppError))
+        logger.emit('error', 'queued webhook deployment failed', { err: e });
+      await drop({ result: 'failed', reasons: ['dequeued', code] });
+      return null;
+    }
+    const result: WebhookDeliveryResult =
+      row.status === 'failed'
+        ? 'failed'
+        : row.status === 'awaiting_approval'
+          ? 'awaiting_approval'
+          : 'deployed';
+    await this.prisma.$transaction(async (tx) => {
+      await tx.pendingWebhookDeploy.deleteMany({
+        where: { applicationId: appId, deliveryRowId: claim.deliveryRowId },
+      });
+      await this.amendDelivery(tx, claim.deliveryRowId, {
+        result,
+        reasons: [
+          'dequeued',
+          ...(row.status === 'failed'
+            ? [`preflight_failed:${(row.error as { code?: string } | null)?.code ?? 'UNKNOWN'}`]
+            : []),
+        ],
+        deploymentIds: [row.id],
+      });
+    }, TX_OPTS);
+    await this.audit.record({
+      actorType: 'system',
+      action: 'webhooks.github.dequeued',
+      targetType: 'deployment',
+      targetId: row.id,
+      result: row.status === 'failed' ? 'failure' : 'success',
+      metadata: {
+        applicationId: appId,
+        commitSha: claim.commitSha,
+        deliveryRowId: claim.deliveryRowId,
+      },
+    });
+    return row.id;
+  }
+
+  /** Reconcile pass: drain every pending commit whose app has no active deployment. */
+  async drainAll(): Promise<number> {
+    const rows = await this.prisma.pendingWebhookDeploy.findMany({
+      where: { application: { deployments: { none: { status: { in: ACTIVE } } } } },
+      select: { applicationId: true },
+      orderBy: { queuedAt: 'asc' },
+      take: 50,
+    });
+    let started = 0;
+    for (const r of rows) if (await this.drainPending(r.applicationId)) started++;
+    return started;
+  }
+
+  /**
+   * Change another request's delivery row (supersede / dequeue) under a row lock. A row still being
+   * processed (reason `processing`) or `queued` takes the new result; any other result is kept
+   * (multi-policy delivery) and only reasons / deployment ids are added.
+   */
+  private async amendDelivery(tx: Tx, id: string, patch: DeliveryPatch): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM webhook_deliveries WHERE id = ${id}::uuid FOR UPDATE`;
+    const row = await tx.webhookDelivery.findUnique({ where: { id } });
+    if (!row) return;
+    const replaceable = row.result === 'queued' || row.reasons.includes(PROCESSING);
+    await tx.webhookDelivery.update({
+      where: { id },
+      data: {
+        ...(patch.result && replaceable ? { result: patch.result } : {}),
+        reasons: [
+          ...new Set([...row.reasons.filter((r) => r !== PROCESSING), ...(patch.reasons ?? [])]),
+        ],
+        deploymentIds: [...new Set([...row.deploymentIds, ...(patch.deploymentIds ?? [])])],
+      },
+    });
+  }
+
+  /**
+   * Write the request's own outcome, merging anything a concurrent request already recorded on the
+   * row (a newer push superseded it, or the queued commit was already dequeued and deployed).
+   */
+  private async finalizeDelivery(
+    id: string,
+    out: {
+      result: WebhookDeliveryResult;
+      reasons: string[];
+      deploymentIds: string[];
+      buildIds: string[];
+    },
+  ): Promise<DeliveryRow> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM webhook_deliveries WHERE id = ${id}::uuid FOR UPDATE`;
+      const row = await tx.webhookDelivery.findUniqueOrThrow({ where: { id } });
+      const amended = row.result !== 'ignored' || row.reasons.some((r) => r !== PROCESSING);
+      if (!amended) return tx.webhookDelivery.update({ where: { id }, data: out });
+      return tx.webhookDelivery.update({
+        where: { id },
+        data: {
+          result: out.result === 'queued' ? (row.result as WebhookDeliveryResult) : out.result,
+          reasons: [...new Set([...out.reasons, ...row.reasons.filter((r) => r !== PROCESSING)])],
+          deploymentIds: [...new Set([...out.deploymentIds, ...row.deploymentIds])],
+          buildIds: out.buildIds,
+        },
+      });
+    }, TX_OPTS);
   }
 
   /**

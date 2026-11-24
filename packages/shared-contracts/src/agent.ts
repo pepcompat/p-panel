@@ -157,6 +157,8 @@ export const AGENT_RESULT_ERROR_CODES = [
   'HANDLER_FAILED',
   'HANDLER_TIMEOUT',
   'AGENT_INTERRUPTED',
+  /** acked, but the agent could not persist "started" (state dir unwritable/full): NOT executed */
+  'AGENT_STATE_WRITE_FAILED',
 ] as const;
 export type AgentResultErrorCode = (typeof AGENT_RESULT_ERROR_CODES)[number];
 

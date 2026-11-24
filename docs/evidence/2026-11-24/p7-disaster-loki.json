@@ -1,0 +1,118 @@
+{
+  "scenario": "disaster-loki",
+  "startedAt": "2026-11-24T02:53:24.806Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "Loki down: /logs/query \u2192 503 LOGS_BACKEND_UNAVAILABLE",
+      "result": "PASS",
+      "at": "2026-11-24T02:56:01.987Z",
+      "http": 503,
+      "code": "LOGS_BACKEND_UNAVAILABLE"
+    },
+    {
+      "step": "agent buffered while Loki was down (heartbeat logShipping.bufferedBytes > 0)",
+      "result": "PASS",
+      "at": "2026-11-24T02:56:01.993Z",
+      "bufferedBytesSamples": [3954060, 3975518, 3996970, 4018133, 4038978, 4059834, 4080703],
+      "samples": [
+        {
+          "at": "2026-11-24T02:53:55.857Z",
+          "logShipping": {
+            "bufferedBytes": 3954060,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:53:33.617645217Z"
+          }
+        },
+        {
+          "at": "2026-11-24T02:54:10.873Z",
+          "logShipping": {
+            "bufferedBytes": 3975518,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:53:33.617645217Z"
+          }
+        },
+        {
+          "at": "2026-11-24T02:54:25.899Z",
+          "logShipping": {
+            "bufferedBytes": 3996970,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:53:33.617645217Z"
+          }
+        },
+        {
+          "at": "2026-11-24T02:54:40.927Z",
+          "logShipping": {
+            "bufferedBytes": 4018133,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:53:33.617645217Z"
+          }
+        },
+        {
+          "at": "2026-11-24T02:54:55.951Z",
+          "logShipping": {
+            "bufferedBytes": 4038978,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:53:33.617645217Z"
+          }
+        },
+        {
+          "at": "2026-11-24T02:55:10.965Z",
+          "logShipping": {
+            "bufferedBytes": 4059834,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:53:33.617645217Z"
+          }
+        },
+        {
+          "at": "2026-11-24T02:55:25.988Z",
+          "logShipping": {
+            "bufferedBytes": 4080703,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:53:33.617645217Z"
+          }
+        }
+      ]
+    },
+    {
+      "step": "after Loki recovery: lines from the outage window delivered (>= 99%), nothing dropped",
+      "result": "PASS",
+      "at": "2026-11-24T02:57:02.379Z",
+      "probeRequestsInWindow": 603,
+      "delivery": {
+        "inFile": 583,
+        "inLoki": 583,
+        "deliveredPct": 100.0
+      },
+      "lokiDownSec": 126,
+      "lokiReadySec": 21.0,
+      "logShipping": {
+        "bufferedBytes": 10878,
+        "bufferCapBytes": 67108864,
+        "droppedEntries": 0,
+        "lastShippedAt": "2026-11-24T02:56:49.635782002Z"
+      },
+      "logDroppedTotal": 0
+    }
+  ],
+  "updatedAt": "2026-11-24T02:57:02.385Z",
+  "summary": {
+    "PASS": 3
+  }
+}

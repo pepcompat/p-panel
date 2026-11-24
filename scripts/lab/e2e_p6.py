@@ -356,9 +356,9 @@ volumes:
     _, r = call("POST", f"/backup-policies/{bpol['data']['id']}/run", admin, None,
                 {"Idempotency-Key": str(uuid.uuid4())}, expect=(200, 202))
     brun_id = r["data"]["run"]["id"]
-    poll(lambda: call("GET", f"/backup-runs/{brun_id}", admin, expect=200)[1]["data"]["status"] == "running", 60, 1,
+    poll(lambda: call("GET", f"/backup-runs/{brun_id}", admin, expect=200)[1]["data"]["status"] == "running", 60, 0.2,
          "run started")
-    time.sleep(2)
+    # kill right away: a 300 MB local backup can finish in < 2 s on fast hardware
     node("ppanel-lab-node-a", "pkill -9 -f '[p]panel-agent-linux-arm64 run' || true; pkill -9 -x restic || true")
     brun = poll(lambda: (lambda d: d if d["status"] in RUN_DONE else None)(
         call("GET", f"/backup-runs/{brun_id}", admin, expect=200)[1]["data"]), 900, 5, "interrupted run terminal")

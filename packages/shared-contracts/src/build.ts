@@ -10,6 +10,7 @@ import {
   ENV_KEY_RE,
   GIT_URL_RE,
   IMAGE_REPO_RE,
+  isRepoRelPath,
 } from './jobs';
 import { ENVIRONMENTS } from './server';
 
@@ -41,7 +42,10 @@ const buildConfigBase = z
     subdir: z
       .string()
       .regex(/^[A-Za-z0-9._\/-]{0,200}$/)
-      .refine((p) => !p.split('/').includes('..') && !p.startsWith('/'), 'subdir must be relative')
+      .refine(
+        isRepoRelPath,
+        'subdir must be a relative path inside the repository (no .., no .git)',
+      )
       .default(''),
     dockerfile: relPath(200).optional(),
     template: z.enum(DOCKERFILE_TEMPLATES).optional(),

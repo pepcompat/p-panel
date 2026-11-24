@@ -1,0 +1,57 @@
+{
+  "scenario": "setup-fleet",
+  "startedAt": "2026-11-24T02:05:19.042Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-23T10:15:22.281Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "snapshot Center started",
+      "result": "PASS",
+      "at": "2026-11-24T02:05:20.926Z",
+      "startSec": 1.05
+    },
+    {
+      "step": "node-a and node-b enrolled + online",
+      "result": "PASS",
+      "at": "2026-11-24T02:05:25.815Z",
+      "nodeA": "01a20b4c-f09f-7823-8d61-9c2a6694fd70",
+      "nodeB": "01a20b4c-f98b-7191-b1bd-d6bcdb7996db"
+    },
+    {
+      "step": "node-a static.example.lab imported + adopted",
+      "result": "PASS",
+      "at": "2026-11-24T02:05:28.022Z",
+      "appId": "01a20b4d-09bd-711f-98db-a22c4572f6be",
+      "path": "/etc/nginx/sites-available/01-static-multi.conf"
+    },
+    {
+      "step": "node-b container + compose apps deployed; all sites 200",
+      "result": "PASS",
+      "at": "2026-11-24T02:05:42.558Z",
+      "managedRouting": true,
+      "web": "succeeded",
+      "stack": "succeeded",
+      "codes": {
+        "p7web-85919.lab.test": "200",
+        "p7stack-85919.lab.test": "200",
+        "shop.b.lab": "200",
+        "static.example.lab": "200",
+        "api.example.lab": "200",
+        "php.example.lab": "200"
+      },
+      "webBody": "ppanel-test web v1"
+    }
+  ],
+  "updatedAt": "2026-11-24T02:05:42.559Z",
+  "summary": {
+    "PASS": 4
+  }
+}

@@ -19,6 +19,8 @@ import { verifyPassword } from './password';
 import { type MfaClaims, type StepUpClaims, TokenService } from './token.service';
 
 export const REFRESH_TTL_MS = 7 * 24 * 3600 * 1000;
+/** Login attempts per client IP per minute, across all accounts (password-spraying brake). */
+export const LOGIN_PER_IP_PER_MIN = 30;
 
 export interface ClientInfo {
   ip?: string;
@@ -45,6 +47,8 @@ export class AuthService {
   ) {}
 
   async login(email: string, password: string, client: ClientInfo): Promise<IssuedSession> {
+    // SEC-P7-07: per (ip, email) stops guessing one account; per ip stops spraying many accounts
+    this.limiter.hit(`login-ip:${client.ip ?? '-'}`, LOGIN_PER_IP_PER_MIN, 60_000);
     this.limiter.hit(`login:${client.ip ?? '-'}:${email}`, 5, 60_000);
     const user = await this.prisma.user.findUnique({ where: { email } });
     const ok = await verifyPassword(user?.passwordHash, password);

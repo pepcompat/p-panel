@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import {
   ENV_KEY_RE,
-  hostPathSchema,
+  hostPathSyntaxSchema,
   imageDigestRefSchema,
   RESTIC_SNAPSHOT_RE,
   restoreTargetSchema,
@@ -246,7 +246,7 @@ export const backupPolicyTargetInputSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('paths'),
-      paths: z.array(hostPathSchema).min(1).max(50),
+      paths: z.array(hostPathSyntaxSchema).min(1).max(50),
       excludes: z
         .array(z.string().regex(/^[A-Za-z0-9._*?\/\[\]-]{1,200}$/))
         .max(100)

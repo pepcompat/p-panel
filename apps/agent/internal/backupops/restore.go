@@ -2,7 +2,10 @@ package backupops
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +14,7 @@ import (
 	"github.com/ppanel/ppanel/apps/agent/internal/containerops"
 	"github.com/ppanel/ppanel/apps/agent/internal/docker"
 	"github.com/ppanel/ppanel/apps/agent/internal/jobs"
+	"github.com/ppanel/ppanel/apps/agent/internal/safefs"
 )
 
 // VerifyResult is restore.run `verify` (and the backup.verify compare).
@@ -80,6 +84,46 @@ type RestoreOutput struct {
 
 // MaxDryRunItems bounds the dry-run listing.
 const MaxDryRunItems = 1000
+
+// makeStagingDir creates <stateDir>/restores/<id> (0700). The restores
+// directory and the new staging directory must be real directories (never a
+// symlink planted to redirect restic's writes) owned by the agent; both are
+// created through no-follow directory fds and re-checked after creation.
+func (m *Manager) makeStagingDir(target string) error {
+	restores := filepath.Dir(target)
+	if err := os.MkdirAll(m.o.StateDir, 0o700); err != nil {
+		return err
+	}
+	rstate, err := filepath.EvalSymlinks(m.o.StateDir)
+	if err != nil {
+		return err
+	}
+	sd, err := safefs.OpenDir(rstate)
+	if err != nil {
+		return err
+	}
+	defer sd.Close()
+	if err := sd.Mkdir(filepath.Base(restores), 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	rd, err := sd.Sub(filepath.Base(restores)) // fails on a symlink
+	if err != nil {
+		return fmt.Errorf("restores dir is not a real directory: %w", err)
+	}
+	defer rd.Close()
+	if err := rd.Mkdir(filepath.Base(target), 0o700); err != nil {
+		return err
+	}
+	info, err := rd.Lstat(filepath.Base(target))
+	if err != nil || !info.Mode.IsDir() || info.UID != os.Geteuid() {
+		return fmt.Errorf("staging dir changed after creation")
+	}
+	// restic gets the resolved, symlink-free path
+	if real, err := filepath.EvalSymlinks(target); err != nil || real != filepath.Join(rstate, filepath.Base(restores), filepath.Base(target)) {
+		return fmt.Errorf("staging dir resolves elsewhere")
+	}
+	return nil
+}
 
 // StagingDir is where a paths staging restore goes.
 func (m *Manager) StagingDir(restoreID string) string {
@@ -169,14 +213,47 @@ func (m *Manager) Restore(ctx context.Context, p RestoreParams) (any, error) {
 }
 
 // verifyFiles hashes root+path for each expected manifest file under includes.
+//
+// With a root (staging restore / verify restore) every file must resolve
+// inside that root with no symlink in any component below it (a restored
+// symlink, or a manifest path with "..", can never make the agent hash and
+// report a file outside the restore). Without a root (in_place) the final
+// component is still never followed.
 func verifyFiles(expected []ManifestFile, root string, includes []string) VerifyResult {
 	actual := map[string]ManifestFile{}
 	keep := func(p string) bool { return underAny(p, includes) }
+	rroot := ""
+	if root != "" {
+		if r, err := filepath.EvalSymlinks(root); err == nil {
+			rroot = r
+		}
+	}
 	for _, e := range expected {
 		if !keep(e.Path) {
 			continue
 		}
-		if sha, sz, err := hashFile(filepath.Join(root, e.Path)); err == nil {
+		if CheckHostPath(e.Path) != nil {
+			continue // reported as missing
+		}
+		var sha string
+		var sz int64
+		var err error
+		if root != "" {
+			if rroot == "" {
+				continue
+			}
+			full := filepath.Join(rroot, e.Path)
+			if !UnderDir(full, rroot) {
+				continue
+			}
+			h := sha256.New()
+			if sz, err = safefs.CopyNoFollow(full, h); err == nil {
+				sha = hex.EncodeToString(h.Sum(nil))
+			}
+		} else {
+			sha, sz, err = hashFile(e.Path)
+		}
+		if err == nil {
 			actual[e.Path] = ManifestFile{Path: e.Path, Size: sz, Sha256: sha}
 		}
 	}
@@ -211,16 +288,12 @@ func (s *session) restorePaths(p RestoreParams) (*RestoreOutput, error) {
 		return out, nil
 	}
 	if t.Mode == "staging" {
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return nil, jerr(CodeRestoreFailed, "create restores dir: %v", err)
-		}
-		if err := os.Mkdir(target, 0o700); err != nil {
+		if err := s.m.makeStagingDir(target); err != nil {
 			if errors.Is(err, os.ErrExist) {
 				return nil, jerr(CodeRestoreTargetExists, "staging directory for restore %s already exists", p.RestoreID)
 			}
 			return nil, jerr(CodeRestoreFailed, "create staging dir: %v", err)
 		}
-		_ = os.Chmod(target, 0o700)
 	}
 	res, err := s.restic(restoreArgs(p.Repo, p.SnapshotID, false, target, t.Include, false, p.Verify, false), 8<<20)
 	if err != nil {

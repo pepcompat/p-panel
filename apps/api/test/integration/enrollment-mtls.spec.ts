@@ -1,4 +1,6 @@
 import { X509Certificate } from 'node:crypto';
+import https from 'node:https';
+import type { TLSSocket } from 'node:tls';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SweeperService } from '../../src/jobs/sweeper.service';
 import {
@@ -358,5 +360,74 @@ describe('heartbeat retention is bounded', () => {
       orderBy: { seq: 'asc' },
     });
     expect(rows.map((r) => Number(r.seq))).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+  });
+});
+
+describe('F-13 gateway certificate renewal (hot swap, no dropped connections)', () => {
+  function keepAliveCall(
+    agent: https.Agent,
+    creds: { keyPem: string; certPem: string; caPem: string },
+    seq: number,
+  ) {
+    return new Promise<{ status: number; serial: string; reused: boolean }>((resolve, reject) => {
+      const payload = JSON.stringify(heartbeatBody(seq));
+      const req = https.request(
+        {
+          host: '127.0.0.1',
+          port,
+          servername: 'localhost',
+          method: 'POST',
+          path: '/agent/v1/heartbeat',
+          key: creds.keyPem,
+          cert: creds.certPem,
+          ca: creds.caPem,
+          agent,
+          headers: {
+            'X-Agent-Protocol': '1',
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          const serial = (res.socket as TLSSocket).getPeerCertificate().serialNumber;
+          res.resume();
+          res.on('end', () =>
+            resolve({ status: res.statusCode ?? 0, serial, reused: req.reusedSocket }),
+          );
+        },
+      );
+      req.on('error', reject);
+      req.end(payload);
+    });
+  }
+
+  it('not due → kept; < 30 days left → re-issued and swapped; live keep-alive connection keeps working', async () => {
+    const a = await enrollAgent(t, owner);
+    const agent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const first = await keepAliveCall(agent, a.creds, 1);
+      expect(first.status).toBe(200);
+      const notAfter = t.gateway.certNotAfter!;
+      expect(notAfter.getTime() - Date.now()).toBeGreaterThan(80 * 86_400_000);
+      expect(await t.gateway.renewIfDue(new Date())).toBe(false);
+      // 61 days later: 29 days left → renew
+      expect(await t.gateway.renewIfDue(new Date(Date.now() + 61 * 86_400_000))).toBe(true);
+      expect(t.gateway.certNotAfter!.getTime()).toBeGreaterThan(notAfter.getTime());
+      // the established connection is not dropped
+      const again = await keepAliveCall(agent, a.creds, 2);
+      expect(again).toMatchObject({ status: 200, reused: true, serial: first.serial });
+      // a new handshake gets the new certificate
+      const fresh = new https.Agent({ keepAlive: false });
+      try {
+        const n = await keepAliveCall(fresh, a.creds, 3);
+        expect(n.status).toBe(200);
+        expect(n.reused).toBe(false);
+        expect(n.serial).not.toBe(first.serial);
+      } finally {
+        fresh.destroy();
+      }
+    } finally {
+      agent.destroy();
+    }
   });
 });

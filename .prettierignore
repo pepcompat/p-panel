@@ -2,3 +2,4 @@ design/
 pnpm-lock.yaml
 **/dist
 **/.next
+.impeccable/

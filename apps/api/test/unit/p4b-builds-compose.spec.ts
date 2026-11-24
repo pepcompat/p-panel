@@ -6,6 +6,7 @@ import {
   autoDeployPolicySchema,
   gitAuthHeader,
   JOB_TYPES,
+  validateComposeDocument,
 } from '@ppanel/shared-contracts';
 import { describe, expect, it } from 'vitest';
 import { boundLog, gitHostAllowed, gitHostOf } from '../../src/deploy/builds.service';
@@ -281,5 +282,52 @@ describe('P4b builds helpers + contracts', () => {
     expect(resourceKeyFor('compose.stop', { app: 'shop' })).toBe('app:shop');
     expect(resourceKeyFor('image.build', { app: 'shop' })).toBe('build:shop');
     expect(resourceKeyFor('source.inspect', {})).toBeNull();
+  });
+});
+
+describe('P7.02 follow-up: static policy ↔ compose plan agreement', () => {
+  const svcKeys: Record<string, unknown> = {
+    environment: { A: '1' },
+    command: ['sh', '-c', 'true'],
+    volumes: ['data:/data', { type: 'volume', source: 'cache', target: '/cache' }],
+    depends_on: [],
+    restart: 'always',
+    labels: { a: 'b' },
+    healthcheck: { test: ['CMD', 'true'] },
+    cap_add: ['NET_BIND_SERVICE'],
+    security_opt: ['no-new-privileges'],
+    privileged: false,
+    ipc: 'private',
+    'x-note': 'inert',
+  };
+  it('every service key the production validator accepts is handled by the plan (no unsupported)', () => {
+    const doc = {
+      services: { web: { image: D('a'), ...svcKeys } },
+      volumes: { data: {}, cache: {} },
+    };
+    expect(validateComposeDocument(doc, { environment: 'production' }).violations).toEqual([]);
+    const n = normalizeComposeDocument(doc, route);
+    expect(n.validation.violations).toEqual([]);
+    expect(n.validation.valid).toBe(true);
+    expect(n.services).toHaveLength(1);
+  });
+  it('dangerous encodings found by fuzzing never normalise', () => {
+    for (const bad of [
+      { privileged: 'yes' },
+      { network_mode: ' HOST' },
+      { net: 'host' },
+      { networks: ['host'] },
+      { cap_add: 'SYS_ADMIN' },
+      { security_opt: ['label:type:spc_t'] },
+      { volumes: [{ type: 'BIND', source: 'x', target: '/y' }] },
+      { volumes: ['C:\\x:/x'] },
+      { volumes_from: ['container:other'] },
+      { sysctls: { a: 'b' } },
+      { '<<': { privileged: true } },
+    ]) {
+      const n = normalizeComposeDocument({ services: { web: { image: D('a'), ...bad } } }, route);
+      expect(n.validation.valid, JSON.stringify(bad)).toBe(false);
+      expect(n.services).toEqual([]);
+    }
   });
 });

@@ -34,6 +34,8 @@ const img = (d: string) => `lab-registry:5000/ppanel-test/web@sha256:${d}`;
 const SECRET = 'S3cr3t-Value-For-P4T02-xyz';
 const COMMIT = '1234567890abcdef1234567890abcdef12345678';
 const COMMIT2 = 'fedcba0987654321fedcba0987654321fedcba09';
+/** F-7 webhook storm commits */
+const STORM = ['a1', 'b2', 'c3', 'd4', 'e5'].map((p) => p.repeat(20));
 const HOOK_SECRET = 'webhook-secret-0123456789';
 
 // ------------------------------------------------------------------ fake registry (HTTP API v2)
@@ -42,6 +44,12 @@ const REG_DIGESTS: Record<string, string> = {
   [`ppanel-test/web:sha-${COMMIT.slice(0, 7)}`]: `sha256:${'e'.repeat(64)}`,
   [`ppanel-test/web:sha-${COMMIT2.slice(0, 7)}`]: `sha256:${'f'.repeat(64)}`,
   [`private/app:sha-${COMMIT.slice(0, 7)}`]: `sha256:${'9'.repeat(64)}`,
+  ...Object.fromEntries(
+    STORM.map((c, i) => [
+      `ppanel-test/web:sha-${c.slice(0, 7)}`,
+      `sha256:${String(i + 1).repeat(64)}`,
+    ]),
+  ),
 };
 const registryHits: Array<{ method: string; url: string; accept?: string; auth?: string }> = [];
 let registry: http.Server;
@@ -1397,6 +1405,149 @@ describe('P4-T06 GitHub webhooks', () => {
     expect(registryHits.filter((h) => h.auth === 'Bearer tok-123').length).toBeGreaterThan(0);
   });
 
+  it('F-7: commits pushed during a deployment are coalesced (latest wins), deduped, and the latest deploys when the running one ends', async () => {
+    const { app, integrationId } = await setup();
+    const [c1, c2, c3] = STORM as [string, string, string];
+    const r1 = await push(integrationId, { delivery: 'q-1', after: c1 });
+    expect(r1.body.data).toMatchObject({ result: 'deployed' });
+    const r2 = await push(integrationId, { delivery: 'q-2', after: c2 });
+    expect(r2.body.data).toMatchObject({
+      result: 'queued',
+      reasons: ['queued_behind_deployment'],
+      deploymentIds: [],
+    });
+    const r3 = await push(integrationId, { delivery: 'q-3', after: c3 });
+    expect(r3.body.data).toMatchObject({ result: 'queued' });
+    // same commit as the queued one / as the running one → ignored, never failed
+    const dupQueued = await push(integrationId, { delivery: 'q-4', after: c3 });
+    expect(dupQueued.body.data).toMatchObject({ result: 'ignored', reasons: ['already_queued'] });
+    const dupRunning = await push(integrationId, { delivery: 'q-5', after: c1 });
+    expect(dupRunning.body.data).toMatchObject({
+      result: 'ignored',
+      reasons: ['already_deployed'],
+    });
+    const hist = async () =>
+      Object.fromEntries(
+        (await api('get', `/integrations/github/${integrationId}/deliveries`)).body.data.map(
+          (x: any) => [x.deliveryId, x],
+        ),
+      ) as Record<string, any>;
+    let h = await hist();
+    expect(h['q-2']).toMatchObject({
+      result: 'superseded',
+      reasons: expect.arrayContaining(['superseded_by:q-3']),
+    });
+    expect(h['q-3'].result).toBe('queued');
+    expect(await t.prisma.pendingWebhookDeploy.findMany()).toMatchObject([
+      { applicationId: app.id, commitSha: c3 },
+    ]);
+    // first deployment finishes → the pending commit starts automatically and also finishes
+    await drain();
+    const deps = await t.prisma.deployment.findMany({
+      where: { applicationId: app.id },
+      orderBy: { number: 'asc' },
+    });
+    expect(deps.map((d) => [d.commitSha, d.status])).toEqual([
+      [c1, 'succeeded'],
+      [c3, 'succeeded'],
+    ]);
+    expect(await t.prisma.pendingWebhookDeploy.count()).toBe(0);
+    h = await hist();
+    expect(h['q-3']).toMatchObject({
+      result: 'deployed',
+      deploymentIds: [deps[1]!.id],
+      reasons: expect.arrayContaining(['queued_behind_deployment', 'dequeued']),
+    });
+    expect(h['q-2'].result).toBe('superseded');
+    expect(Object.values(h).filter((x: any) => x.result === 'failed')).toEqual([]);
+  });
+
+  it('F-7: webhook storm (50 concurrent deliveries, 5 commits) → one deployment at a time, no failed deliveries, the queued commit deploys afterwards', async () => {
+    const { app, integrationId } = await setup();
+    const reqs = STORM.flatMap((c, i) =>
+      Array.from({ length: 10 }, (_, j) => ({ delivery: `s-${i}-${j}`, after: c })),
+    );
+    const res = await Promise.all(reqs.map((r) => push(integrationId, r)));
+    for (const r of res) expect(r.status, JSON.stringify(r.body)).toBe(200);
+    const results = res.map((r) => r.body.data.result as string);
+    expect(results.filter((x) => x === 'failed')).toEqual([]);
+    expect(results.filter((x) => x === 'deployed')).toHaveLength(1);
+    const first = await t.prisma.deployment.findMany({ where: { applicationId: app.id } });
+    expect(first).toHaveLength(1);
+    const pending = await t.prisma.pendingWebhookDeploy.findMany();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.commitSha).not.toBe(first[0]!.commitSha);
+    // per commit at most one delivery is queued/deployed; the rest are ignored or superseded
+    const rows = await t.prisma.webhookDelivery.findMany({ where: { integrationId } });
+    expect(rows.every((r) => !r.reasons.includes('processing'))).toBe(true);
+    for (const c of STORM) {
+      const live = rows.filter((r) => r.after === c && ['deployed', 'queued'].includes(r.result));
+      expect(live.length).toBeLessThanOrEqual(1);
+    }
+    expect(rows.filter((r) => r.result === 'queued')).toHaveLength(1);
+    await drain();
+    const deps = await t.prisma.deployment.findMany({
+      where: { applicationId: app.id },
+      orderBy: { number: 'asc' },
+    });
+    expect(deps.map((d) => d.status)).toEqual(['succeeded', 'succeeded']);
+    expect(deps[1]!.commitSha).toBe(pending[0]!.commitSha);
+    expect(new Set(deps.map((d) => d.commitSha)).size).toBe(2);
+    expect(await t.prisma.pendingWebhookDeploy.count()).toBe(0);
+    const after = await t.prisma.webhookDelivery.findMany({ where: { integrationId } });
+    expect(after.filter((r) => r.result === 'failed')).toEqual([]);
+    expect(after.filter((r) => r.result === 'queued')).toEqual([]);
+  });
+
+  it('F-7: cancelling the running deployment starts the queued commit; a pending commit left behind (missed hook) is started by the reconcile pass', async () => {
+    const { app, integrationId } = await setup();
+    const [c1, c2, c3] = STORM as [string, string, string];
+    const r1 = await push(integrationId, { delivery: 'k-1', after: c1 });
+    await push(integrationId, { delivery: 'k-2', after: c2 });
+    expect(await t.prisma.pendingWebhookDeploy.count()).toBe(1);
+    const cancel = await api('post', `/deployments/${r1.body.data.deploymentIds[0]}/cancel`);
+    expect(cancel.status, JSON.stringify(cancel.body)).toBe(200);
+    let deps = await t.prisma.deployment.findMany({
+      where: { applicationId: app.id },
+      orderBy: { number: 'asc' },
+    });
+    expect(deps.map((d) => [d.commitSha, d.status])).toEqual([
+      [c1, 'cancelled'],
+      [c2, 'pulling'],
+    ]);
+    await drain();
+    // simulate a crash between queueing and the settled hook: pending row, nothing active
+    const policy = await t.prisma.autoDeployPolicy.findFirstOrThrow({
+      where: { applicationId: app.id },
+    });
+    const k3 = await push(integrationId, {
+      delivery: 'k-3',
+      after: COMMIT2,
+      ref: 'refs/heads/feature/no',
+    });
+    await t.prisma.pendingWebhookDeploy.create({
+      data: {
+        applicationId: app.id,
+        policyId: policy.id,
+        deliveryRowId: k3.body.data.id,
+        repo: 'acme/web',
+        branch: 'main',
+        commitSha: c3,
+      },
+    });
+    await t.app.get(SweeperService).tick();
+    deps = await t.prisma.deployment.findMany({
+      where: { applicationId: app.id },
+      orderBy: { number: 'asc' },
+    });
+    expect(deps.map((d) => [d.commitSha, d.status])).toEqual([
+      [c1, 'cancelled'],
+      [c2, 'succeeded'],
+      [c3, 'pulling'],
+    ]);
+    expect(await t.prisma.pendingWebhookDeploy.count()).toBe(0);
+  });
+
   it('registry not allowlisted → policy rejected; unknown tag → delivery failed; GitHub App BLOCKED', async () => {
     await enableRouting();
     const app = await createApp();
@@ -1484,12 +1635,13 @@ describe('durability across API restart', () => {
     expect(d.status).toBe('succeeded');
   });
 
-  it('lease expiry of the candidate job → failed via the sweeper (never re-delivered)', async () => {
+  it('lease expiry of the candidate job → failed via the sweeper (never re-delivered); F-8: the possibly-started candidate is stopped + removed and its port released', async () => {
     await enableRouting();
     const app = await createApp();
     const r = await deploy(app.id);
     const lease = await agentCall(port, agent.creds, 'GET', '/agent/v1/tasks?waitSec=0');
     expect(lease.body.data.tasks).toHaveLength(1);
+    const cand = (lease.body.data.tasks[0] as Grant).params.name as string;
     await t.prisma.job.updateMany({
       where: { type: 'container.run_candidate' },
       data: { leaseUntil: new Date(Date.now() - 1000) },
@@ -1497,7 +1649,63 @@ describe('durability across API restart', () => {
     await t.app.get(SweeperService).tick();
     const d = await getDep(r.body.data.deployment.id);
     expect(d).toMatchObject({ status: 'failed', error: { code: 'LEASE_EXPIRED' } });
+    expect(
+      await t.prisma.hostPortAllocation.count({
+        where: { serverId: agent.serverId, containerName: cand },
+      }),
+    ).toBe(1); // still reserved until the removal is confirmed
+    // the agent finished the candidate while the Center was away: the late result is refused
+    const late = await agentCall(
+      port,
+      agent.creds,
+      'POST',
+      `/agent/v1/tasks/${(lease.body.data.tasks[0] as Grant).jobId}/result`,
+      {
+        leaseToken: (lease.body.data.tasks[0] as Grant).leaseToken,
+        status: 'succeeded',
+        output: {},
+      },
+    );
+    expect(late.status).toBe(409);
+    // cleanup: stop + remove of the deterministic candidate name; run_candidate never re-delivered
+    const g = await drain();
+    expect(g.map((x) => [x.type, x.params.name])).toEqual([
+      ['container.stop', cand],
+      ['container.remove', cand],
+    ]);
+    const after = await getDep(r.body.data.deployment.id);
+    expect(after.status).toBe('failed');
+    expect(after.steps.map((s: any) => [s.name, s.status])).toEqual(
+      expect.arrayContaining([
+        ['cleanup_stop', 'succeeded'],
+        ['cleanup_remove', 'succeeded'],
+      ]),
+    );
+    expect(
+      await t.prisma.hostPortAllocation.count({
+        where: { serverId: agent.serverId, containerName: cand },
+      }),
+    ).toBe(0);
+    // a second reconcile pass does not enqueue another cleanup
+    await t.app.get(SweeperService).tick();
     expect(await drain()).toEqual([]);
+  });
+
+  it('F-8: candidate never created (TTL lapsed before delivery) → port released, no cleanup jobs', async () => {
+    await enableRouting();
+    const app = await createApp();
+    const r = await deploy(app.id);
+    await t.prisma.job.updateMany({
+      where: { type: 'container.run_candidate' },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await t.app.get(SweeperService).tick();
+    const d = await getDep(r.body.data.deployment.id);
+    expect(d).toMatchObject({ status: 'failed', error: { code: 'TTL_EXPIRED' } });
+    expect(await drain()).toEqual([]);
+    expect(await t.prisma.hostPortAllocation.count({ where: { serverId: agent.serverId } })).toBe(
+      0,
+    );
   });
 });
 

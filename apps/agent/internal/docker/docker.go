@@ -30,6 +30,12 @@ func (g getOnly) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Method != http.MethodGet {
 		return nil, fmt.Errorf("docker: method %s refused (read-only client)", r.Method)
 	}
+	if err := checkRequestShape(r); err != nil {
+		return nil, err
+	}
+	if !allowedRead(r.URL.Path) {
+		return nil, fmt.Errorf("docker: GET %s refused (read-only client allowlist)", r.URL.Path)
+	}
 	return g.rt.RoundTrip(r)
 }
 
@@ -53,8 +59,8 @@ func New(socket string) *Client {
 		DisableKeepAlives:     true,
 		ResponseHeaderTimeout: 15 * time.Second,
 	}
-	return &Client{socket: socket, hc: &http.Client{Transport: getOnly{tr}, Timeout: 15 * time.Second},
-		stream: &http.Client{Transport: getOnly{str}}}
+	return &Client{socket: socket, hc: &http.Client{Transport: getOnly{tr}, Timeout: 15 * time.Second, CheckRedirect: noRedirects},
+		stream: &http.Client{Transport: getOnly{str}, CheckRedirect: noRedirects}}
 }
 
 // Accessible reports whether the socket exists and can be opened.

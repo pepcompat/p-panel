@@ -211,6 +211,7 @@ export class AlertsService {
       scopeType,
       scopeId,
       params: input.params ?? r.params,
+      ...(input.forSec !== undefined ? { forSec: input.forSec } : {}),
     };
     const issues = validateAlertRule(merged);
     if (issues.length) throw AppError.validation(issues);

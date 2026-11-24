@@ -110,7 +110,9 @@ func (f *Followers) run(ctx context.Context, m Managed) {
 			line := Sanitize(f.Redactor, l.Line)
 			e := Entry{TS: FormatTS(ts), Source: SourceContainer, App: strp(m.App), Service: strp(m.Service),
 				Container: strp(m.Name), Stream: strp(l.Stream), Level: DetectLevel(SourceContainer, l.Stream, line), Line: line}
-			if err := f.Buffer.Append(e); err == nil && !l.TS.IsZero() {
+			if err := f.Buffer.Append(e); err != nil {
+				f.Buffer.AddDropped(1) // not buffered: count it instead of losing it silently
+			} else if !l.TS.IsZero() {
 				f.Pos.SetContainer(m.ID, l.TS)
 			}
 		})

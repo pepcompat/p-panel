@@ -75,6 +75,8 @@ Rules:
 - Agent keeps a bounded on-disk set of completed jobIds (last 1000) and never re-executes a completed jobId (returns cached result instead).
 - Center never re-delivers a job whose lease expired while `type` is classified `mutating`; it transitions to `expired` and requires a new human/API request (TEST P2-T02 / E2E-11).
 - Read-only types may be re-leased.
+- Before executing, the agent durably records the job as `started` (with its `leaseToken`, kept only until completion). If that write fails after the ack (e.g. state dir full) the agent does **not** run the job and immediately posts `failed` with `AGENT_STATE_WRITE_FAILED` (`details: { stateDir, diskFull }`).
+- At start the agent posts `failed` / `AGENT_INTERRUPTED` for every job a previous agent process recorded as `started` but never completed (it died mid-job), using the persisted lease token. If the lease is already gone the Center answers 409 `TASK_EXPIRED` and the agent drops the result. Such a job is never re-executed.
 
 ## Reconnect
 
@@ -122,6 +124,11 @@ Steps 1–4 as validate (backup kept at `<stateDir>/nginx-backups/<revisionId>/`
 ### `nginx.revert` (mutating)
 
 Preflight: each `expectedCurrent[i].sha256` must equal what is on disk (null = must not exist) → else `DRIFT_DETECTED`. Backup for `revisionId` must exist → else `BACKUP_NOT_FOUND`. Restore → `nginx -t` (fail → put the pre-revert content back, `NGINX_TEST_FAILED`) → reload. Output like apply.
+
+### Interrupted nginx jobs and manual-recovery reports
+
+- Mutating nginx jobs write a journal `<stateDir>/nginx-backups/inflight.json` (fsync, no-follow dir fd) after the backup and **before** the first change to `/etc/nginx`; it is removed once the job reaches a final state. A journal found at agent start means the agent died mid-job: before accepting jobs the agent restores that backup and, for `nginx.apply` / `nginx.revert`, runs `nginx -t` + reload, so the host matches "not applied" / "not reverted" (what the Center records for a job that never reported success). It only does so when every file is still either the original or the interrupted job's candidate; otherwise nothing is touched and the backup is marked `interrupted-manual`. The job itself is reported as `AGENT_INTERRUPTED` (see Rules above) when its lease is still valid.
+- `REVERT_FAILED_MANUAL_RECOVERY` with `details.restored: true` means the files **were** restored and verified and only `nginx -t` / reload of the restored config failed; `details.restoredFiles: [{ path, sha256|null }]` carries the verified checksums (null = file absent).
 
 ### Concurrency
 
@@ -251,6 +258,8 @@ Agent rules:
 - Every log entry always carries all keys (`ts, source, app, service, container, file, stream, level, line`), with unknown values as JSON `null`.
 - The agent drops a batch only on 400/413/422 (counted in `droppedEntries`). The Center therefore returns 4xx only for genuinely invalid batches, and 503 for transient problems (for example Loki down).
 - Spoofed `app`/`container` entries are dropped **per entry** by the Center: the batch still returns 200, with a `rejected` count.
+- `logShipping.bufferedBytes` is the **unshipped** backlog (bytes of buffered entries not yet accepted by the Center), not the on-disk buffer size.
+- File sources (nginx logs) get a unique, strictly increasing `ts` per file: `max(now, previous + 1 ns)`, persisted with the read position, so byte-identical lines are never de-duplicated by Loki. A file's read position advances only after its lines are durably buffered; if the buffer cannot be written (disk full) the lines are re-read on the next poll instead of being lost. Container and agent entries that cannot be buffered are counted in `droppedEntries`.
 - The Center computes log-drop totals from **deltas of the heartbeat's cumulative `logShipping.droppedEntries`**. The batch `dropped` field is informational only.
 - Delivery is at-least-once: up to ~1 s of lines can repeat after an agent crash.
 - `cpuPct` for containers appears from the second heartbeat onwards.
@@ -271,6 +280,7 @@ Repository model (ADR-0009): **restic** repositories behind **rest-server with `
   - postgres: join `ppanel-<app>`, `restic backup --json --stdin-filename <db>.sql --stdin-from-command -- pg_dump --no-password --format=plain --clean --if-exists -h <service> -U <user> <db>`.
   - mysql: `… --stdin-from-command -- mysqldump --single-transaction --routines --triggers -h <service> -u <user> <db>`.
 - **Manifest**: for paths/volume targets the agent records `{ path, size, sha256 }` for up to 10 000 files (beyond → `truncated: true`), computed from the source **during** backup and stored in the result (not in the repo). For DB targets: `{ database, bytes, sha256 of dump stream, tables: [{ name, rows }] }` — table row counts come from a read-only query in the helper (`psql -At -c "select relname, n_live_tup …"` after `ANALYZE` is **not** run; exact counts via `select count(*)` per table, ≤ 200 tables).
+- `backup.run` first checks the repository with `restic cat config` (no lock) bounded to 60 s; no answer in time (restic would otherwise retry backend errors for ~15 min) or a connectivity error → `REPO_UNREACHABLE`, nothing backed up.
 - Result `backup.run`: `{ snapshots: [{ target, snapshotId, shortId, sizeBytes, filesNew, filesChanged, durationMs }], manifest: [...], resticVersion }`. **A run that does not finish all targets is a failure** (`BACKUP_PARTIAL`, with the completed target list), never success. An interrupted agent never reports success (the job expires on the Center; restic leaves no snapshot for an aborted run; a stale restic lock → `REPO_LOCKED` on the next run, cleared only by the maintenance identity).
 - `backup.snapshots` → `{ snapshots: [{ id, shortId, time, tags, paths, hostname, sizeBytes? }] }` (restic `snapshots --json`).
 - `backup.verify` → `restic check --read-data-subset=<pct>%` + `restic dump`/`restore` of the snapshot into a temp dir and re-hash against the manifest supplied by the Center in the job params (`manifest` field) → `{ repoCheckOk, filesCompared, mismatches: [...], level: "repository_checked" | "restore_verified" }`.

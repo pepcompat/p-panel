@@ -480,7 +480,9 @@ func (m *ManifestEntry) validate() error {
 		return invalid("manifest: too many entries")
 	}
 	for _, f := range m.Files {
-		if CheckHostPath(f.Path) != nil && !strings.HasPrefix(f.Path, "/backup/") {
+		// every manifest path (host path or /backup/<volume>/...) must be canonical:
+		// a "/backup/" prefix is NOT an exemption ("/backup/../etc/shadow").
+		if CheckHostPath(f.Path) != nil {
 			return invalid("manifest: file path %q not allowed", f.Path)
 		}
 		if !sha256HexRe.MatchString(f.Sha256) || f.Size < 0 {

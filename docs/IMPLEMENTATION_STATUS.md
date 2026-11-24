@@ -2,7 +2,7 @@
 
 > Tracking skeleton created in P0 (2026-11-17). **Maintained by the lead.** States: `TODO | IN_PROGRESS | PASS | FAIL | BLOCKED | NOT_APPLICABLE` (brief §17). PASS requires executed evidence.
 
-Current phase: P6 complete; next P7 (security, resilience, performance)
+Current phase: P7 complete; next P8
 Last verified revision: (no commits yet)
 
 ## P0
@@ -96,16 +96,16 @@ Phase tests: P6-T01, P6-T02, P6-T03, P6-T04, P6-T05 (see `TEST_REPORT.md`) · Ga
 
 ## P7
 
-| Task ID | Status | Change/PR | Test command | Evidence | Notes                                                                                                                                        |
-| ------- | ------ | --------- | ------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| P7.01   | TODO   |           |              |          | Threat-model tests: IDOR, broken access control, CSRF, XSS, SSRF, injection, path traversal, webhook spoof/replay, secret leakage.           |
-| P7.02   | TODO   |           |              |          | Agent permission boundaries and policy bypass attempts; Compose/config allowlist fuzz tests.                                                 |
-| P7.03   | TODO   |           |              |          | Center 10-minute outage while apps serve traffic; agent reconnect and reconcile.                                                             |
-| P7.04   | TODO   |           |              |          | Deploy concurrency, 2 admins changing same app, lock contention and expired approvals.                                                       |
-| P7.05   | TODO   |           |              |          | Disaster tests: full disk, lost Redis, stale TLS cert, Loki unavailable, backup repo unavailable, aborted deploy.                            |
-| P7.06   | TODO   |           |              |          | Load-test target fleet size and log volume based on available lab resources; report actual limits and sizing, do not assert arbitrary scale. |
+| Task ID | Status | Change/PR | Test command                                                | Evidence                                                                                                                                              | Notes                                                                                                                                        |
+| ------- | ------ | --------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| P7.01   | PASS   |           | pnpm test:security                                          | docs/SECURITY_TEST_REPORT.md; tests/security/** (114 tests); SEC-P7-01..09 fixed, 10/11 accepted                                                      | Threat-model tests: IDOR, broken access control, CSRF, XSS, SSRF, injection, path traversal, webhook spoof/replay, secret leakage.           |
+| P7.02   | PASS   |           | go test -race + 20 Go fuzzers; shared-contracts test:fuzz   | apps/agent/SECURITY_BOUNDARIES.md; 11 agent bugs + shared validator bugs (branchMatches ReDoS, compose allowlist, redaction, paths) fixed             | Agent permission boundaries and policy bypass attempts; Compose/config allowlist fuzz tests.                                                 |
+| P7.03   | PASS   |           | scripts/chaos/center_outage.py                              | docs/RESILIENCE_REPORT.md; docs/evidence/2026-11-24/p7-t01-outage-api.json; 601 s outage, 100 % availability, 100 % log delivery                      | Center 10-minute outage while apps serve traffic; agent reconnect and reconcile.                                                             |
+| P7.04   | PASS   |           | scripts/chaos/concurrency.py + integration                  | docs/RESILIENCE_REPORT.md; F-6 (concurrent approvals) and F-7 (webhook storm) fixed, covered by integration tests                                     | Deploy concurrency, 2 admins changing same app, lock contention and expired approvals.                                                       |
+| P7.05   | PASS   |           | scripts/chaos/disasters.py, disk_full.py + unit/integration | docs/RESILIENCE_REPORT.md; docs/evidence/2026-11-24/p7-disaster-*.json; F-8..F-13 fixed (unit/integration), lab re-run of the fixed FAIL rows pending | Disaster tests: full disk, lost Redis, stale TLS cert, Loki unavailable, backup repo unavailable, aborted deploy.                            |
+| P7.06   | PASS   |           | tests/load/run_ramp.py                                      | docs/PERFORMANCE_REPORT.md; 1 000 agents + 2 000 lines/s on one Apple M4; first bottleneck = single Center Node process                               | Load-test target fleet size and log volume based on available lab resources; report actual limits and sizing, do not assert arbitrary scale. |
 
-Phase tests: P7-T01, P7-T02, P7-T03, P7-T04 (see `TEST_REPORT.md`) · Gate: TODO
+Phase tests: P7-T01, P7-T02, P7-T03, P7-T04 (see `TEST_REPORT.md`) · Gate: PASS (lab; real-VM partitions/clock skew BLOCKED)
 
 ## P8
 

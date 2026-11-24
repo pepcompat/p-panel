@@ -1,0 +1,696 @@
+{
+  "scenario": "load-ramp",
+  "startedAt": "2026-11-24T03:56:08.393Z",
+  "meta": {
+    "hardware": {
+      "cpu": "Apple M4",
+      "cores": "10",
+      "memGb": 24,
+      "os": "27.2.1",
+      "node": "v24.11.0",
+      "dockerCpus": "10",
+      "dockerMemGb": 11.7
+    },
+    "phaseSec": 180,
+    "plan": "1000:0,1000:2000,2000:2000,2000:5000",
+    "note": "Center, fake agents, Postgres (Docker VM) and Loki share one Mac",
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "Center started with TRUST_PROXY=1 for per-agent enrollment IPs",
+      "result": "PASS",
+      "at": "2026-11-24T03:56:10.463Z",
+      "pid": 89692
+    },
+    {
+      "step": "phase 1000 agents / 0 lines/s",
+      "result": "PASS",
+      "at": "2026-11-24T03:59:38.181Z",
+      "heartbeatP95": 12.8,
+      "heartbeatErr": 0,
+      "hbPerSec": 58.5,
+      "linesAccepted": 0,
+      "cpu": 50.0,
+      "rss": 589.4,
+      "api": {
+        "logsQuery": [53.8, 0],
+        "metricsFleet": [39.6, 0],
+        "servers": [18.7, 0]
+      }
+    },
+    {
+      "step": "phase 1000 agents / 2000 lines/s",
+      "result": "PASS",
+      "at": "2026-11-24T04:03:03.400Z",
+      "heartbeatP95": 37.1,
+      "heartbeatErr": 0,
+      "hbPerSec": 58.5,
+      "linesAccepted": 1673.2,
+      "cpu": 135.8,
+      "rss": 722.8,
+      "api": {
+        "logsQuery": [300.7, 0],
+        "metricsFleet": [50.3, 0],
+        "servers": [30.1, 0]
+      }
+    },
+    {
+      "step": "phase 2000 agents / 2000 lines/s",
+      "result": "PASS",
+      "at": "2026-11-24T04:06:22.453Z",
+      "heartbeatP95": 1998.8,
+      "heartbeatErr": 0,
+      "hbPerSec": 122.2,
+      "linesAccepted": 1298.5,
+      "cpu": 230.4,
+      "rss": 1285.5,
+      "api": {
+        "logsQuery": [60000.6, 16.66],
+        "metricsFleet": [2627.6, 0],
+        "servers": [1909.4, 0]
+      }
+    },
+    {
+      "step": "phase 2000 agents / 5000 lines/s",
+      "result": "PASS",
+      "at": "2026-11-24T04:09:38.689Z",
+      "heartbeatP95": 1778.2,
+      "heartbeatErr": 0,
+      "hbPerSec": 122.4,
+      "linesAccepted": 3512.1,
+      "cpu": 239.0,
+      "rss": 1378.4,
+      "api": {
+        "logsQuery": [26446.1, 0],
+        "metricsFleet": [2326.9, 0],
+        "servers": [1736.4, 0]
+      }
+    },
+    {
+      "step": "cleanup fake servers from the DB",
+      "result": "PASS",
+      "at": "2026-11-24T04:09:39.168Z",
+      "deletedServers": 2000,
+      "sec": 0.4,
+      "left": "0"
+    },
+    {
+      "step": "Center restarted with the normal lab env",
+      "result": "PASS",
+      "at": "2026-11-24T04:09:41.175Z"
+    }
+  ],
+  "updatedAt": "2026-11-24T04:09:41.176Z",
+  "phases": [
+    {
+      "agents": 1000,
+      "logRate": 0.0,
+      "phaseSec": 205,
+      "enrollSec": 2.5,
+      "fakefleet": {
+        "agents": 1000,
+        "api": {
+          "logsQuery": {
+            "count": 44,
+            "codes": {
+              "200": 44
+            },
+            "p50Ms": 32.9,
+            "p95Ms": 53.8,
+            "p99Ms": 60.6,
+            "maxMs": 60.617,
+            "errorPct": 0
+          },
+          "metricsFleet": {
+            "count": 89,
+            "codes": {
+              "200": 89
+            },
+            "p50Ms": 24.5,
+            "p95Ms": 39.6,
+            "p99Ms": 48.7,
+            "maxMs": 70.798,
+            "errorPct": 0
+          },
+          "servers": {
+            "count": 179,
+            "codes": {
+              "200": 179
+            },
+            "p50Ms": 12.5,
+            "p95Ms": 18.7,
+            "p99Ms": 30.3,
+            "maxMs": 55.897,
+            "errorPct": 0
+          }
+        },
+        "durationSec": 204,
+        "enroll": {
+          "count": 0,
+          "codes": {},
+          "p50Ms": 0,
+          "p95Ms": 0,
+          "p99Ms": 0,
+          "maxMs": 0,
+          "errorPct": 0
+        },
+        "finishedAt": "2026-11-24T03:59:38Z",
+        "heartbeat": {
+          "count": 11999,
+          "codes": {
+            "200": 11999
+          },
+          "p50Ms": 6.3,
+          "p95Ms": 12.8,
+          "p99Ms": 20.4,
+          "maxMs": 67.408,
+          "errorPct": 0
+        },
+        "heartbeatIntervalSec": 15,
+        "heartbeatsPerSec": 58.5,
+        "linesAccepted": 0,
+        "linesAcceptedPerSec": 0,
+        "linesSent": 0,
+        "logRateTarget": 0,
+        "logs429": 0,
+        "logsBatches": {
+          "count": 0,
+          "codes": {},
+          "p50Ms": 0,
+          "p95Ms": 0,
+          "p99Ms": 0,
+          "maxMs": 0,
+          "errorPct": 0
+        },
+        "taskPolls": {
+          "count": 7320,
+          "codes": {
+            "200": 7320
+          },
+          "p50Ms": 25002.1,
+          "p95Ms": 25005.4,
+          "p99Ms": 25008.3,
+          "maxMs": 25031.68,
+          "errorPct": 0
+        }
+      },
+      "center": {
+        "cpuAvgPct": 50.0,
+        "rssMbMax": 589.4,
+        "rssMbEnd": 554.2,
+        "psCpuSamples": [53.2, 56.3, 52.6, 39.9, 18.5, 22.9]
+      },
+      "postgres": {
+        "dbBytesDelta": 3072000,
+        "dbBytesPerHour": 53935599,
+        "dbBytes": 63934947,
+        "tablesDelta": {
+          "agent_heartbeats": 1499136,
+          "log_batches": 0,
+          "servers": 622592,
+          "server_telemetry": 311296,
+          "agent_certificates": 8192,
+          "jobs": 0,
+          "audit_events": 0,
+          "container_samples": 0
+        },
+        "rows": {
+          "agent_heartbeats": 15136,
+          "log_batches": 125680,
+          "servers": 1043,
+          "server_telemetry": 1027,
+          "agent_certificates": 1044,
+          "jobs": 439,
+          "audit_events": 5253,
+          "container_samples": 48
+        },
+        "dockerStats": [
+          "7.63% 206.3MiB / 11.67GiB",
+          "7.21% 207.1MiB / 11.67GiB",
+          "6.42% 207.7MiB / 11.67GiB"
+        ]
+      },
+      "loki": {
+        "linesReceived": 0.0,
+        "linesPerSec": 0.0
+      },
+      "scrape": {
+        "samples": [
+          [200, 37, 913479],
+          [200, 33, 913566],
+          [200, 33, 914481],
+          [200, 31, 914488],
+          [200, 44, 914512]
+        ],
+        "maxMs": 44
+      }
+    },
+    {
+      "agents": 1000,
+      "logRate": 2000.0,
+      "phaseSec": 205,
+      "enrollSec": 0,
+      "fakefleet": {
+        "agents": 1000,
+        "api": {
+          "logsQuery": {
+            "count": 44,
+            "codes": {
+              "200": 44
+            },
+            "p50Ms": 147,
+            "p95Ms": 300.7,
+            "p99Ms": 694.1,
+            "maxMs": 694.196,
+            "errorPct": 0
+          },
+          "metricsFleet": {
+            "count": 89,
+            "codes": {
+              "200": 89
+            },
+            "p50Ms": 32,
+            "p95Ms": 50.3,
+            "p99Ms": 243.2,
+            "maxMs": 243.802,
+            "errorPct": 0
+          },
+          "servers": {
+            "count": 179,
+            "codes": {
+              "200": 179
+            },
+            "p50Ms": 15,
+            "p95Ms": 30.1,
+            "p99Ms": 77.2,
+            "maxMs": 192.125,
+            "errorPct": 0
+          }
+        },
+        "durationSec": 204,
+        "enroll": {
+          "count": 0,
+          "codes": {},
+          "p50Ms": 0,
+          "p95Ms": 0,
+          "p99Ms": 0,
+          "maxMs": 0,
+          "errorPct": 0
+        },
+        "finishedAt": "2026-11-24T04:03:03Z",
+        "heartbeat": {
+          "count": 12000,
+          "codes": {
+            "200": 12000
+          },
+          "p50Ms": 11.6,
+          "p95Ms": 37.1,
+          "p99Ms": 104.8,
+          "maxMs": 335.399,
+          "errorPct": 0
+        },
+        "heartbeatIntervalSec": 15,
+        "heartbeatsPerSec": 58.5,
+        "linesAccepted": 342916,
+        "linesAcceptedPerSec": 1673.2,
+        "linesSent": 342916,
+        "logRateTarget": 2000,
+        "logs429": 0,
+        "logsBatches": {
+          "count": 85729,
+          "codes": {
+            "200": 85729
+          },
+          "p50Ms": 8.3,
+          "p95Ms": 31,
+          "p99Ms": 117.5,
+          "maxMs": 512.89,
+          "errorPct": 0
+        },
+        "taskPolls": {
+          "count": 7314,
+          "codes": {
+            "200": 7314
+          },
+          "p50Ms": 25003.7,
+          "p95Ms": 25012.6,
+          "p99Ms": 25021.9,
+          "maxMs": 25065.373,
+          "errorPct": 0
+        }
+      },
+      "center": {
+        "cpuAvgPct": 135.8,
+        "rssMbMax": 722.8,
+        "rssMbEnd": 582.5,
+        "psCpuSamples": [131.6, 154.6, 170.6, 38.0, 12.4, 14.4]
+      },
+      "postgres": {
+        "dbBytesDelta": 15147008,
+        "dbBytesPerHour": 265951188,
+        "dbBytes": 79081955,
+        "tablesDelta": {
+          "agent_heartbeats": 270336,
+          "log_batches": 14827520,
+          "servers": 0,
+          "server_telemetry": 0,
+          "agent_certificates": 0,
+          "jobs": 0,
+          "audit_events": 0,
+          "container_samples": 0
+        },
+        "rows": {
+          "agent_heartbeats": 27140,
+          "log_batches": 211409,
+          "servers": 1043,
+          "server_telemetry": 1027,
+          "agent_certificates": 1044,
+          "jobs": 440,
+          "audit_events": 5256,
+          "container_samples": 48
+        },
+        "dockerStats": [
+          "10.16% 210.3MiB / 11.67GiB",
+          "7.13% 210.2MiB / 11.67GiB",
+          "7.81% 210.9MiB / 11.67GiB"
+        ]
+      },
+      "loki": {
+        "linesReceived": 342916.0,
+        "linesPerSec": 1672.5
+      },
+      "scrape": {
+        "samples": [
+          [200, 40, 913501],
+          [200, 52, 913828],
+          [200, 55, 914524],
+          [200, 36, 914543],
+          [200, 62, 914542]
+        ],
+        "maxMs": 62
+      }
+    },
+    {
+      "agents": 2000,
+      "logRate": 2000.0,
+      "phaseSec": 196,
+      "enrollSec": 2.4,
+      "fakefleet": {
+        "agents": 2000,
+        "api": {
+          "logsQuery": {
+            "count": 6,
+            "codes": {
+              "200": 5,
+              "ERR": 1
+            },
+            "p50Ms": 831.4,
+            "p95Ms": 60000.6,
+            "p99Ms": 60000.6,
+            "maxMs": 60000.685,
+            "errorPct": 16.66
+          },
+          "metricsFleet": {
+            "count": 86,
+            "codes": {
+              "200": 86
+            },
+            "p50Ms": 2045.7,
+            "p95Ms": 2627.6,
+            "p99Ms": 2808.8,
+            "maxMs": 2824.079,
+            "errorPct": 0
+          },
+          "servers": {
+            "count": 119,
+            "codes": {
+              "200": 119
+            },
+            "p50Ms": 1519.4,
+            "p95Ms": 1909.4,
+            "p99Ms": 2065.3,
+            "maxMs": 2130.283,
+            "errorPct": 0
+          }
+        },
+        "durationSec": 196,
+        "enroll": {
+          "count": 0,
+          "codes": {},
+          "p50Ms": 0,
+          "p95Ms": 0,
+          "p99Ms": 0,
+          "maxMs": 0,
+          "errorPct": 0
+        },
+        "finishedAt": "2026-11-24T04:06:22Z",
+        "heartbeat": {
+          "count": 23998,
+          "codes": {
+            "200": 23998
+          },
+          "p50Ms": 1574,
+          "p95Ms": 1998.8,
+          "p99Ms": 2215,
+          "maxMs": 2351.883,
+          "errorPct": 0
+        },
+        "heartbeatIntervalSec": 15,
+        "heartbeatsPerSec": 122.2,
+        "linesAccepted": 254834,
+        "linesAcceptedPerSec": 1298.5,
+        "linesSent": 254834,
+        "logRateTarget": 2000,
+        "logs429": 0,
+        "logsBatches": {
+          "count": 127417,
+          "codes": {
+            "200": 127417
+          },
+          "p50Ms": 2680.8,
+          "p95Ms": 3475.6,
+          "p99Ms": 3892,
+          "maxMs": 4239.127,
+          "errorPct": 0
+        },
+        "taskPolls": {
+          "count": 14000,
+          "codes": {
+            "200": 14000
+          },
+          "p50Ms": 25901.6,
+          "p95Ms": 26196.2,
+          "p99Ms": 26281.7,
+          "maxMs": 26423.347,
+          "errorPct": 0
+        }
+      },
+      "center": {
+        "cpuAvgPct": 230.4,
+        "rssMbMax": 1285.5,
+        "rssMbEnd": 1153.8,
+        "psCpuSamples": [252.9, 213.8, 291.5, 291.9, 182.0, 49.5]
+      },
+      "postgres": {
+        "dbBytesDelta": 34111488,
+        "dbBytesPerHour": 625285520,
+        "dbBytes": 115102179,
+        "tablesDelta": {
+          "agent_heartbeats": 10280960,
+          "log_batches": 22462464,
+          "servers": 925696,
+          "server_telemetry": 303104,
+          "agent_certificates": 0,
+          "jobs": 0,
+          "audit_events": 0,
+          "container_samples": 0
+        },
+        "rows": {
+          "agent_heartbeats": 51212,
+          "log_batches": 339165,
+          "servers": 2043,
+          "server_telemetry": 2027,
+          "agent_certificates": 2044,
+          "jobs": 440,
+          "audit_events": 7258,
+          "container_samples": 48
+        },
+        "dockerStats": [
+          "121.97% 291.9MiB / 11.67GiB",
+          "18.66% 246.1MiB / 11.67GiB",
+          "12.91% 243.7MiB / 11.67GiB"
+        ]
+      },
+      "loki": {
+        "linesReceived": 254834.0,
+        "linesPerSec": 1297.6
+      },
+      "scrape": {
+        "samples": [
+          [200, 2068, 1815241],
+          [200, 2306, 1815247],
+          [200, 1877, 1817198],
+          [200, 1912, 1817183],
+          [200, 71, 1817245]
+        ],
+        "maxMs": 2915
+      }
+    },
+    {
+      "agents": 2000,
+      "logRate": 5000.0,
+      "phaseSec": 196,
+      "enrollSec": 0,
+      "fakefleet": {
+        "agents": 2000,
+        "api": {
+          "logsQuery": {
+            "count": 11,
+            "codes": {
+              "200": 11
+            },
+            "p50Ms": 23584.3,
+            "p95Ms": 26446.1,
+            "p99Ms": 27401.3,
+            "maxMs": 27401.359,
+            "errorPct": 0
+          },
+          "metricsFleet": {
+            "count": 88,
+            "codes": {
+              "200": 88
+            },
+            "p50Ms": 1965.3,
+            "p95Ms": 2326.9,
+            "p99Ms": 2424.4,
+            "maxMs": 2466.414,
+            "errorPct": 0
+          },
+          "servers": {
+            "count": 128,
+            "codes": {
+              "200": 128
+            },
+            "p50Ms": 1439,
+            "p95Ms": 1736.4,
+            "p99Ms": 1853.6,
+            "maxMs": 1898.372,
+            "errorPct": 0
+          }
+        },
+        "durationSec": 195,
+        "enroll": {
+          "count": 0,
+          "codes": {},
+          "p50Ms": 0,
+          "p95Ms": 0,
+          "p99Ms": 0,
+          "maxMs": 0,
+          "errorPct": 0
+        },
+        "finishedAt": "2026-11-24T04:09:38Z",
+        "heartbeat": {
+          "count": 23995,
+          "codes": {
+            "200": 23995
+          },
+          "p50Ms": 1472.3,
+          "p95Ms": 1778.2,
+          "p99Ms": 1901,
+          "maxMs": 1989.819,
+          "errorPct": 0
+        },
+        "heartbeatIntervalSec": 15,
+        "heartbeatsPerSec": 122.4,
+        "linesAccepted": 688040,
+        "linesAcceptedPerSec": 3512.1,
+        "linesSent": 688040,
+        "logRateTarget": 5000,
+        "logs429": 0,
+        "logsBatches": {
+          "count": 137608,
+          "codes": {
+            "200": 137608
+          },
+          "p50Ms": 2456.6,
+          "p95Ms": 3059.1,
+          "p99Ms": 3393.6,
+          "maxMs": 3742.548,
+          "errorPct": 0
+        },
+        "taskPolls": {
+          "count": 14000,
+          "codes": {
+            "200": 14000
+          },
+          "p50Ms": 25948.6,
+          "p95Ms": 26112.9,
+          "p99Ms": 26192.2,
+          "maxMs": 26258.161,
+          "errorPct": 0
+        }
+      },
+      "center": {
+        "cpuAvgPct": 239.0,
+        "rssMbMax": 1378.4,
+        "rssMbEnd": 1141.8,
+        "psCpuSamples": [241.9, 232.5, 285.8, 271.6, 59.9, 25.9]
+      },
+      "postgres": {
+        "dbBytesDelta": 35217408,
+        "dbBytesPerHour": 646716410,
+        "dbBytes": 150319587,
+        "tablesDelta": {
+          "agent_heartbeats": 12820480,
+          "log_batches": 22396928,
+          "servers": 0,
+          "server_telemetry": 0,
+          "agent_certificates": 0,
+          "jobs": 0,
+          "audit_events": 0,
+          "container_samples": 0
+        },
+        "rows": {
+          "agent_heartbeats": 75193,
+          "log_batches": 476734,
+          "servers": 2043,
+          "server_telemetry": 2027,
+          "agent_certificates": 2044,
+          "jobs": 440,
+          "audit_events": 7259,
+          "container_samples": 48
+        },
+        "dockerStats": [
+          "128.52% 293.4MiB / 11.67GiB",
+          "19.10% 293.8MiB / 11.67GiB",
+          "8.36% 294.7MiB / 11.67GiB"
+        ]
+      },
+      "loki": {
+        "linesReceived": 688040.0,
+        "linesPerSec": 3509.7
+      },
+      "scrape": {
+        "samples": [
+          [200, 2096, 1815240],
+          [200, 1931, 1815251],
+          [200, 2047, 1817305],
+          [200, 2167, 1817265],
+          [200, 68, 1817262]
+        ],
+        "maxMs": 2426
+      }
+    }
+  ],
+  "summary": {
+    "PASS": 7
+  }
+}

@@ -189,7 +189,7 @@ export class CaService implements OnModuleInit {
   /** Gateway TLS server certificate (fresh key per process start, never persisted). */
   async issueGatewayCert(
     hostnames: string[],
-  ): Promise<{ keyPem: string; certPem: string; caPem: string }> {
+  ): Promise<{ keyPem: string; certPem: string; caPem: string; notAfter: Date }> {
     await this.ensureCa();
     const ca = this.ca!;
     const keys = (await subtle.generateKey(EC_ALG, true, ['sign', 'verify'])) as CryptoKeyPair;
@@ -215,7 +215,12 @@ export class CaService implements OnModuleInit {
       ],
     });
     const keyPem = toPem(await subtle.exportKey('pkcs8', keys.privateKey), 'PRIVATE KEY');
-    return { keyPem, certPem: cert.toString('pem') + '\n', caPem: ca.certPem };
+    return {
+      keyPem,
+      certPem: cert.toString('pem') + '\n',
+      caPem: ca.certPem,
+      notAfter: cert.notAfter,
+    };
   }
 
   private describe(cert: x509.X509Certificate): IssuedCert {

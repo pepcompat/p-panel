@@ -19,6 +19,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/ppanel/ppanel/apps/agent/internal/config"
@@ -141,6 +142,7 @@ func New(o Options) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	a.reportInterrupted()
 	pollTimeout := time.Duration(o.Config.PollWaitSec+10) * time.Second
 	a.hc = transport.NewHTTPClient(transport.MTLSConfig(pool, &a.certs), pollTimeout)
 	a.client = &transport.Client{BaseURL: id.GatewayURL, HTTP: a.hc}
@@ -486,6 +488,27 @@ func (a *Agent) pollLoop(ctx context.Context) {
 	}
 }
 
+// reportInterrupted posts AGENT_INTERRUPTED for every job a previous agent
+// process started but never completed (it died mid-job). The result carries
+// the lease token persisted at start; if the lease is already gone the Center
+// answers 409 TASK_EXPIRED and resultLoop drops it. Entries without a token
+// (written by older agents) are left for ReplayResult on re-delivery.
+func (a *Agent) reportInterrupted() {
+	for _, e := range a.cache.Interrupted() {
+		if e.LeaseToken == "" {
+			continue
+		}
+		r := &jobs.Result{JobID: e.JobID, LeaseToken: e.LeaseToken, Status: "failed",
+			Error: jobs.Errorf(jobs.AgentInterrupted, "the agent stopped while this job was running (started %s); it did not complete and will not be re-executed",
+				e.At.UTC().Format(time.RFC3339))}
+		if err := a.cache.Complete(r); err != nil {
+			a.log.Error("persist interrupted-job result failed", "jobId", e.JobID, "error", err.Error())
+		}
+		a.log.Warn("reporting job interrupted by an agent restart", "jobId", e.JobID, "startedAt", e.At)
+		a.outbox.Push(r)
+	}
+}
+
 // dispatch handles one grant; execution happens asynchronously (bounded).
 func (a *Agent) dispatch(ctx context.Context, g *jobs.Grant) {
 	log := a.log.With("jobId", g.JobID, "type", g.Type)
@@ -523,9 +546,19 @@ func (a *Agent) dispatch(ctx context.Context, g *jobs.Grant) {
 		return
 	}
 	// 4. durably mark started BEFORE executing (crash => never re-run)
-	fresh, err := a.cache.MarkStarted(g.JobID)
-	if err != nil || !fresh {
-		log.Error("cannot mark job started; not executing", "error", fmt.Sprint(err))
+	fresh, err := a.cache.MarkStarted(g.JobID, g.LeaseToken)
+	if err != nil {
+		// The job is acked (running on the Center): answer now instead of
+		// leaving it to the lease timeout, so operators see the real cause.
+		diskFull := errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT)
+		log.Error("cannot persist job start to the state dir; job not executed, reporting failure", "error", err.Error(), "diskFull", diskFull)
+		je := jobs.Errorf(jobs.AgentStateWriteFailed, "agent could not record the job start in its state dir (%v); the job was not executed", err)
+		je.Details = map[string]any{"stateDir": a.cfg.StateDir, "diskFull": diskFull}
+		a.outbox.Push(&jobs.Result{JobID: g.JobID, LeaseToken: g.LeaseToken, Status: "failed", Error: je})
+		return
+	}
+	if !fresh {
+		log.Error("job already known; not executing")
 		return
 	}
 	a.running.Store(g.JobID, struct{}{})

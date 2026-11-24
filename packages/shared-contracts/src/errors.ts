@@ -22,6 +22,8 @@ export const ERROR_CODES = {
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   RATE_LIMITED: 'RATE_LIMITED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  /** a dependency (database) is temporarily unreachable (503 + Retry-After); retry later */
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
   // agent / enrollment
   ENROLLMENT_TOKEN_INVALID: 'ENROLLMENT_TOKEN_INVALID',
   CSR_INVALID: 'CSR_INVALID',
@@ -51,6 +53,8 @@ export const ERROR_CODES = {
   APPROVAL_NOT_REQUIRED: 'APPROVAL_NOT_REQUIRED',
   APPROVAL_EXPIRED: 'APPROVAL_EXPIRED',
   APPROVER_IS_CREATOR: 'APPROVER_IS_CREATOR',
+  /** a concurrent approval of the same plan already won (409); approvals are single-use per plan */
+  APPROVAL_ALREADY_EXISTS: 'APPROVAL_ALREADY_EXISTS',
   SCAN_NOT_COMPLETED: 'SCAN_NOT_COMPLETED',
   NGINX_READ_FAILED: 'NGINX_READ_FAILED',
   // P4a containers / deployments / secrets / routing / webhooks

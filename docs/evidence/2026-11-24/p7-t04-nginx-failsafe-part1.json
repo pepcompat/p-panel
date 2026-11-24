@@ -1,0 +1,85 @@
+{
+  "scenario": "t04-nginx-failsafe",
+  "startedAt": "2026-11-24T02:39:27.696Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "baseline",
+      "result": "PASS",
+      "at": "2026-11-24T02:39:28.167Z",
+      "fileSha": "7c4a5e7e500ab173",
+      "tree": "ecb855f79c1addb3",
+      "masterPid": "7",
+      "sites": {
+        "static.example.lab": "200",
+        "api.example.lab": "200",
+        "php.example.lab": "200"
+      }
+    },
+    {
+      "step": "1 postcheck failure \u2192 auto-revert, config byte-identical, sites 200",
+      "result": "PASS",
+      "at": "2026-11-24T02:39:36.672Z",
+      "status": "apply_failed",
+      "error": "POSTCHECK_FAILED_REVERTED",
+      "state": {
+        "fileSha": "7c4a5e7e500ab173",
+        "tree": "ecb855f79c1addb3",
+        "masterPid": "7",
+        "sites": {
+          "static.example.lab": "200",
+          "api.example.lab": "200",
+          "php.example.lab": "200"
+        }
+      },
+      "pidChanged": false
+    },
+    {
+      "step": "2 reload cannot bind new listen \u2192 postcheck fails \u2192 auto-revert, config byte-identical, sites 200",
+      "result": "PASS",
+      "at": "2026-11-24T02:40:06.429Z",
+      "validated": "awaiting_approval",
+      "status": "apply_failed",
+      "error": "POSTCHECK_FAILED_REVERTED",
+      "state": {
+        "fileSha": "7c4a5e7e500ab173",
+        "tree": "ecb855f79c1addb3",
+        "masterPid": "7",
+        "sites": {
+          "static.example.lab": "200",
+          "api.example.lab": "200",
+          "php.example.lab": "200"
+        }
+      },
+      "nginxErrorLog": "to 127.0.0.1:18081 failed (98: Address already in use)\n2026/11/24 02:40:00 [emerg] 7#7: bind() to 127.0.0.1:18081 failed (98: Address already in use)\n2026/11/24 02:40:00 [emerg] 7#7: bind() to 127.0.0.1:18081 failed (98: Address already in use)\n2026/11/24 02:40:00 [emerg] 7#7: still could not bind()"
+    },
+    {
+      "step": "3 reload command fails \u2192 RELOAD_FAILED_REVERTED, files restored byte-identical, sites 200",
+      "result": "PASS",
+      "at": "2026-11-24T02:40:32.711Z",
+      "status": "requires_manual_recovery",
+      "error": "REVERT_FAILED_MANUAL_RECOVERY",
+      "errorMessage": "CRITICAL: could not restore original nginx config; manual recovery required from /var/lib/ppanel-agent/nginx-backups/01a20b6c-c18c-7625-89bc-811b5a65dcbe",
+      "state": {
+        "fileSha": "7c4a5e7e500ab173",
+        "tree": "ecb855f79c1addb3",
+        "masterPid": "7",
+        "sites": {
+          "static.example.lab": "200",
+          "api.example.lab": "200",
+          "php.example.lab": "200"
+        }
+      }
+    }
+  ],
+  "updatedAt": "2026-11-24T02:40:32.711Z"
+}

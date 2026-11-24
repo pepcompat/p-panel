@@ -79,6 +79,7 @@ beforeAll(async () => {
   await t.app.listen(0, '127.0.0.1');
   base = `http://127.0.0.1:${(t.app.getHttpServer().address() as AddressInfo).port}`;
   engine = t.app.get(AlertEngineService);
+  engine.serverOfflineGraceUntil = new Date(0); // F-14 startup grace covered by its own test
 });
 afterAll(async () => {
   await t.gateway.stop();
@@ -614,9 +615,10 @@ describe('P5-T02: a user bound to one server cannot reach another server', () =>
     const rule = await t.http
       .post('/api/v1/alert-rules')
       .set(bearer(owner))
-      .send({ name: 'offline', scopeType: 'global', kind: 'server_offline', forSec: 0 });
+      .send({ name: 'offline', scopeType: 'global', kind: 'server_offline', forSec: 90 });
     expect(rule.status).toBe(201);
-    await staleServer(b.serverId, 200);
+    await staleServer(b.serverId, 400);
+    await engine.tick(new Date(Date.now() - 95_000)); // pending
     await engine.tick();
     const inc = await t.prisma.incident.findFirstOrThrow({ where: { targetId: b.serverId } });
     expect((await t.http.get('/api/v1/incidents').set(bearer(scoped))).body.data).toEqual([]);
@@ -894,7 +896,7 @@ describe('P5-T01: alerts → incidents → notifications → ack → resolve', (
         scopeId: a.serverId,
         kind: 'server_offline',
         severity: 'critical',
-        forSec: 60,
+        forSec: 90,
         channelIds: [ch],
       });
     expect(rule.status, JSON.stringify(rule.body)).toBe(201);
@@ -904,8 +906,8 @@ describe('P5-T01: alerts → incidents → notifications → ack → resolve', (
       allowedActions: ['edit', 'delete'],
     });
 
-    const t0 = new Date(Date.now() - 70_000); // evaluate in the past so timeline order is real
-    await staleServer(a.serverId, 200); // offline (> 120 s before t0)
+    const t0 = new Date(Date.now() - 100_000); // evaluate in the past so timeline order is real
+    await staleServer(a.serverId, 300); // offline (> 120 s before t0)
     await engine.tick(t0);
     const pending = await t.prisma.alertState.findMany({ where: { ruleId: rule.body.data.id } });
     expect(pending).toMatchObject([{ status: 'pending', targetId: a.serverId }]);
@@ -913,8 +915,8 @@ describe('P5-T01: alerts → incidents → notifications → ack → resolve', (
 
     await engine.tick(new Date(t0.getTime() + 30_000)); // still within forSec
     expect(await t.prisma.incident.count()).toBe(0);
-    await engine.tick(new Date(t0.getTime() + 61_000));
-    await engine.tick(new Date(t0.getTime() + 65_000)); // dedupe: still one incident
+    await engine.tick(new Date(t0.getTime() + 91_000));
+    await engine.tick(new Date(t0.getTime() + 95_000)); // dedupe: still one incident
     const incidents = await t.prisma.incident.findMany();
     expect(incidents).toHaveLength(1);
     const inc = incidents[0]!;
@@ -1007,6 +1009,42 @@ describe('P5-T01: alerts → incidents → notifications → ack → resolve', (
       receiver.requests.filter((r) => r.path === '/hook').map((r) => r.headers['x-ppanel-event']),
     ).toEqual(['fired', 'resolved']);
     expect(await t.prisma.alertState.count()).toBe(0);
+  });
+
+  it('F-14: server_offline startup grace window, legacy short forSec clamped to the minimum', async () => {
+    // legacy rule (created before the 90 s minimum) straight in the DB
+    const rule = await t.prisma.alertRule.create({
+      data: {
+        id: '01900000-0000-7000-8000-00000000f014',
+        name: 'legacy offline',
+        scopeType: 'server',
+        scopeId: a.serverId,
+        kind: 'server_offline',
+        severity: 'warning',
+        forSec: 15,
+        createdBy: ownerId,
+      },
+    });
+    await staleServer(a.serverId, 600);
+    const t0 = new Date(Date.now() - 120_000);
+    // inside the grace window after Center start: stale servers are unknown → nothing pending
+    engine.serverOfflineGraceUntil = new Date(t0.getTime() + 60_000);
+    try {
+      await engine.tick(t0);
+      await engine.tick(new Date(t0.getTime() + 30_000));
+      expect(await t.prisma.alertState.count({ where: { ruleId: rule.id } })).toBe(0);
+      // grace over → pending; forSec 15 is clamped to 90, so no incident 30 s later
+      await engine.tick(new Date(t0.getTime() + 61_000));
+      expect(await t.prisma.alertState.findMany({ where: { ruleId: rule.id } })).toMatchObject([
+        { status: 'pending' },
+      ]);
+      await engine.tick(new Date(t0.getTime() + 91_000));
+      expect(await t.prisma.incident.count({ where: { ruleId: rule.id } })).toBe(0);
+      await engine.tick(new Date(t0.getTime() + 152_000));
+      expect(await t.prisma.incident.count({ where: { ruleId: rule.id } })).toBe(1);
+    } finally {
+      engine.serverOfflineGraceUntil = new Date(0);
+    }
   });
 
   it('app_down: current container exited → firing; running again → resolved; manual recovery fires', async () => {
@@ -1145,7 +1183,7 @@ describe('P5-T01: alerts → incidents → notifications → ack → resolve', (
 
   it('rules: scope-bound RBAC, If-Match, unknown channel, disable resolves open incidents', async () => {
     const scopedOps = await scopedUser('ops_admin', a.serverId, 'scoped-ops');
-    const body = { name: 'r', kind: 'server_offline', forSec: 0 };
+    const body = { name: 'r', kind: 'server_offline', forSec: 90 };
     expect(
       (
         await t.http
@@ -1199,9 +1237,31 @@ describe('P5-T01: alerts → incidents → notifications → ack → resolve', (
         .status,
     ).toBe(404);
 
-    await staleServer(a.serverId, 200);
+    await staleServer(a.serverId, 400);
+    await engine.tick(new Date(Date.now() - 95_000)); // pending (forSec 90)
     await engine.tick();
     expect(await t.prisma.incident.count({ where: { status: 'firing' } })).toBe(2);
+    // F-14: forSec below the server_offline minimum → 422 (create and PATCH)
+    const short = await t.http
+      .post('/api/v1/alert-rules')
+      .set(bearer(owner))
+      .send({ ...body, scopeType: 'global', forSec: 15 });
+    expect([short.status, short.body.error.code]).toEqual([422, 'VALIDATION_FAILED']);
+    expect(short.body.error.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'forSec' })]),
+    );
+    const shortPatch = await t.http
+      .patch(`/api/v1/alert-rules/${own.body.data.id}`)
+      .set(bearer(scopedOps))
+      .send({ forSec: 30 });
+    expect([shortPatch.status, shortPatch.body.error.code]).toEqual([422, 'VALIDATION_FAILED']);
+    // omitted forSec → the server_offline minimum (not the generic 60)
+    const dflt = await t.http
+      .post('/api/v1/alert-rules')
+      .set(bearer(owner))
+      .send({ name: 'dflt', kind: 'server_offline', scopeType: 'server', scopeId: b.serverId });
+    expect(dflt.body.data.forSec).toBe(90);
+    await t.http.delete(`/api/v1/alert-rules/${dflt.body.data.id}`).set(bearer(owner));
     const conflict = await t.http
       .patch(`/api/v1/alert-rules/${own.body.data.id}`)
       .set(bearer(scopedOps))

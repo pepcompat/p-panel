@@ -1,6 +1,7 @@
 import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ERROR_CODES, type ErrorEnvelope } from '@ppanel/shared-contracts';
+import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { AppError } from './app-error';
 import { logger } from './logger';
@@ -19,6 +20,38 @@ const STATUS_CODES: Record<number, string> = {
 
 export function zodDetails(err: ZodError): Array<{ path: string; message: string }> {
   return err.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
+}
+
+/** Prisma codes for "database unreachable / connection dropped / pool exhausted" (transient). */
+const DB_UNAVAILABLE_CODES = new Set([
+  'P1001', // can't reach database server
+  'P1002', // database server timed out
+  'P1008', // operations timed out
+  'P1017', // server has closed the connection
+  'P2024', // timed out fetching a connection from the pool
+]);
+const NET_ERRNOS = /\b(ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN)\b/;
+export const DB_RETRY_AFTER_SEC = 5;
+
+/**
+ * F-11: true when `err` means Postgres is (temporarily) unreachable — answered with 503 + Retry-After
+ * instead of 500 so load balancers, the UI and agents treat it as transient.
+ */
+export function isDatabaseUnavailable(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientInitializationError) return true;
+  if (err instanceof Prisma.PrismaClientRustPanicError) return false;
+  const e = err as { code?: unknown; errorCode?: unknown; message?: unknown; name?: unknown };
+  if (err instanceof Prisma.PrismaClientKnownRequestError)
+    return DB_UNAVAILABLE_CODES.has(err.code);
+  if (typeof e?.errorCode === 'string' && DB_UNAVAILABLE_CODES.has(e.errorCode)) return true;
+  if (err instanceof Prisma.PrismaClientUnknownRequestError)
+    return (
+      NET_ERRNOS.test(err.message) ||
+      /Can't reach database server|Connection refused|connection (closed|terminated)|Server has closed the connection/i.test(
+        err.message,
+      )
+    );
+  return false;
 }
 
 /** Converts any thrown value into `{ status, body }` using the standard error envelope. */
@@ -89,6 +122,21 @@ export function toErrorResponse(err: unknown): {
           ? 'Malformed request body'
           : 'Bad request';
     return { status, body: { error: { code, message }, meta } };
+  }
+  if (isDatabaseUnavailable(err)) {
+    logger.emit('error', 'database unavailable', { err });
+    return {
+      status: 503,
+      headers: { 'Retry-After': String(DB_RETRY_AFTER_SEC) },
+      body: {
+        error: {
+          code: ERROR_CODES.SERVICE_UNAVAILABLE,
+          message: 'Service temporarily unavailable, retry later',
+          details: { retryAfterSec: DB_RETRY_AFTER_SEC },
+        },
+        meta,
+      },
+    };
   }
   logger.emit('error', 'unhandled error', { err });
   return {

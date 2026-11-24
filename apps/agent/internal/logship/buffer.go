@@ -60,6 +60,8 @@ type Buffer struct {
 	now       func() time.Time
 	// onDrop is called (outside the lock) after a drop; used for a rate-limited warning.
 	onDrop func(n uint64)
+	// writeFn writes one record to the active segment (tests inject ENOSPC).
+	writeFn func(f *os.File, p []byte) (int, error)
 }
 
 // BufferOptions configures OpenBuffer.
@@ -214,7 +216,10 @@ func (b *Buffer) openActive() error {
 func (b *Buffer) Notify() <-chan struct{} { return b.notify }
 
 // Append redacted entries. Never blocks on the network; drops oldest
-// segments when the cap would be exceeded.
+// segments when the cap would be exceeded. It is all-or-nothing: when a write
+// fails (e.g. disk full) every entry of this call is rolled back, including
+// a partially written line, so the caller can retry the same entries without
+// duplicates or a torn record.
 func (b *Buffer) Append(es ...Entry) error {
 	if len(es) == 0 {
 		return nil
@@ -222,6 +227,8 @@ func (b *Buffer) Append(es ...Entry) error {
 	var dropped uint64
 	var werr error
 	b.mu.Lock()
+	start := b.segs[len(b.segs)-1]
+	startID, startSize, startEntries := start.id, start.size, start.entries
 	for i := range es {
 		line, err := json.Marshal(&es[i])
 		if err != nil {
@@ -240,13 +247,28 @@ func (b *Buffer) Append(es ...Entry) error {
 		for b.total+n > b.cap && len(b.segs) > 1 {
 			dropped += b.dropOldestLocked()
 		}
-		if _, err := b.active.Write(line); err != nil {
+		if b.active == nil {
+			if err := b.openActive(); err != nil {
+				werr = err
+				break
+			}
+		}
+		write := b.writeFn
+		if write == nil {
+			write = (*os.File).Write
+		}
+		if _, err := write(b.active, line); err != nil {
 			werr = err
 			break
 		}
 		act.size += n
 		act.entries++
 		b.total += n
+	}
+	if werr != nil {
+		if err := b.rollbackLocked(startID, startSize, startEntries); err != nil {
+			werr = errors.Join(werr, err)
+		}
 	}
 	pending := b.pendingLocked()
 	if dropped > 0 {
@@ -270,6 +292,42 @@ func (b *Buffer) Append(es ...Entry) error {
 		onDrop(dropped)
 	}
 	return werr
+}
+
+// rollbackLocked removes everything appended since the active segment was
+// (startID, startSize, startEntries): segments created by the failed call are
+// deleted and the start segment is truncated back (dropping torn bytes).
+func (b *Buffer) rollbackLocked(startID uint64, startSize, startEntries int64) error {
+	var lastID uint64
+	for len(b.segs) > 0 && b.segs[len(b.segs)-1].id > startID {
+		s := b.segs[len(b.segs)-1]
+		lastID = s.id
+		_ = os.Remove(filepath.Join(b.dir, segName(s.id)))
+		b.total -= s.size
+		b.segs = b.segs[:len(b.segs)-1]
+	}
+	var terr error
+	switch {
+	case len(b.segs) == 0:
+		// the start segment was dropped by the cap during the call
+		b.segs = []*segment{{id: lastID}}
+		_ = os.Remove(filepath.Join(b.dir, segName(lastID)))
+	case b.segs[len(b.segs)-1].id == startID:
+		s := b.segs[len(b.segs)-1]
+		terr = os.Truncate(filepath.Join(b.dir, segName(s.id)), startSize)
+		b.total -= s.size - startSize
+		s.size, s.entries = startSize, startEntries
+	}
+	if b.find(b.cur.Seg) == nil {
+		b.cur = Cursor{Seg: b.segs[0].id}
+	}
+	oerr := b.openActive()
+	if oerr != nil && b.active != nil {
+		// never keep writing to a handle of a deleted/rolled-back file
+		b.active.Close()
+		b.active = nil
+	}
+	return errors.Join(terr, oerr)
 }
 
 func (b *Buffer) rotateLocked() error {
@@ -316,6 +374,22 @@ func (b *Buffer) pendingLocked() int64 {
 			n += s.entries - b.cur.N
 		default:
 			n += s.entries
+		}
+	}
+	return n
+}
+
+func (b *Buffer) pendingBytesLocked() int64 {
+	var n int64
+	for _, s := range b.segs {
+		switch {
+		case s.id < b.cur.Seg:
+		case s.id == b.cur.Seg:
+			if d := s.size - b.cur.Off; d > 0 {
+				n += d
+			}
+		default:
+			n += s.size
 		}
 	}
 	return n
@@ -469,6 +543,7 @@ type BufferStats struct {
 	Cap            int64
 	Segments       int
 	Pending        int64
+	PendingBytes   int64 // unshipped bytes (Bytes also counts shipped records of the active segment)
 	DroppedTotal   uint64
 	DroppedPending uint64
 }
@@ -478,7 +553,7 @@ func (b *Buffer) Stats() BufferStats {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return BufferStats{Bytes: b.total, Cap: b.cap, Segments: len(b.segs), Pending: b.pendingLocked(),
-		DroppedTotal: b.st.DroppedTotal, DroppedPending: b.st.DroppedPending}
+		PendingBytes: b.pendingBytesLocked(), DroppedTotal: b.st.DroppedTotal, DroppedPending: b.st.DroppedPending}
 }
 
 // SegmentBytes is the segment size in use.

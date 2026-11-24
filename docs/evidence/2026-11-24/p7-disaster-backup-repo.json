@@ -1,0 +1,23 @@
+{
+  "scenario": "disaster-backup-repo",
+  "startedAt": "2026-11-24T02:57:07.927Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "baseline backup with repo up \u2192 uploaded",
+      "result": "PASS",
+      "at": "2026-11-24T02:57:11.067Z",
+      "status": "uploaded"
+    }
+  ],
+  "updatedAt": "2026-11-24T02:57:11.067Z"
+}

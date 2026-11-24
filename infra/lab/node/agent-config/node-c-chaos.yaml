@@ -1,0 +1,12 @@
+# pPanel agent config for the P7 CHAOS node ppanel-lab-node-c (profile `chaos` in infra/compose/lab.yml).
+# LAB ONLY. The state dir is a 6 MiB tmpfs: the log buffer cap (16 MiB) is deliberately LARGER than the
+# filesystem so the "disk full" path (ENOSPC on the buffer / backup work dir) is exercised, not only the cap.
+stateDir: /var/lib/ppanel-agent
+logLevel: info
+logs:
+  enabled: true
+  bufferCapBytes: 16777216
+backup:
+  enabled: true
+  resticPath: /usr/local/bin/restic
+  # default workDir: <stateDir>/backup (on the 6 MiB tmpfs)

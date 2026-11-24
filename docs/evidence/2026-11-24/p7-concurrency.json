@@ -1,0 +1,141 @@
+{
+  "scenario": "concurrency",
+  "startedAt": "2026-11-24T02:44:21.780Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "1a two admins deploy same app simultaneously \u2192 exactly one proceeds, other DEPLOYMENT_IN_PROGRESS",
+      "result": "PASS",
+      "at": "2026-11-24T02:44:36.153Z",
+      "responses": [
+        [202, null, "pulling"],
+        [409, "DEPLOYMENT_IN_PROGRESS", null]
+      ]
+    },
+    {
+      "step": "1b 10 concurrent deploys of one app \u2192 exactly one proceeds",
+      "result": "PASS",
+      "at": "2026-11-24T02:44:50.453Z",
+      "counts": {
+        "409:DEPLOYMENT_IN_PROGRESS": 9,
+        "202:pulling": 1
+      },
+      "servingAfter": "ppanel-test web v1"
+    },
+    {
+      "step": "2a 5 concurrent revision creates on one app \u2192 exactly one 201, rest 409 REVISION_IN_PROGRESS",
+      "result": "PASS",
+      "at": "2026-11-24T02:44:50.727Z",
+      "responses": [
+        [201, null],
+        [409, "REVISION_IN_PROGRESS"],
+        [409, "REVISION_IN_PROGRESS"],
+        [409, "REVISION_IN_PROGRESS"],
+        [409, "REVISION_IN_PROGRESS"]
+      ]
+    },
+    {
+      "step": "3a two approvers approve the same plan concurrently \u2192 exactly one approval recorded",
+      "result": "FAIL",
+      "at": "2026-11-24T02:44:55.187Z",
+      "responses": [
+        [200, null],
+        [200, null]
+      ],
+      "approvalRows": 2
+    },
+    {
+      "step": "3b one approval \u2192 exactly one apply job for rev1 (single-use); two apps on one server apply without overlapping executions",
+      "result": "PASS",
+      "at": "2026-11-24T02:45:06.404Z",
+      "applyResponses": [
+        [409, "APPROVAL_REQUIRED"],
+        [202, null],
+        [202, null]
+      ],
+      "rev1": "applied",
+      "rev2": "applied",
+      "jobs": [
+        [
+          "01a20b71-3ce4-78d9-850c-0c6da4ce1f6a",
+          "nginx.apply",
+          "succeeded",
+          "2026-11-24 02:45:00.268+00",
+          "2026-11-24 02:45:02.303+00",
+          "01a20b71-20b2-7e11-b22d-c345aedba1d2"
+        ],
+        [
+          "01a20b71-3ce5-74c4-a2b1-929201e51330",
+          "nginx.apply",
+          "succeeded",
+          "2026-11-24 02:45:03.292+00",
+          "2026-11-24 02:45:05.35+00",
+          "01a20b71-177d-750a-aa25-c2a6c14ca276"
+        ]
+      ],
+      "overlap": false
+    },
+    {
+      "step": "4 expired approval (aged in DB) \u2192 apply refused, no job",
+      "result": "PASS",
+      "at": "2026-11-24T02:45:14.860Z",
+      "http": 409,
+      "code": "APPROVAL_EXPIRED",
+      "revisionStatus": "approved",
+      "approval": {
+        "required": true,
+        "approvedBy": "01a20b70-a6ec-79c5-a787-2e0e481c70c3",
+        "approvedAt": "2026-11-24T01:44:14.772Z",
+        "expiresAt": "2026-11-24T02:44:14.772Z"
+      },
+      "method": "UPDATE nginx_revision_approvals SET approved_at=now()-61min, expires_at=now()-1min"
+    },
+    {
+      "step": "5 webhook storm: 50 concurrent deliveries for 5 commits \u2192 exactly one deployment per commit",
+      "result": "FAIL",
+      "at": "2026-11-24T02:45:28.789Z",
+      "stormSec": 0.18,
+      "httpResults": {
+        "200:failed": 49,
+        "200:deployed": 1
+      },
+      "deploymentsCreated": 1,
+      "perCommit": {
+        "166f979": 0,
+        "12a4b50": 0,
+        "d6e00f5": 1,
+        "ba09ada": 0,
+        "f1e8bb8": 0
+      },
+      "deliveryResults": [
+        ["deployed", "1"],
+        ["failed", "49"]
+      ],
+      "finalStatuses": [["succeeded", "1"]]
+    },
+    {
+      "step": "5b storm deployments: how many actually ran vs refused by the app lock",
+      "result": "INFO",
+      "at": "2026-11-24T02:45:28.827Z",
+      "succeeded": 1,
+      "total": 1,
+      "note": "commits arriving while another deployment of the app is active hit DEPLOYMENT_IN_PROGRESS"
+    }
+  ],
+  "updatedAt": "2026-11-24T02:45:28.870Z",
+  "nodeBServing": "ppanel-test web v1",
+  "summary": {
+    "PASS": 5,
+    "FAIL": 2,
+    "INFO": 1
+  }
+}

@@ -666,6 +666,18 @@ func TestApplyReloadFailedReverted(t *testing.T) {
 	if code(t, err) != CodeRevertFailedManual {
 		t.Fatalf("got %v", err)
 	}
+	// F-4: the message must not claim the files were not restored, and the
+	// verified checksums are reported
+	var je *jobs.Error
+	errors.As(err, &je)
+	if !strings.Contains(je.Message, "restored and verified") || strings.Contains(je.Message, "could not restore") {
+		t.Fatalf("message: %s", je.Message)
+	}
+	d := details(t, err)
+	rf, _ := d["restoredFiles"].([]any)
+	if d["restored"] != true || len(rf) != 1 || rf[0].(map[string]any)["sha256"] != shaA || d["reloadError"] == nil {
+		t.Fatalf("details: %v", d)
+	}
 	sameTree(t, before, tree(e.root))
 	// reload fails only once → RELOAD_FAILED_REVERTED
 	e2 := newEnv(t)

@@ -16,4 +16,8 @@ paths = [
   '''^apps/agent/internal/logship/(lab|pipeline|tailer)_test\.go$''',
   '''^apps/api/test/integration/observability(-real)?\.spec\.ts$''',
   '''^apps/web/src/mocks/p5-routes\.ts$''',
+  '''^apps/agent/internal/(redact|logship)/fuzz_test\.go$''',
+  '''^tests/security/authz/probes\.ts$''',
+  '''^tests/security/lib/world\.ts$''',
+  '''^tests/security/ssrf/ssrf\.spec\.ts$''',
 ]

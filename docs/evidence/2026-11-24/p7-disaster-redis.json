@@ -1,0 +1,51 @@
+{
+  "scenario": "disaster-redis",
+  "startedAt": "2026-11-24T02:49:58.235Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "code inspection: Center API source references to Redis",
+      "result": "INFO",
+      "at": "2026-11-24T02:49:58.371Z",
+      "files": [
+        "apps/api/src/deploy/compose-plan.ts",
+        "apps/api/src/observability/byte-bucket.ts",
+        "apps/api/src/common/rate-limiter.ts"
+      ],
+      "note": "rate limiter + log byte bucket are in-memory; no Redis client dependency in apps/api/package.json"
+    },
+    {
+      "step": "Redis down 90 s: login, reads, jobs, heartbeats and an app restart all work",
+      "result": "PASS",
+      "at": "2026-11-24T02:51:41.657Z",
+      "samples": 18,
+      "non200": [],
+      "inventoryJob": "succeeded",
+      "restartJob": "succeeded",
+      "heartbeat": {
+        "node-a": [9.0, "online"],
+        "node-b": [5.6, "online"]
+      }
+    },
+    {
+      "step": "Redis restarted",
+      "result": "PASS",
+      "at": "2026-11-24T02:51:47.089Z",
+      "health": "running/healthy"
+    }
+  ],
+  "updatedAt": "2026-11-24T02:51:47.090Z",
+  "summary": {
+    "INFO": 1,
+    "PASS": 2
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "scenario": "t02-no-replay",
+  "startedAt": "2026-11-24T02:29:15.029Z",
+  "meta": {
+    "leaseSec": 60,
+    "runningLeaseSec": 120,
+    "sweepMs": 5000,
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "A: mutating jobs created while both agents are down \u2192 queued",
+      "result": "PASS",
+      "at": "2026-11-24T02:29:30.338Z",
+      "jobs": {
+        "nginx.apply": "01a20b63-0c44-77b9-a58c-ea8a32c111db",
+        "service.restart": "01a20b63-0c4f-7b9b-b5f7-ed9b576f4143",
+        "container.restart": "01a20b63-0c57-7b4a-a5fc-9c5db58b713a"
+      },
+      "status": {
+        "nginx.apply": "queued",
+        "service.restart": "queued",
+        "container.restart": "queued"
+      }
+    },
+    {
+      "step": "A: TTL elapsed \u2192 all three expired (service.restart naturally after 30 s; workflow jobs via expires_at=now())",
+      "result": "PASS",
+      "at": "2026-11-24T02:30:13.430Z",
+      "status": {
+        "nginx.apply": ["expired", "TTL_EXPIRED"],
+        "service.restart": ["expired", "TTL_EXPIRED"],
+        "container.restart": ["expired", "TTL_EXPIRED"]
+      }
+    },
+    {
+      "step": "A: after reconnect: still expired, never delivered, host state unchanged",
+      "result": "PASS",
+      "at": "2026-11-24T02:30:55.894Z",
+      "before": {
+        "nodeA": {
+          "nginx": "ecb855f79c1addb3",
+          "pid": "7"
+        },
+        "nodeB": "2026-11-24T02:05:32.175030425Z 0 running"
+      },
+      "after": {
+        "nodeA": {
+          "nginx": "ecb855f79c1addb3",
+          "pid": "7"
+        },
+        "nodeB": "2026-11-24T02:05:32.175030425Z 0 running"
+      },
+      "agentLogLinesForJobs": {
+        "nginx.apply": "",
+        "service.restart": "",
+        "container.restart": ""
+      },
+      "revisionStatus": "apply_failed",
+      "revisionError": {
+        "errorCode": "TTL_EXPIRED",
+        "operation": "apply"
+      },
+      "downSec": 86
+    },
+    {
+      "step": "B: grant leased by the (partitioned) agent identity, never acked",
+      "result": "PASS",
+      "at": "2026-11-24T02:30:56.098Z",
+      "jobId": "01a20b64-5b55-77cf-a831-e8d5a9052672",
+      "status": "leased",
+      "leaseUntil": "2026-11-24T02:31:56.092Z",
+      "grantExpiresAt": "2026-11-24T02:40:56.085Z"
+    },
+    {
+      "step": "B: lease expired \u2192 expired; late ack and late result rejected 409, nothing stored",
+      "result": "PASS",
+      "at": "2026-11-24T02:31:58.241Z",
+      "expiredAfterSec": 62.1,
+      "error": "LEASE_EXPIRED",
+      "lateAck": [409, "TASK_EXPIRED"],
+      "lateResult": [409, "TASK_EXPIRED"]
+    },
+    {
+      "step": "C: acked job whose agent vanished \u2192 running lease expires \u2192 expired; late success rejected",
+      "result": "PASS",
+      "at": "2026-11-24T02:34:03.473Z",
+      "ackStatus": 200,
+      "expiredAfterSec": 125.2,
+      "error": "LEASE_EXPIRED",
+      "lateResult": [409, "TASK_EXPIRED"]
+    },
+    {
+      "step": "B/C: real agent back \u2192 expired jobs never re-delivered, container never restarted",
+      "result": "PASS",
+      "at": "2026-11-24T02:34:45.743Z",
+      "before": "2026-11-24T02:05:32.175030425Z 0 running",
+      "after": "2026-11-24T02:05:32.175030425Z 0 running"
+    },
+    {
+      "step": "D: agent killed mid-run \u2192 job not re-executed after restart (one execution, no second restart)",
+      "result": "FAIL",
+      "at": "2026-11-24T02:37:19.232Z",
+      "jobId": "01a20b67-dc9c-7fc8-9253-b152721f1b60",
+      "killedWhile": "running",
+      "terminalAfterSec": 123.3,
+      "finalStatus": "expired",
+      "finalError": "LEASE_EXPIRED",
+      "executingLogLines": 1,
+      "containerBefore": "2026-11-24T02:05:32.175030425Z 0 running",
+      "containerAtKill": "2026-11-24T02:05:32.175030425Z 0 running",
+      "containerAfter": "2026-11-24T02:34:55.906170797Z 0 running",
+      "agentLog": "{\"timestamp\":\"2026-11-24T02:34:45.796060042Z\",\"level\":\"info\",\"message\":\"executing job\",\"jobId\":\"01a20b67-dc9c-7fc8-9253-b152721f1b60\",\"type\":\"container.restart\",\"mutating\":true}"
+    },
+    {
+      "step": "D: Center records the interruption as AGENT_INTERRUPTED",
+      "result": "FAIL",
+      "at": "2026-11-24T02:37:19.232Z",
+      "finalStatus": "expired",
+      "finalError": {
+        "code": "LEASE_EXPIRED"
+      },
+      "note": "protocol: agent reports AGENT_INTERRUPTED only if the grant is re-delivered; mutating jobs are never re-delivered, so the Center can only expire it"
+    },
+    {
+      "step": "D re-evaluated (script criterion was wrong): no re-execution",
+      "result": "PASS",
+      "at": "2026-11-24T02:40:00Z",
+      "evidence": "agent log: one 'executing job' 02:34:45.796, SIGKILL right after, agent restart 02:34:46.03, no further line for the jobId; container StartedAt 02:34:55.9 = the restart already requested from dockerd before the kill (10 s stop grace) completing daemon-side \u2014 one restart total, RestartCount 0. Original check compared StartedAt at kill vs after, which cannot distinguish that."
+    },
+    {
+      "step": "A note: TTL-expired nginx.apply leaves the revision in apply_failed (errorCode TTL_EXPIRED)",
+      "result": "INFO",
+      "at": "2026-11-24T02:40:00Z",
+      "question": "status naming \u2014 the change never ran; 'expired' (or keeping the revision approved/valid for a fresh apply) would be clearer than apply_failed"
+    }
+  ],
+  "updatedAt": "2026-11-24T02:37:19.308Z",
+  "siteCodes": {
+    "static.example.lab": "200",
+    "p7web-85919.lab.test": "200"
+  },
+  "summary": {
+    "PASS": 8,
+    "FAIL": 1,
+    "INFO": 1
+  }
+}

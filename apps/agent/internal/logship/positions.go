@@ -27,6 +27,9 @@ type Positions struct {
 	data  struct {
 		Files      map[string]FilePos `json:"files"`
 		Containers map[string]string  `json:"containers"` // id -> last ts (RFC3339Nano)
+		// Stamps is the last timestamp (unix ns) given to a line of a tailed
+		// file; new lines always get a later one.
+		Stamps map[string]int64 `json:"stamps,omitempty"`
 	}
 }
 
@@ -41,6 +44,9 @@ func OpenPositions(path string) *Positions {
 	}
 	if p.data.Containers == nil {
 		p.data.Containers = map[string]string{}
+	}
+	if p.data.Stamps == nil {
+		p.data.Stamps = map[string]int64{}
 	}
 	return p
 }
@@ -58,6 +64,23 @@ func (p *Positions) SetFile(path string, fp FilePos) {
 	p.mu.Lock()
 	if p.data.Files[path] != fp {
 		p.data.Files[path] = fp
+		p.dirty = true
+	}
+	p.mu.Unlock()
+}
+
+// Stamp returns the last line timestamp (unix ns) of a tailed file (0 = none).
+func (p *Positions) Stamp(path string) int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.data.Stamps[path]
+}
+
+// SetStamp records the last line timestamp of a tailed file (persisted by Save).
+func (p *Positions) SetStamp(path string, ns int64) {
+	p.mu.Lock()
+	if p.data.Stamps[path] != ns {
+		p.data.Stamps[path] = ns
 		p.dirty = true
 	}
 	p.mu.Unlock()

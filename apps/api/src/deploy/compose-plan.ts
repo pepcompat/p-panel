@@ -6,7 +6,10 @@
  */
 import {
   APP_SLUG_RE,
+  COMPOSE_IGNORED_SERVICE_KEYS,
+  COMPOSE_POLICY_CHECKED_SERVICE_KEYS,
   COMPOSE_SERVICE_NAME_RE,
+  COMPOSE_SUPPORTED_SERVICE_KEYS,
   type ComposeHealth,
   type ComposePlanService,
   type ComposeValidation,
@@ -26,29 +29,12 @@ const VOLUME_NAME_RE = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const MOUNT_PATH_RE = /^\/[A-Za-z0-9._/-]{1,200}$/;
 const SECRET_PLACEHOLDER_RE = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
-/** Keys the executor understands. */
-const SUPPORTED_KEYS = new Set([
-  'image',
-  'environment',
-  'command',
-  'volumes',
-  'ports',
-  'depends_on',
-]);
-/** Accepted but ignored (pPanel manages these itself) → warning. */
-const IGNORED_KEYS = new Set([
-  'restart',
-  'container_name',
-  'networks',
-  'labels',
-  'expose',
-  'healthcheck',
-  'stop_grace_period',
-  'logging',
-  'hostname',
-  'init',
-  'tty',
-  'stdin_open',
+/** Keys the executor understands / accepts but ignores — shared with the static policy's allowlist. */
+const SUPPORTED_KEYS: ReadonlySet<string> = new Set(COMPOSE_SUPPORTED_SERVICE_KEYS);
+const IGNORED_KEYS: ReadonlySet<string> = new Set([
+  ...COMPOSE_IGNORED_SERVICE_KEYS,
+  // value already checked by the static policy; the agent's hardened HostConfig applies instead
+  ...COMPOSE_POLICY_CHECKED_SERVICE_KEYS,
 ]);
 
 /** Known database images → TCP health on their default port. */
@@ -129,6 +115,8 @@ export function normalizeComposeDocument(doc: unknown, opts: NormalizeOptions): 
   for (const w of base.warnings) {
     if (w.rule === 'build_unsupported')
       violations.push({ ...w, message: 'Compose `build:` is not supported; use a registry image' });
+    else if (w.rule === 'service_key_unsupported')
+      continue; // reported below as a violation
     else if (w.rule === 'image_not_pinned')
       warnings.push({ ...w, message: `${w.message}; it is resolved to a digest at deploy time` });
     else warnings.push(w);
@@ -170,7 +158,9 @@ export function normalizeComposeDocument(doc: unknown, opts: NormalizeOptions): 
       add(name, 'name_too_long', p, 'Application name + service name must be ≤ 41 characters');
     for (const key of Object.keys(svc)) {
       if (SUPPORTED_KEYS.has(key) || key === 'build') continue;
-      if (IGNORED_KEYS.has(key))
+      // `<<` and dedicated deny rules are already violations of the static policy
+      if (key === '<<' || violations.some((v) => v.path === `${p}.${key}`)) continue;
+      if (IGNORED_KEYS.has(key) || key.startsWith('x-'))
         add(
           name,
           'key_ignored',

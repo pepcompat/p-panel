@@ -15,3 +15,4 @@ apps/agent/bin/
 .turbo/
 playwright-report/
 test-results/
+__pycache__/

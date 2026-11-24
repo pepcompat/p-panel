@@ -14,7 +14,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "test:security": "tsc --noEmit -p ../../tests/security/tsconfig.json && vitest run --config vitest.security.config.ts"
   },
   "dependencies": {
     "@nestjs/common": "11.2.10",

@@ -1,0 +1,75 @@
+{
+  "scenario": "disaster-disk-full-part2",
+  "startedAt": "2026-11-24T03:22:40.522Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "disk full: read-only job acked but never executed and never answered (agent cannot persist the started marker)",
+      "result": "FAIL",
+      "at": "2026-11-24T03:22:40.603Z",
+      "status": "running",
+      "attempt": 2,
+      "agentLog": "cannot mark job started; not executing (\u2026/.jobcache-*: no space left on device) at 03:18:42 and again 03:20:43 after re-lease",
+      "note": "Center sees 'running' with no result; read-only job re-leased every ~2 min until its 600 s TTL"
+    },
+    {
+      "step": "disk full: backup run outcome",
+      "result": "FAIL",
+      "at": "2026-11-24T03:24:44.632Z",
+      "status": "expired",
+      "code": "LEASE_EXPIRED",
+      "message": "job expired",
+      "sec": 124
+    },
+    {
+      "step": "space freed",
+      "result": "PASS",
+      "at": "2026-11-24T03:24:44.803Z",
+      "dfKb": "6144 112 6032"
+    },
+    {
+      "step": "after freeing space: logs ship, jobs run, backup uploads, no agent restart",
+      "result": "PASS",
+      "at": "2026-11-24T03:26:15.182Z",
+      "delivery": {
+        "inFile": 497,
+        "inLoki": 497,
+        "deliveredPct": 100.0
+      },
+      "job": "succeeded",
+      "backup": "uploaded",
+      "logShipping": {
+        "bufferedBytes": 159944,
+        "bufferCapBytes": 16777216,
+        "droppedEntries": 11,
+        "lastShippedAt": "2026-11-24T03:25:45.079426125Z"
+      },
+      "agentPid": "46\n52"
+    },
+    {
+      "step": "lines produced while the state dir was full were LOST and not counted (0 of 2117 in Loki; heartbeat droppedEntries=11)",
+      "result": "FAIL",
+      "delivery": {
+        "inFile": 2117,
+        "inLoki": 0,
+        "deliveredPct": 0.0
+      },
+      "note": "buffer appends failed with ENOSPC and positions were not advanced, so lines were re-read after recovery; heartbeat droppedEntries=11 afterwards",
+      "rootCause": "pipeline.PollOnce: on buffer Append error it skips p.pos.SetFile ('lines are re-read next poll'), but Tailer.Poll has already advanced its in-memory t.cur offset, so the next poll continues after the lost lines; 240 'log buffer append failed' warnings"
+    }
+  ],
+  "updatedAt": "2026-11-24T03:26:15.187Z",
+  "summary": {
+    "FAIL": 3,
+    "PASS": 2
+  }
+}

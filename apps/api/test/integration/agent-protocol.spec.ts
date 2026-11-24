@@ -53,6 +53,7 @@ describe('results without ack (rejections / cached replays)', () => {
     'HANDLER_FAILED',
     'HANDLER_TIMEOUT',
     'AGENT_INTERRUPTED',
+    'AGENT_STATE_WRITE_FAILED',
   ])('leased (not acked) job + status rejected/%s → failed with that code', async (code) => {
     await createJob({ type: 'inventory.collect' });
     const [g] = (await poll()).body.data.tasks;
@@ -94,6 +95,57 @@ describe('results without ack (rejections / cached replays)', () => {
       status: 'succeeded',
       result: { truncated: true, originalBytes: 20480 },
     });
+  });
+});
+
+describe('restarted agent reports AGENT_INTERRUPTED with the persisted lease token', () => {
+  const leaseAndAck = async () => {
+    await createJob({ type: 'inventory.collect' });
+    const [g] = (await poll()).body.data.tasks;
+    const ack = await agentCall(port, agent.creds, 'POST', `/agent/v1/tasks/${g.jobId}/ack`, {
+      leaseToken: g.leaseToken,
+    });
+    expect(ack.status).toBe(200);
+    // mutating: never re-leased (the case that matters for interrupted jobs)
+    await t.prisma.job.update({ where: { id: g.jobId }, data: { mutating: true } });
+    return g as { jobId: string; leaseToken: string };
+  };
+  const interrupted = (g: { jobId: string; leaseToken: string }) =>
+    // fresh TLS connection = a new agent process with the same identity and stored token
+    agentCall(port, agent.creds, 'POST', `/agent/v1/tasks/${g.jobId}/result`, {
+      leaseToken: g.leaseToken,
+      status: 'failed',
+      error: { code: 'AGENT_INTERRUPTED', message: 'the agent stopped while this job was running' },
+    });
+
+  it('running job, lease still valid → accepted as failed/AGENT_INTERRUPTED', async () => {
+    const g = await leaseAndAck();
+    const r = await interrupted(g);
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await t.prisma.job.findUniqueOrThrow({ where: { id: g.jobId } })).toMatchObject({
+      status: 'failed',
+      error: { code: 'AGENT_INTERRUPTED' },
+    });
+  });
+
+  it('lease already lapsed (sweeper not run yet) → 409 TASK_EXPIRED, job expired LEASE_EXPIRED, nothing stored', async () => {
+    const g = await leaseAndAck();
+    await t.prisma.job.update({
+      where: { id: g.jobId },
+      data: { leaseUntil: new Date(Date.now() - 1000) },
+    });
+    const r = await interrupted(g);
+    expect([r.status, r.body.error.code]).toEqual([409, 'TASK_EXPIRED']);
+    const row = await t.prisma.job.findUniqueOrThrow({ where: { id: g.jobId } });
+    expect(row).toMatchObject({ status: 'expired', error: { code: 'LEASE_EXPIRED' } });
+    // and after the sweeper as well
+    expect((await interrupted(g)).body.error.code).toBe('TASK_EXPIRED');
+  });
+
+  it('wrong lease token → 409 TASK_NOT_LEASED', async () => {
+    const g = await leaseAndAck();
+    const r = await interrupted({ ...g, leaseToken: 'x'.repeat(32) });
+    expect([r.status, r.body.error.code]).toEqual([409, 'TASK_NOT_LEASED']);
   });
 });
 

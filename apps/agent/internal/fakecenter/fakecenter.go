@@ -121,7 +121,10 @@ type Center struct {
 	LogBatches []map[string]any
 	tasks      chan []map[string]any
 	AckStatus  int // if non-zero, ack responds with this status
-	RenewAfter *time.Time
+	// ResultStatus, if non-zero, makes result posts answer this status
+	// (409 TASK_EXPIRED); the body is still recorded.
+	ResultStatus int
+	RenewAfter   *time.Time
 
 	enrollSrv  *http.Server
 	EnrollURL  string
@@ -349,6 +352,10 @@ func (c *Center) handleTaskAction(w http.ResponseWriter, r *http.Request) {
 		writeOK(w, 200, map[string]any{"status": "running"})
 	case "result":
 		c.Results[jobID] = append(c.Results[jobID], body)
+		if c.ResultStatus != 0 {
+			writeErr(w, c.ResultStatus, "TASK_EXPIRED", "lease expired")
+			return
+		}
 		writeOK(w, 200, map[string]any{"accepted": true})
 	default:
 		writeErr(w, 404, "NOT_FOUND", "nf")

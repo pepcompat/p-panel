@@ -68,8 +68,14 @@ func FormatTS(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 // known secret values), then capped at MaxLineBytes including TruncSuffix.
 // Redaction happens on (up to MaxRawLine bytes of) the original text BEFORE
 // truncation so a cut can never expose part of a secret.
+//
+// When the raw line itself was longer than MaxRawLine, a known secret may
+// straddle that cut and survive as an unrecognisable prefix; the redacted
+// text then loses its last (longest known value - 1) bytes before the
+// truncation marker is added, so no fragment of a known value can remain.
 func Sanitize(r *redact.Redactor, raw []byte) string {
-	if len(raw) > MaxRawLine {
+	rawCut := len(raw) > MaxRawLine
+	if rawCut {
 		raw = raw[:MaxRawLine]
 	}
 	s := strings.TrimRight(string(raw), "\r\n")
@@ -77,9 +83,29 @@ func Sanitize(r *redact.Redactor, raw []byte) string {
 		s = strings.ToValidUTF8(s, "�")
 	}
 	s = r.Redact(s)
-	if len(s) > MaxLineBytes {
-		cut := MaxLineBytes - len(TruncSuffix)
-		for cut > 0 && !utf8.RuneStart(s[cut]) {
+	if !utf8.ValidString(s) {
+		// a registered secret that is not valid UTF-8 can end inside a rune
+		// of the (valid) line: replacing it leaves stray continuation bytes
+		s = strings.ToValidUTF8(s, "\uFFFD")
+	}
+	if rawCut {
+		if drop := r.MaxKnownLen() - 1; drop > 0 {
+			cut := len(s) - drop
+			if cut < 0 {
+				cut = 0
+			}
+			for cut > 0 && !utf8.RuneStart(s[cut]) {
+				cut--
+			}
+			s = s[:cut]
+		}
+	}
+	if len(s) > MaxLineBytes || (rawCut && !strings.HasSuffix(s, TruncSuffix)) {
+		cut := len(s)
+		if cut > MaxLineBytes-len(TruncSuffix) {
+			cut = MaxLineBytes - len(TruncSuffix)
+		}
+		for cut > 0 && cut < len(s) && !utf8.RuneStart(s[cut]) {
 			cut--
 		}
 		s = s[:cut] + TruncSuffix

@@ -1,0 +1,58 @@
+{
+  "scenario": "disaster-cert",
+  "startedAt": "2026-11-24T03:07:11.924Z",
+  "meta": {
+    "method": "dev-DB manipulation of agent_certificates validity window (PPANEL_AGENT_CERT_DAYS min is 1 day; no clock faking)",
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "cert near expiry \u2192 agent rotates on its own and keeps heartbeating with the new cert",
+      "result": "FAIL",
+      "at": "2026-11-24T03:09:34.215Z",
+      "rotatedAfterSec": null,
+      "oldSerial": "31871bfb10d1b39de535a0da40348738",
+      "newCert": null,
+      "agentLog": "",
+      "heartbeat": [11.5, "online"]
+    },
+    {
+      "step": "expired agent cert \u2192 gateway refuses (401 AGENT_CERT_REVOKED), server goes stale/offline, agent process keeps running and does not touch workloads",
+      "result": "PASS",
+      "at": "2026-11-24T03:10:44.504Z",
+      "heartbeat": [81.7, "stale"],
+      "agentAlive": true,
+      "agentLog": " certificate is revoked or unknown (requestId=e3ffe6c9-4347-4207-9176-384f6b518e73)\",\"retryIn\":\"1m0s\"}\n{\"timestamp\":\"2026-11-24T03:10:37.728432511Z\",\"level\":\"warn\",\"message\":\"heartbeat failed\",\"error\":\"center HTTP 401 AGENT_CERT_REVOKED: Agent certificate is revoked or unknown (requestId=20a6c55e-3cf5-4309-afaf-34fa9711781b)\",\"retryIn\":\"1m0s\",\"attempt\":0}\n{\"timestamp\":\"2026-11-24T03:10:41.482498804Z\",\"level\":\"warn\",\"message\":\"task poll failed\",\"error\":\"center HTTP 401 AGENT_CERT_REVOKED: Agent certificate is revoked or unknown (requestId=124f96ac-d601-4e35-a47c-206e9b397d23)\",\"retryIn\":\"1m0s\"}"
+    },
+    {
+      "step": "validity restored \u2192 agent reconnects by itself (backoff at max after 401)",
+      "result": "PASS",
+      "at": "2026-11-24T03:11:39.017Z",
+      "reconnectSec": 54.5,
+      "expiredForSec": 70
+    },
+    {
+      "step": "gateway TLS cert expiry handling",
+      "result": "INFO",
+      "at": "2026-11-24T03:11:39.022Z",
+      "finding": "apps/api/src/agent/gateway.server.ts issues the gateway cert once at start (90-day validity, ca.service.ts issueGatewayCert) and never re-issues/hot-swaps it; a Center running > 90 days without restart would lose every agent. Not exercised live (needs clock manipulation)."
+    },
+    {
+      "step": "near-expiry FAIL above is a harness error: moving only not_before back lengthened the life to 13 d, so renewAfter (notBefore + 2/3 life) was still in the future. Re-run with a correct window \u2192 PASS, rotated after 14.5 s (p7-disaster-cert-rotation.json)",
+      "result": "INFO"
+    }
+  ],
+  "updatedAt": "2026-11-24T03:11:39.023Z",
+  "summary": {
+    "FAIL": 1,
+    "PASS": 2,
+    "INFO": 1
+  }
+}

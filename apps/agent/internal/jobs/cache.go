@@ -25,6 +25,10 @@ type Entry struct {
 	Output json.RawMessage `json:"output,omitempty"`
 	Error  *Error          `json:"error,omitempty"`
 	At     time.Time       `json:"at"`
+	// LeaseToken is kept only while State is "started" so that a job cut short
+	// by an agent crash can be reported as AGENT_INTERRUPTED after restart
+	// (the result endpoint requires the lease token). Cleared on Complete.
+	LeaseToken string `json:"leaseToken,omitempty"`
 }
 
 // Cache is a bounded, on-disk set of started/completed jobIds. A jobId seen
@@ -85,15 +89,16 @@ func (c *Cache) Lookup(jobID string) (*Entry, bool) {
 	return &cp, true
 }
 
-// MarkStarted durably records that jobID is about to execute. It returns
-// false if jobID is already known (caller must not execute).
-func (c *Cache) MarkStarted(jobID string) (bool, error) {
+// MarkStarted durably records that jobID is about to execute (with its lease
+// token, see Interrupted). It returns false if jobID is already known (caller
+// must not execute).
+func (c *Cache) MarkStarted(jobID, leaseToken string) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, ok := c.entries[jobID]; ok {
 		return false, nil
 	}
-	c.entries[jobID] = &Entry{JobID: jobID, State: "started", At: time.Now().UTC()}
+	c.entries[jobID] = &Entry{JobID: jobID, State: "started", At: time.Now().UTC(), LeaseToken: leaseToken}
 	c.order = append(c.order, jobID)
 	c.trimLocked()
 	if err := c.saveLocked(); err != nil {
@@ -122,6 +127,21 @@ func (c *Cache) Complete(r *Result) error {
 	c.entries[r.JobID] = &Entry{JobID: r.JobID, State: "completed", Status: r.Status, Output: out, Error: r.Error, At: time.Now().UTC()}
 	c.trimLocked()
 	return c.saveLocked()
+}
+
+// Interrupted returns (copies of) the jobs recorded as started but never
+// completed, oldest first: at agent start these are jobs a previous process
+// was running when it died.
+func (c *Cache) Interrupted() []Entry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []Entry
+	for _, id := range c.order {
+		if e := c.entries[id]; e != nil && e.State != "completed" {
+			out = append(out, *e)
+		}
+	}
+	return out
 }
 
 // Len returns the number of remembered jobs.

@@ -83,6 +83,8 @@ export function parseQuery(
     throw AppError.badRequest(`sort must be one of: ${opts.sortable.join(', ')}`);
   const q = raw.get('q')?.trim() || undefined;
   if (q && q.length > 200) throw AppError.badRequest('q too long');
+  // eslint-disable-next-line no-control-regex -- PostgreSQL text cannot hold NUL (was a 500)
+  if (q && /\u0000/.test(q)) throw AppError.badRequest('q: NUL bytes are not allowed');
 
   const filters: Filter[] = [];
   const orGroups = new Map<number, Filter[]>();
@@ -141,12 +143,15 @@ function coerce(def: FieldDef, field: string, v: string): unknown {
       return v;
     default:
       if (v.length > 200) throw AppError.badRequest(`${field}: value too long`);
+      // eslint-disable-next-line no-control-regex -- PostgreSQL text cannot hold NUL (was a 500)
+      if (/\u0000/.test(v)) throw AppError.badRequest(`${field}: NUL bytes are not allowed`);
       return v;
   }
 }
 
 function filterToWhere(f: Filter, fields: FieldMap): Record<string, unknown> {
-  const def = fields[f.field];
+  // own properties only: `constructor`, `toString`, … must not resolve to Object.prototype (SEC-P7-06)
+  const def = Object.hasOwn(fields, f.field) ? fields[f.field] : undefined;
   if (!def)
     throw AppError.badRequest(`Unsupported filter field: ${f.field}`, {
       allowed: Object.keys(fields),
@@ -184,11 +189,11 @@ function filterToWhere(f: Filter, fields: FieldMap): Record<string, unknown> {
     case 'contains':
     case 'like':
       if (def.type !== 'string') throw AppError.badRequest(`${f.op} only applies to text fields`);
-      cond = { contains: f.value, mode: 'insensitive' };
+      cond = { contains: coerce(def, f.field, f.value), mode: 'insensitive' };
       break;
     case 'prefix':
       if (def.type !== 'string') throw AppError.badRequest(`prefix only applies to text fields`);
-      cond = { startsWith: f.value };
+      cond = { startsWith: coerce(def, f.field, f.value) };
       break;
     case 'isnull':
       return f.value === 'false' ? { NOT: { [def.prop]: null } } : { [def.prop]: null };

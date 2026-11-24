@@ -446,10 +446,11 @@ export interface Integration {
 export const BRANCH_PATTERN_RE = /^[A-Za-z0-9._\/*-]{1,255}$/;
 /**
  * `registry-host[:port]/repo[/…]:<tag template>`; placeholders `{sha}` (40 hex), `{sha7}`, `{branch}`
- * (`/` → `-`). The registry host must be explicit so digest resolution never guesses a registry.
+ * (sanitised to the Docker tag alphabet). The registry host must be explicit — the first segment
+ * contains `.` or `:` or is `localhost` — so digest resolution never guesses a registry (Docker Hub).
  */
 export const IMAGE_TEMPLATE_RE =
-  /^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+:(?:[A-Za-z0-9_.-]|\{sha\}|\{sha7\}|\{branch\}){1,128}$/;
+  /^(?=[^/]*[.:]|localhost\/)[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+:(?:[A-Za-z0-9_.-]|\{sha\}|\{sha7\}|\{branch\}){1,128}$/;
 
 export const AUTO_DEPLOY_MODES = ['image', 'build'] as const;
 export type AutoDeployMode = (typeof AUTO_DEPLOY_MODES)[number];
@@ -502,6 +503,14 @@ export const WEBHOOK_DELIVERY_RESULTS = [
   'failed',
   /** P4b build mode: a build was queued (it deploys when it succeeds) */
   'building',
+  /**
+   * P7 (F-7): a deployment of the app was in progress; this commit is the app's pending commit and
+   * deploys automatically when the running deployment ends (then the delivery becomes deployed /
+   * awaiting_approval / failed).
+   */
+  'queued',
+  /** P7 (F-7): was queued, then a newer push for the same app replaced it (latest wins); never deployed */
+  'superseded',
 ] as const;
 export type WebhookDeliveryResult = (typeof WEBHOOK_DELIVERY_RESULTS)[number];
 
@@ -515,7 +524,10 @@ export interface WebhookDelivery {
   after: string | null;
   signatureOk: boolean;
   result: WebhookDeliveryResult;
-  /** e.g. `not_push`, `no_matching_policy`, `already_deployed`, `deployment_in_progress`, `IMAGE_RESOLVE_FAILED` */
+  /**
+   * e.g. `not_push`, `no_matching_policy`, `already_deployed`, `already_queued`,
+   * `queued_behind_deployment`, `superseded_by:<deliveryId>`, `dequeued`, `IMAGE_RESOLVE_FAILED`
+   */
   reasons: string[];
   deploymentIds: string[];
   /** P4b build-mode policies */
@@ -523,26 +535,62 @@ export interface WebhookDelivery {
   receivedAt: string;
 }
 
-/** Exact match, or `*` glob (matches any run of characters, including `/`). */
+/**
+ * Exact match, or `*` glob (matches any run of characters, including `/`). Linear-time-ish matcher
+ * (two pointers, backtracking only to the most recent `*`: O(pattern × branch) worst case) — never a
+ * RegExp, so a crafted pattern cannot cause catastrophic backtracking on a pushed branch name.
+ */
 export function branchMatches(pattern: string, branch: string): boolean {
   if (!pattern.includes('*')) return pattern === branch;
-  const re = new RegExp(
-    '^' +
-      pattern
-        .split('*')
-        .map((p) => p.replace(/[.+?^${}()|[\]\\/-]/g, '\\$&'))
-        .join('.*') +
-      '$',
-  );
-  return re.test(branch);
+  let p = 0;
+  let b = 0;
+  let star = -1; // index in pattern of the last `*` seen
+  let mark = 0; // branch index the last `*` currently extends to
+  while (b < branch.length) {
+    if (p < pattern.length && pattern[p] !== '*' && pattern[p] === branch[b]) {
+      p++;
+      b++;
+    } else if (p < pattern.length && pattern[p] === '*') {
+      star = p++;
+      mark = b;
+    } else if (star >= 0) {
+      p = star + 1;
+      b = ++mark;
+    } else return false;
+  }
+  while (p < pattern.length && pattern[p] === '*') p++;
+  return p === pattern.length;
 }
 
-/** Expand an image template for a commit. Branch `/` become `-` (tags cannot contain `/`). */
-export function renderImageTemplate(template: string, sha: string, branch: string): string {
-  return template
-    .replace(/\{sha\}/g, sha)
-    .replace(/\{sha7\}/g, sha.slice(0, 7))
-    .replace(/\{branch\}/g, branch.replace(/[^A-Za-z0-9_.-]/g, '-'));
+/** Docker tag grammar. */
+export const DOCKER_TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+const RENDERED_REF_RE =
+  /^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+:([^:/@]+)$/;
+
+/** Branch → tag fragment: invalid characters → `-`, leading `.`/`-` stripped, at most `max` chars. */
+export function sanitizeBranchForTag(branch: string, max = 128): string {
+  return branch
+    .replace(/[^A-Za-z0-9_.-]/g, '-')
+    .replace(/^[.-]+/, '')
+    .slice(0, Math.max(0, max));
+}
+
+/**
+ * Expand an image template for a commit. `{branch}` is sanitised (Docker tag alphabet, no leading
+ * `.`/`-`) and shortened so the whole tag fits 128 characters. Returns null when the rendered
+ * reference is not a valid `host/repo:tag` (e.g. an empty branch for a `…:{branch}` template).
+ */
+export function renderImageTemplate(template: string, sha: string, branch: string): string | null {
+  const withSha = template.replace(/\{sha\}/g, sha).replace(/\{sha7\}/g, sha.slice(0, 7));
+  const colon = withSha.lastIndexOf(':');
+  const tagTemplate = colon >= 0 ? withSha.slice(colon + 1) : '';
+  const count = tagTemplate.split('{branch}').length - 1;
+  const budget = count ? Math.floor((128 - (tagTemplate.length - count * 8)) / count) : 128;
+  const b = sanitizeBranchForTag(branch, Math.min(128, budget));
+  const out = withSha.replace(/\{branch\}/g, b);
+  const m = RENDERED_REF_RE.exec(out);
+  if (!m || !DOCKER_TAG_RE.test(m[1]!)) return null;
+  return out;
 }
 
 // ---------------------------------------------------------------- compose / detect requests (§7.6)

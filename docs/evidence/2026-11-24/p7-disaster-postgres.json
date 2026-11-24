@@ -1,0 +1,69 @@
+{
+  "scenario": "disaster-postgres",
+  "startedAt": "2026-11-24T02:51:47.097Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "Postgres down 60 s: API answers fast with enveloped 5xx (no hang, no crash)",
+      "result": "PASS",
+      "at": "2026-11-24T02:53:24.799Z",
+      "responses": {
+        "/servers?limit=5 500 INTERNAL_ERROR": 30,
+        "/setup/status 500 INTERNAL_ERROR": 30,
+        "/auth/login 500 INTERNAL_ERROR": 5
+      },
+      "maxLatencyMs": 7,
+      "centerSamePid": true,
+      "agentsAlive": {
+        "node-a": true,
+        "node-b": true
+      },
+      "agentLastHeartbeatLines": "failed\",\"error\":\"center HTTP 500 INTERNAL_ERROR: Internal server error (requestId=eac98987-c4f4-4560-b832-ad9044750e36)\",\"retryIn\":\"18.317688622s\",\"attempt\":6}\n{\"timestamp\":\"2026-11-24T02:52:31.538990674Z\",\"level\":\"warn\",\"message\":\"heartbeat failed\",\"error\":\"center HTTP 500 INTERNAL_ERROR: Internal server error (requestId=a015d062-913b-4dc7-861f-89869be2d23a)\",\"retryIn\":\"49.56377928s\",\"attempt\":7}",
+      "note": "/setup/status and /auth/login included; pass needs a JSON error code on every non-200"
+    },
+    {
+      "step": "recovery without Center restart; agents heartbeat again",
+      "result": "PASS",
+      "at": "2026-11-24T02:53:24.799Z",
+      "pgStartSec": 5.3,
+      "apiRecoveredSecAfterPgHealthy": 0.0,
+      "firstHeartbeatSecAfterPgHealthy": 28.4,
+      "recovery": {
+        "/servers?limit=5": [200, null, 23]
+      }
+    },
+    {
+      "step": "legacy site served 100% while the Center DB was down",
+      "result": "PASS",
+      "at": "2026-11-24T02:53:24.799Z",
+      "probe": {
+        "requests": 316,
+        "ok": 316,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 316
+        },
+        "latencyMs": {
+          "p50": 0.2,
+          "p95": 0.6,
+          "p99": 0.8,
+          "max": 203.7
+        },
+        "ratePerSec": 4.81
+      }
+    }
+  ],
+  "updatedAt": "2026-11-24T02:53:24.800Z",
+  "summary": {
+    "PASS": 3
+  }
+}

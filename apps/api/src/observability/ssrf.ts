@@ -84,6 +84,18 @@ export function isPrivateAddress(ip: string): boolean {
     return isPrivateAddress(`${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`);
   if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0))
     return isPrivateAddress(`${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`);
+  // deprecated IPv4-compatible ::a.b.c.d and IPv4-translated ::ffff:0:a.b.c.d (SEC-P7-05)
+  if (
+    g.slice(0, 6).every((x) => x === 0) ||
+    (g.slice(0, 4).every((x) => x === 0) && g[4] === 0xffff && g[5] === 0)
+  )
+    return isPrivateAddress(`${g[6]! >> 8}.${g[6]! & 255}.${g[7]! >> 8}.${g[7]! & 255}`);
+  // 6to4 2002:AABB:CCDD::/48 embeds a.b.c.d in groups 1–2
+  if (g[0] === 0x2002)
+    return isPrivateAddress(`${g[1]! >> 8}.${g[1]! & 255}.${g[2]! >> 8}.${g[2]! & 255}`);
+  if (g[0] === 0x2001 && g[1] === 0) return true; // Teredo 2001::/32 (tunnels to arbitrary v4)
+  if (g[0] === 0x0100 && g.slice(1, 4).every((x) => x === 0)) return true; // discard 100::/64
+  if ((g[0]! & 0xffc0) === 0xfec0) return true; // deprecated site-local fec0::/10
   if ((g[0]! & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
   if ((g[0]! & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
   if ((g[0]! & 0xff00) === 0xff00) return true; // multicast

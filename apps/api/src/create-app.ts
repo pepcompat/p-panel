@@ -26,11 +26,19 @@ export async function createApp(config: AppConfig): Promise<NestExpressApplicati
   app.set('query parser', 'simple');
 
   app.use(requestIdMiddleware('api'));
+  const hsts = config.isProduction || config.COOKIE_SECURE;
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Cache-Control', 'no-store');
+    // P7.01: the API only serves JSON / SSE — nothing may execute, embed or frame a response.
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    );
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    if (hsts) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();
   });
   // P5: Prometheus scrape endpoint (static bearer, outside /api/v1 and the user AuthGuard)
@@ -39,7 +47,15 @@ export async function createApp(config: AppConfig): Promise<NestExpressApplicati
   // GitHub webhooks: keep the exact raw bytes for HMAC verification (parsed later by the handler).
   app.use(`/${API_PREFIX}/webhooks`, express.raw({ type: () => true, limit: '1mb' }));
   app.use(
-    express.json({ limit: config.BODY_LIMIT, type: ['application/json', 'application/*+json'] }),
+    express.json({
+      limit: config.BODY_LIMIT,
+      type: ['application/json', 'application/*+json'],
+      // SEC-P7-06: PostgreSQL text cannot store NUL → would surface as a 500 deep in a handler
+      verify: (_req, _res, buf) => {
+        if (buf.includes('\\u0000'))
+          throw Object.assign(new Error('NUL bytes are not allowed'), { status: 400 });
+      },
+    }),
   );
   // body-parser errors (too large / malformed JSON) → standard error envelope
   app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {

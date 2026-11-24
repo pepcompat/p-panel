@@ -17,7 +17,7 @@ concurrency:
 env:
   NODE_VERSION: '22'
   PNPM_VERSION: '10.33.0'
-  GO_VERSION: '1.25.x'
+  GO_VERSION: '1.26.11' # matches apps/agent/go.mod toolchain (1.25 line has unfixed stdlib vulns)
 
 jobs:
   node:
@@ -84,6 +84,12 @@ jobs:
         env:
           TEST_DATABASE_BASE: postgresql://ppanel:ppanel_ci_only@127.0.0.1:5432
         run: pnpm test:integration
+      - name: Security suite (authz matrix, IDOR, SSRF, injection, canary secret scan)
+        env:
+          TEST_DATABASE_BASE: postgresql://ppanel:ppanel_ci_only@127.0.0.1:5432
+        run: pnpm test:security
+      - name: Shared validators property tests (fast-check)
+        run: pnpm --filter @ppanel/shared-contracts test:fuzz
 
   go:
     name: go (vet / test -race)
@@ -104,6 +110,17 @@ jobs:
         run: go vet ./...
       - name: go test -race
         run: go test ./... -race -cover
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+      - name: Go fuzz smoke (10 s per fuzzer; full runs are manual, see SECURITY_BOUNDARIES.md)
+        run: |
+          set -euo pipefail
+          for pkg in $(go list ./...); do
+            for fz in $(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep '^Fuzz' || true); do
+              echo "== $pkg $fz"
+              go test "$pkg" -run '^$' -fuzz "^${fz}\$" -fuzztime 10s
+            done
+          done
       - name: Cross-build agent (linux amd64/arm64, static)
         run: |
           for arch in amd64 arm64; do

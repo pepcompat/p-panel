@@ -79,14 +79,69 @@ export const REDACTION_PATTERNS: readonly RedactionPattern[] = [
   },
 ];
 
-/** Apply all shared patterns, then exact known secret values (longest first, ≥ 6 chars). */
-export function redactLine(line: string, knownSecrets: readonly string[] = []): string {
+/** Shortest known secret value redacted verbatim (Go: redact.MinSecretLen). */
+export const MIN_SECRET_LEN = 6;
+/** Bound of the (known values ∘ patterns) fixpoint loop (Go: maxSecretPasses). */
+const MAX_SECRET_PASSES = 8;
+
+const COMPILED = REDACTION_PATTERNS.map((p) => ({ re: new RegExp(p.source, p.flags), p }));
+
+/** Shared patterns only (Go: redact.Line). */
+export function redactPatterns(line: string): string {
   let out = line;
-  for (const p of REDACTION_PATTERNS)
-    out = out.replace(new RegExp(p.source, p.flags), p.replacement);
-  const secrets = [...knownSecrets]
-    .filter((s) => s.length >= 6)
-    .sort((a, b) => b.length - a.length);
-  for (const s of secrets) out = out.split(s).join(REDACTED);
+  for (const { re, p } of COMPILED) {
+    re.lastIndex = 0;
+    out = out.replace(re, p.replacement);
+  }
   return out;
+}
+
+/** Mark every (overlapping) occurrence of every value, merge ranges, replace each range once. */
+function replaceKnownOnce(s: string, values: readonly string[]): string | null {
+  const spans: Array<[number, number]> = [];
+  for (const v of values) {
+    for (let i = s.indexOf(v); i >= 0; i = s.indexOf(v, i + 1)) spans.push([i, i + v.length]);
+  }
+  if (spans.length === 0) return null;
+  spans.sort((a, b) => a[0] - b[0]);
+  let out = '';
+  let last = 0;
+  let [a, b] = spans[0]!;
+  for (const [x, y] of spans.slice(1)) {
+    if (x <= b) {
+      if (y > b) b = y;
+      continue;
+    }
+    out += s.slice(last, a) + REDACTED;
+    last = b;
+    [a, b] = [x, y];
+  }
+  out += s.slice(last, a) + REDACTED + s.slice(b);
+  return out;
+}
+
+/**
+ * Apply all shared patterns, then exact known secret values — mirrors the Go agent's
+ * `Redactor.Redact` (apps/agent/internal/redact): values shorter than 6 chars or contained in the
+ * `[REDACTED]` marker are ignored; every occurrence (overlapping included) is replaced in one pass;
+ * (values ∘ patterns) is repeated until a fixed point, and if that does not converge within 8 passes
+ * the whole line is replaced (fail closed). The result never contains a known value and redactLine is
+ * idempotent on its own output.
+ */
+export function redactLine(line: string, knownSecrets: readonly string[] = []): string {
+  let s = redactPatterns(line);
+  const values = [...new Set(knownSecrets)]
+    .filter((v) => v.length >= MIN_SECRET_LEN && !REDACTED.includes(v))
+    .sort((a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0));
+  if (values.length === 0) return s;
+  for (let pass = 0; pass < MAX_SECRET_PASSES; pass++) {
+    const replaced = replaceKnownOnce(s, values);
+    if (replaced === null) return s;
+    const out = redactPatterns(replaced);
+    if (out === s) return s;
+    s = out;
+  }
+  const replaced = replaceKnownOnce(s, values);
+  if (replaced !== null || redactPatterns(s) !== s) return REDACTED;
+  return s;
 }

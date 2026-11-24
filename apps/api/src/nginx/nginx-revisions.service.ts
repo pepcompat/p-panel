@@ -79,6 +79,18 @@ function approvalRequired(app: AppWithServer): boolean {
   return app.server.environment === 'production' || app.ownershipMode === 'adopted';
 }
 
+/**
+ * Apply outcomes meaning "not applied" (nothing changed on the host): never executed (TTL lapsed
+ * while queued, stale grant refused, state not writable before start) or interrupted by an agent
+ * crash — the agent restores its pre-apply backup from the inflight journal on restart.
+ */
+const NOT_EXECUTED_CODES = new Set([
+  'TTL_EXPIRED',
+  'REJECTED_EXPIRED',
+  'AGENT_STATE_WRITE_FAILED',
+  'AGENT_INTERRUPTED',
+]);
+
 function errCode(job: FinishedJob): string {
   const e = job.error as { code?: unknown } | null;
   if (e && typeof e.code === 'string') return e.code;
@@ -620,6 +632,42 @@ export class NginxRevisionsService implements OnModuleInit {
       );
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      // F-6: compare-and-set on the revision version first. The UPDATE takes the row lock, so a
+      // concurrent approval of the same read blocks here and then matches 0 rows → 409 (only one
+      // approval row is ever created per observed revision state).
+      const won = await tx.nginxConfigRevision.updateMany({
+        where: {
+          id,
+          status: { in: ['awaiting_approval', 'approved'] },
+          version: r.version,
+          planHash,
+        },
+        data: { status: 'approved', version: { increment: 1 } },
+      });
+      // approvals are single-use per plan: an unused, unexpired approval of this plan already
+      // exists (a concurrent request won, or an earlier approval) → 409; expired ones are replaced
+      const active = await tx.nginxRevisionApproval.findFirst({
+        where: {
+          revisionId: id,
+          usedAt: null,
+          invalidatedAt: null,
+          planHash,
+          expiresAt: { gt: now },
+        },
+        orderBy: { approvedAt: 'desc' },
+        select: { approverId: true, approvedAt: true },
+      });
+      if (active)
+        throw AppError.conflict(
+          'This plan is already approved',
+          ERROR_CODES.APPROVAL_ALREADY_EXISTS,
+          { approvedBy: active.approverId, approvedAt: active.approvedAt.toISOString() },
+        );
+      if (won.count !== 1)
+        throw AppError.conflict(
+          'Revision changed concurrently',
+          ERROR_CODES.REVISION_STATE_INVALID,
+        );
       // a new approval supersedes any earlier unused one
       await tx.nginxRevisionApproval.updateMany({
         where: { revisionId: id, usedAt: null, invalidatedAt: null },
@@ -635,7 +683,6 @@ export class NginxRevisionsService implements OnModuleInit {
           expiresAt: new Date(now.getTime() + APPROVAL_TTL_MINUTES * 60_000),
         },
       });
-      await this.move(tx, id, ['awaiting_approval', 'approved'], { status: 'approved' });
       await this.audit.record(
         {
           actorId: user.id,
@@ -916,6 +963,19 @@ export class NginxRevisionsService implements OnModuleInit {
         serverId: r.serverId,
         jobId: job.id,
       });
+      // F-4: `details.restored === true` = files restored and verified, only nginx -t / reload
+      // failed; `details.restoredFiles[].sha256` are the verified checksums (null = absent)
+      const det = (job.error as { details?: unknown } | null)?.details as
+        { restored?: unknown; restoredFiles?: unknown } | undefined;
+      const verified = new Map<string, string>();
+      if (det?.restored === true && Array.isArray(det.restoredFiles))
+        for (const f of det.restoredFiles as Array<{ path?: unknown; sha256?: unknown }>)
+          if (
+            typeof f?.path === 'string' &&
+            typeof f.sha256 === 'string' &&
+            /^[a-f0-9]{64}$/.test(f.sha256)
+          )
+            verified.set(f.path, f.sha256);
       if (await this.systemMove(tx, r, from, { ...data, status: 'requires_manual_recovery' }, job))
         await this.discovery.flagDrift(
           tx,
@@ -923,9 +983,15 @@ export class NginxRevisionsService implements OnModuleInit {
           filesOf(r).map((f) => ({
             path: f.path,
             lastKnownSha256: f.beforeSha256,
-            currentSha256: 'unknown',
+            currentSha256: verified.get(f.path) ?? 'unknown',
           })),
-          { source: 'agent', jobId: job.id, revisionId: r.id, errorCode: code },
+          {
+            source: 'agent',
+            jobId: job.id,
+            revisionId: r.id,
+            errorCode: code,
+            filesRestored: det?.restored === true,
+          },
         );
       return;
     }
@@ -1036,6 +1102,29 @@ export class NginxRevisionsService implements OnModuleInit {
         });
         return;
       }
+      if (NOT_EXECUTED_CODES.has(errCode(job))) {
+        // P7-T02 A: the apply job was never executed by an agent (TTL lapsed while queued, or the
+        // agent refused the stale grant), or it was interrupted and rolled back by the agent on
+        // restart — nothing changed on the host, so the revision goes back to
+        // where it was before apply. The consumed approval is single-use: approval-required
+        // revisions need a fresh approval (awaiting_approval); others are `valid` again.
+        const usedApproval = await tx.nginxRevisionApproval.findFirst({
+          where: { revisionId: r.id, usedByJobId: job.id },
+          select: { id: true },
+        });
+        const required = r.approvalRequired || usedApproval !== null;
+        await this.systemMove(
+          tx,
+          r,
+          'applying',
+          {
+            status: required ? 'awaiting_approval' : 'valid',
+            result: this.failureResult(job, 'apply'),
+          },
+          job,
+        );
+        return;
+      }
       await this.failTo(
         tx,
         r,
@@ -1084,6 +1173,18 @@ export class NginxRevisionsService implements OnModuleInit {
               ];
             }),
           ),
+        );
+        return;
+      }
+      if (errCode(job) === 'AGENT_INTERRUPTED') {
+        // the agent died mid-revert and restored its pre-revert backup on restart (inflight
+        // journal): the host keeps the applied content → still `applied`, revert can be retried
+        await this.systemMove(
+          tx,
+          r,
+          'reverting',
+          { status: 'applied', result: this.failureResult(job, 'revert') },
+          job,
         );
         return;
       }

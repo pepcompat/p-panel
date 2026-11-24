@@ -103,13 +103,15 @@ func AllowedQuery(method, path string, q url.Values) bool {
 	return true
 }
 
-// getDeny blocks GET endpoints that could leak secrets or are irrelevant.
-var getDeny = regexp.MustCompile(`^/(exec|secrets|configs|swarm|plugins|distribution|session|build)`)
-
-// AllowedCall reports whether the Engine transport permits method+path.
+// AllowedCall reports whether the Engine transport permits method+path. The
+// path must be canonical (CanonicalPath) and GET/HEAD are an allowlist too
+// (readAllow): no exec, secrets, configs, swarm, export, image save, ...
 func AllowedCall(method, path string) bool {
+	if !CanonicalPath(path) {
+		return false
+	}
 	if method == http.MethodGet || method == http.MethodHead {
-		return !getDeny.MatchString(path) && !strings.Contains(path, "/exec")
+		return allowedRead(path)
 	}
 	for _, a := range writeAllow {
 		if a.method == method && a.re.MatchString(path) {
@@ -137,6 +139,9 @@ var (
 // AllowedBuildCall reports whether a BUILD engine permits method+path+query
 // (everything AllowedCall permits, plus the build-node additions).
 func AllowedBuildCall(method, path string, q url.Values) bool {
+	if !CanonicalPath(path) {
+		return false
+	}
 	if AllowedCall(method, path) {
 		return true
 	}
@@ -158,6 +163,9 @@ type allowlist struct {
 }
 
 func (a allowlist) RoundTrip(r *http.Request) (*http.Response, error) {
+	if err := checkRequestShape(r); err != nil {
+		return nil, err
+	}
 	if !AllowedQuery(r.Method, r.URL.Path, r.URL.Query()) {
 		return nil, fmt.Errorf("docker: %s %s refused (not in the container-ops allowlist)", r.Method, r.URL.Path)
 	}
@@ -192,7 +200,7 @@ func newEngine(socket string, build bool) *Engine {
 			IdleConnTimeout:       10 * time.Second,
 			ResponseHeaderTimeout: hdr,
 		}
-		return &http.Client{Transport: allowlist{rt: tr, build: build}, Timeout: total}
+		return &http.Client{Transport: allowlist{rt: tr, build: build}, Timeout: total, CheckRedirect: noRedirects}
 	}
 	e := &Engine{socket: socket, hc: mk(30*time.Second, 60*time.Second), long: mk(60*time.Second, 0), build: build}
 	if build {
@@ -347,7 +355,7 @@ type ContainerInfo struct {
 
 // InspectContainer returns the container or ErrNotFound.
 func (e *Engine) InspectContainer(ctx context.Context, nameOrID string) (*ContainerInfo, error) {
-	if !regexp.MustCompile(`^` + idOrName + `$`).MatchString(nameOrID) {
+	if !idOrNameRe.MatchString(nameOrID) {
 		return nil, fmt.Errorf("docker: invalid container reference")
 	}
 	var ci ContainerInfo
@@ -443,6 +451,9 @@ type ImageInfo struct {
 
 // InspectImage returns image metadata.
 func (e *Engine) InspectImage(ctx context.Context, ref string) (*ImageInfo, error) {
+	if !imageRefPathRe.MatchString(ref) || strings.Contains(ref, "..") {
+		return nil, fmt.Errorf("docker: invalid image reference")
+	}
 	var ii ImageInfo
 	if err := e.call(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, &ii); err != nil {
 		return nil, err
@@ -460,6 +471,9 @@ type NetworkInfo struct {
 
 // InspectNetwork returns the network or ErrNotFound.
 func (e *Engine) InspectNetwork(ctx context.Context, name string) (*NetworkInfo, error) {
+	if !idOrNameRe.MatchString(name) {
+		return nil, fmt.Errorf("docker: invalid network reference")
+	}
 	var n NetworkInfo
 	if err := e.call(ctx, http.MethodGet, "/networks/"+name, nil, nil, &n); err != nil {
 		return nil, err

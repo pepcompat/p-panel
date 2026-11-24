@@ -315,6 +315,22 @@ services:
       com.ppanel.lab: 'true'
       com.docker.compose.fixture.project: shop
 
+  # P7 CHAOS node (profile `chaos`, NOT started by scripts/lab/up.sh): same image as node-a, but the agent
+  # state dir is a SIZE-LIMITED tmpfs (6 MiB, RAM-backed) so "disk full" can be simulated for the log buffer
+  # and the backup work dir without ever touching the host disk. Started/stopped only by
+  # scripts/chaos/disk_full.py:  docker compose -p ppanel-lab -f infra/compose/lab.yml --profile chaos up -d --no-deps lab-node-c
+  lab-node-c:
+    <<: *node-common
+    image: ppanel-lab-node-a:dev
+    profiles: [chaos]
+    container_name: ppanel-lab-node-c
+    hostname: lab-node-c
+    tmpfs:
+      - /var/lib/ppanel-agent:size=6m,mode=0700
+    volumes:
+      - ${PPANEL_AGENT_BIN_DIR:-../../.lab/agent-bin}:/opt/ppanel-agent:ro
+      - ../lab/node/agent-config/node-c-chaos.yaml:/etc/ppanel-agent/config.yaml:ro
+
 networks:
   labnet:
     name: ppanel-lab-net

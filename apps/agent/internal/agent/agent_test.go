@@ -243,7 +243,7 @@ func TestStartedButUncompletedJobNeverReexecuted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := cache.MarkStarted("job-crash"); !ok || err != nil {
+	if ok, err := cache.MarkStarted("job-crash", ""); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
 	var calls atomic.Int64

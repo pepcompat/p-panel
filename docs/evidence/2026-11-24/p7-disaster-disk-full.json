@@ -1,0 +1,49 @@
+{
+  "scenario": "disaster-disk-full",
+  "startedAt": "2026-11-24T03:17:30.882Z",
+  "meta": {
+    "tmpfsSize": "6m",
+    "bufferCapBytes": 16777216,
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "chaos node-c up, enrolled, online; state dir is a 6 MiB tmpfs",
+      "result": "PASS",
+      "at": "2026-11-24T03:17:39.169Z",
+      "serverId": "01a20b8f-183c-737a-92c6-d96e53c4b8c2",
+      "dfKb": "6144 32 6112",
+      "mount": "virtiofs1 /opt/ppanel-agent virtiofs ro,nosuid,nodev,relatime,ignore_atime,no_xattr 0 0\ntmpfs /var/lib/ppanel-agent tmpfs rw,nosuid,nodev,noexec,relatime,size=6144k,mode=700 0 0\nvirtiofs1 /etc/ppanel-agent/config.yaml virtiofs ro,nosuid,nodev,relatime,ignore_atime,no_xattr 0 0"
+    },
+    {
+      "step": "baseline backup on node-c (disk has space) \u2192 uploaded",
+      "result": "PASS",
+      "at": "2026-11-24T03:17:42.324Z",
+      "status": "uploaded",
+      "error": null,
+      "dfKb": "6144 112 6032"
+    },
+    {
+      "step": "disk full: agent process alive and still heartbeating (status online)",
+      "result": "PASS",
+      "at": "2026-11-24T03:18:42.600Z",
+      "dfKb": "6144 6144 0",
+      "heartbeatAgeSec": 5.4,
+      "logShipping": {
+        "bufferedBytes": 4036,
+        "bufferCapBytes": 16777216,
+        "droppedEntries": 0,
+        "lastShippedAt": "2026-11-24T03:17:41.077389679Z"
+      },
+      "agentLog": "0846Z\",\"level\":\"warn\",\"message\":\"log batch build failed\",\"component\":\"logship\",\"error\":\"write /var/lib/ppanel-agent/logs/.inflight.bin.tmp-2580142768: no space left on device\"}\n{\"timestamp\":\"2026-11-24T03:18:41.052098346Z\",\"level\":\"warn\",\"message\":\"log buffer append failed\",\"component\":\"logship\",\"file\":\"/var/log/nginx/access.log\",\"error\":\"write /var/lib/ppanel-agent/logs/buffer/seg-00000000000000000001.jsonl: no space left on device\"}\n{\"timestamp\":\"2026-11-24T03:18:42.051845179Z\",\"level\":\"warn\",\"message\":\"log buffer append failed\",\"component\":\"logship\",\"file\":\"/var/log/nginx/access.log\",\"error\":\"write /var/lib/ppanel-agent/logs/buffer/seg-00000000000000000001.jsonl: no space left on device\"}"
+    }
+  ],
+  "updatedAt": "2026-11-24T03:18:42.600Z"
+}

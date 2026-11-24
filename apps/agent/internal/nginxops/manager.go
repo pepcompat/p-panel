@@ -224,8 +224,15 @@ func (m *Manager) preflight(files []FileChange) ([]*target, error) {
 	return ts, nil
 }
 
+// revertFailed reports REVERT_FAILED_MANUAL_RECOVERY. When the files were
+// restored and verified (extra["restored"] == true, set by autoRevert) and
+// only nginx -t / reload of the restored config failed, the message says so
+// and details.restoredFiles carries the verified sha256 of every file.
 func revertFailed(backupDir string, probs []RestoreProblem, extra map[string]any) *jobs.Error {
 	e := jobs.Errorf(CodeRevertFailedManual, "CRITICAL: could not restore original nginx config; manual recovery required from %s", backupDir)
+	if restored, _ := extra["restored"].(bool); restored {
+		e = jobs.Errorf(CodeRevertFailedManual, "nginx config files restored and verified (sha256 match), but nginx could not be tested/reloaded on them; manual nginx reload required (backup in %s)", backupDir)
+	}
 	d := map[string]any{"backupDir": backupDir, "problems": probs}
 	for k, v := range extra {
 		d[k] = v
@@ -296,6 +303,11 @@ func (m *Manager) Validate(ctx context.Context, p RevisionParams) (*ValidateOutp
 	if err != nil {
 		return nil, jobs.Errorf(jobs.HandlerFailed, "backup failed, nothing written: %v", err)
 	}
+	if err := m.writeJournal(man, candidatesOf(p.Files)); err != nil {
+		_ = os.RemoveAll(m.backupDir(man.ID))
+		return nil, jobs.Errorf(jobs.HandlerFailed, "writing the nginx job journal failed, nothing written: %v", err)
+	}
+	defer m.clearJournalUnlessPanic()
 	werr := m.writeCandidates(ts, p.Files)
 	valid, testOut := false, ""
 	if werr == nil {
@@ -323,6 +335,7 @@ func (m *Manager) autoRevert(ctx context.Context, man *manifest, reloadToo bool)
 	if len(probs) > 0 || !reloadToo {
 		return info, probs
 	}
+	info["restoredFiles"] = restoredFiles(man)
 	ok, out := m.nginxTest(rctx)
 	info["revertNginxTestOk"] = ok
 	if !ok {
@@ -382,6 +395,11 @@ func (m *Manager) Apply(ctx context.Context, p RevisionParams) (*ApplyOutput, er
 	}
 	bdir := m.backupDir(man.ID)
 	results := fileResults(ts, p.Files)
+	if err := m.writeJournal(man, candidatesOf(p.Files)); err != nil {
+		m.markStatus(man, statusAutoReverted)
+		return nil, jobs.Errorf(jobs.HandlerFailed, "writing the nginx job journal failed, nothing written: %v", err)
+	}
+	defer m.clearJournalUnlessPanic()
 
 	if werr := m.writeCandidates(ts, p.Files); werr != nil {
 		if _, probs := m.autoRevert(ctx, man, false); len(probs) > 0 {
@@ -519,6 +537,19 @@ func (m *Manager) Revert(ctx context.Context, p RevertParams) (*RevertOutput, er
 		files[i] = FileResult{Path: t.Logical, Sha256Before: t.Sha}
 	}
 	undo := func(reload bool) (map[string]any, []RestoreProblem) { return m.autoRevert(ctx, pre, reload) }
+	jf := make([]journalFile, 0, len(man.Files))
+	for _, f := range man.Files {
+		var c *string
+		if f.Existed {
+			c = f.Sha256
+		}
+		jf = append(jf, journalFile{Path: f.Path, Candidate: c})
+	}
+	if err := m.writeJournal(pre, jf); err != nil {
+		_ = os.RemoveAll(m.backupDir(pre.ID))
+		return nil, jobs.Errorf(jobs.HandlerFailed, "writing the nginx job journal failed, nothing changed: %v", err)
+	}
+	defer m.clearJournalUnlessPanic()
 
 	if probs := m.restore(man); len(probs) > 0 {
 		if _, uprobs := undo(false); len(uprobs) > 0 {

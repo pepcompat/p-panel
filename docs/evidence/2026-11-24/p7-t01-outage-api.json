@@ -1,0 +1,495 @@
+{
+  "scenario": "t01-outage-api",
+  "startedAt": "2026-11-24T02:09:40.740Z",
+  "meta": {
+    "variant": "api",
+    "outageSec": 600,
+    "ratePerSite": 5,
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "precondition: both agents online",
+      "result": "PASS",
+      "at": "2026-11-24T02:09:40.841Z",
+      "status": {
+        "node-a": "online",
+        "node-b": "online"
+      }
+    },
+    {
+      "step": "server_offline rules active for both servers",
+      "result": "PASS",
+      "at": "2026-11-24T02:09:40.858Z",
+      "rules": {
+        "node-a": "01a20b50-e5f0-7f1e-a360-8fe05c3605a4",
+        "node-b": "01a20b50-e5f4-70a4-babf-bdb465934374"
+      },
+      "allServerOfflineRules": [
+        ["node-b offline 20927", "server", 15],
+        ["node-b offline 21050", "server", 15],
+        ["node-b offline 26474", "server", 15],
+        ["p7-offline-node-a-85919-api", "server", 60],
+        ["p7-offline-node-b-85919-api", "server", 60]
+      ]
+    },
+    {
+      "step": "Center stopped",
+      "result": "PASS",
+      "at": "2026-11-24T02:10:11.307Z",
+      "stopSec": 0.71
+    },
+    {
+      "step": "agents kept running during the whole outage (same PID, no restart)",
+      "result": "PASS",
+      "at": "2026-11-24T02:20:12.394Z",
+      "samples": 20,
+      "pidsBefore": {
+        "node-a": "147\n153",
+        "node-b": "150\n156"
+      },
+      "pidsLast": {
+        "node-a": "147\n153",
+        "node-b": "150\n156"
+      }
+    },
+    {
+      "step": "Center back",
+      "result": "PASS",
+      "at": "2026-11-24T02:20:12.394Z",
+      "actualOutageSec": 601.1,
+      "centerStartSec": 1.03,
+      "dbRestartSec": null
+    },
+    {
+      "step": "immediately after restart: servers shown stale/offline with metrics flagged stale (never zeroed)",
+      "result": "PASS",
+      "at": "2026-11-24T02:20:12.463Z",
+      "view": {
+        "node-a": {
+          "status": "offline",
+          "metricsStale": true,
+          "cpuPct": 7,
+          "fleetStale": true,
+          "fleetSample": {
+            "cpuPct": 7,
+            "memPct": 17.5,
+            "diskPct": 53.1,
+            "load1": 0.74,
+            "sampledAt": "2026-11-24T02:10:06.946Z"
+          }
+        },
+        "node-b": {
+          "status": "offline",
+          "metricsStale": true,
+          "cpuPct": 6.9,
+          "fleetStale": true,
+          "fleetSample": {
+            "cpuPct": 6.9,
+            "memPct": 17.9,
+            "diskPct": 53.1,
+            "load1": 0.76,
+            "sampledAt": "2026-11-24T02:10:10.083Z"
+          }
+        }
+      }
+    },
+    {
+      "step": "agents reconnected after Center restart",
+      "result": "PASS",
+      "at": "2026-11-24T02:20:45.659Z",
+      "reconnectSec": {
+        "node-a": {
+          "sec": 10.0,
+          "lastHeartbeatAt": "2026-11-24T02:20:22.026Z",
+          "status": "online"
+        },
+        "node-b": {
+          "sec": 32.8,
+          "lastHeartbeatAt": "2026-11-24T02:20:44.669Z",
+          "status": "online"
+        }
+      }
+    },
+    {
+      "step": "server_offline did NOT fire merely because the Center was down",
+      "result": "PASS",
+      "at": "2026-11-24T02:23:52.105Z",
+      "incidents": [],
+      "alertStatesWhilePending": [
+        {
+          "at": "2026-11-24T02:20:50.665Z",
+          "states": [
+            ["01a20b50-e5f4-70a4-babf-bdb465934374", "pending", "2026-11-24 02:20:27.298+00"]
+          ]
+        }
+      ],
+      "note": "pending\u2192firing needs offline for forSec=60 s after the first post-restart evaluation"
+    },
+    {
+      "step": "status reconciled: online (derived) and no offline persisted",
+      "result": "PASS",
+      "at": "2026-11-24T02:23:52.172Z",
+      "derived": {
+        "node-a": "online",
+        "node-b": "online"
+      },
+      "persisted": {
+        "01a20b4c-f98b-7191-b1bd-d6bcdb7996db": "online",
+        "01a20b4c-f09f-7823-8d61-9c2a6694fd70": "online"
+      }
+    },
+    {
+      "step": "P7-T01 workloads served 100% during the Center outage",
+      "result": "PASS",
+      "at": "2026-11-24T02:23:52.847Z",
+      "availability": {
+        "node-a/static.example.lab": {
+          "outagePct": 100.0,
+          "requests": 2831,
+          "p95ms": 1.2,
+          "overallPct": 100.0
+        },
+        "node-a/api.example.lab": {
+          "outagePct": 100.0,
+          "requests": 2830,
+          "p95ms": 5.1,
+          "overallPct": 100.0
+        },
+        "node-a/php.example.lab": {
+          "outagePct": 100.0,
+          "requests": 2831,
+          "p95ms": 2.3,
+          "overallPct": 100.0
+        },
+        "node-b/p7web-85919.lab.test": {
+          "outagePct": 100.0,
+          "requests": 2830,
+          "p95ms": 3.8,
+          "overallPct": 100.0
+        },
+        "node-b/p7stack-85919.lab.test": {
+          "outagePct": 100.0,
+          "requests": 2830,
+          "p95ms": 3.7,
+          "overallPct": 100.0
+        },
+        "node-b/shop.b.lab": {
+          "outagePct": 100.0,
+          "requests": 2830,
+          "p95ms": 5.3,
+          "overallPct": 100.0
+        }
+      }
+    },
+    {
+      "step": "log lines produced during the outage delivered after reconnect (>= 99%)",
+      "result": "PASS",
+      "at": "2026-11-24T02:28:15.947Z",
+      "logs": {
+        "node-a": {
+          "inFile": 6146,
+          "inLoki": 6136,
+          "deliveredPct": 99.84,
+          "timelineSecAfterRestart": [
+            [241, 99.84],
+            [251, 99.84],
+            [261, 99.84],
+            [271, 99.84],
+            [281, 99.84],
+            [291, 99.84],
+            [301, 99.84],
+            [312, 99.84],
+            [322, 99.84],
+            [332, 99.84],
+            [342, 99.84],
+            [352, 99.84]
+          ],
+          "logShipping": {
+            "bufferedBytes": 3719634,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:23:53.549834921Z"
+          },
+          "logDroppedTotal": 0
+        },
+        "node-b": {
+          "inFile": 5049,
+          "inLoki": 5043,
+          "deliveredPct": 99.88,
+          "timelineSecAfterRestart": [
+            [362, 99.88],
+            [372, 99.88],
+            [382, 99.88],
+            [393, 99.88],
+            [403, 99.88],
+            [413, 99.88],
+            [423, 99.88],
+            [433, 99.88],
+            [443, 99.88],
+            [453, 99.88],
+            [463, 99.88],
+            [474, 99.88]
+          ],
+          "logShipping": {
+            "bufferedBytes": 1297774,
+            "bufferCapBytes": 67108864,
+            "droppedEntries": 0,
+            "lastShippedAt": "2026-11-24T02:23:53.827462588Z"
+          },
+          "logDroppedTotal": 0
+        }
+      }
+    },
+    {
+      "step": "log delivery re-counted with a fixed Loki pager (page restarts AT the last timestamp; the first count skipped the rest of a shared-timestamp group at 5000-line page boundaries: 10 + 6 lines)",
+      "result": "PASS",
+      "at": "2026-11-24T02:35:00Z",
+      "nodeA": {
+        "inFile": 6147,
+        "inLoki": 6147,
+        "deliveredPct": 100.0
+      },
+      "nodeB": {
+        "inFile": 5050,
+        "inLoki": 5050,
+        "deliveredPct": 100.0
+      },
+      "drain": "Center log: 33 /agent/v1/logs batches in the first 10 s after restart (all 200), then the steady 1 per 2 s per agent; no 429/503; Loki discarded_samples delta = 0"
+    }
+  ],
+  "updatedAt": "2026-11-24T02:28:16.063Z",
+  "availability": {
+    "node-a/static.example.lab": {
+      "duringOutage": {
+        "requests": 2831,
+        "ok": 2831,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 2831
+        },
+        "latencyMs": {
+          "p50": 0.4,
+          "p95": 1.2,
+          "p99": 2.2,
+          "max": 6.3
+        },
+        "ratePerSec": 4.71
+      },
+      "overall": {
+        "requests": 4005,
+        "ok": 4005,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 4005
+        },
+        "latencyMs": {
+          "p50": 0.4,
+          "p95": 1.2,
+          "p99": 2.1,
+          "max": 6.3
+        },
+        "ratePerSec": 4.7
+      }
+    },
+    "node-a/api.example.lab": {
+      "duringOutage": {
+        "requests": 2830,
+        "ok": 2830,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 2830
+        },
+        "latencyMs": {
+          "p50": 1.9,
+          "p95": 5.1,
+          "p99": 6.8,
+          "max": 37.9
+        },
+        "ratePerSec": 4.71
+      },
+      "overall": {
+        "requests": 4004,
+        "ok": 4004,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 4004
+        },
+        "latencyMs": {
+          "p50": 2.0,
+          "p95": 5.1,
+          "p99": 6.8,
+          "max": 37.9
+        },
+        "ratePerSec": 4.7
+      }
+    },
+    "node-a/php.example.lab": {
+      "duringOutage": {
+        "requests": 2831,
+        "ok": 2831,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 2831
+        },
+        "latencyMs": {
+          "p50": 0.8,
+          "p95": 2.3,
+          "p99": 3.6,
+          "max": 15.3
+        },
+        "ratePerSec": 4.71
+      },
+      "overall": {
+        "requests": 4005,
+        "ok": 4005,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 4005
+        },
+        "latencyMs": {
+          "p50": 0.9,
+          "p95": 2.3,
+          "p99": 3.5,
+          "max": 15.3
+        },
+        "ratePerSec": 4.71
+      }
+    },
+    "node-b/p7web-85919.lab.test": {
+      "duringOutage": {
+        "requests": 2830,
+        "ok": 2830,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 2830
+        },
+        "latencyMs": {
+          "p50": 1.6,
+          "p95": 3.8,
+          "p99": 5.4,
+          "max": 18.1
+        },
+        "ratePerSec": 4.71
+      },
+      "overall": {
+        "requests": 4004,
+        "ok": 4004,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 4004
+        },
+        "latencyMs": {
+          "p50": 1.7,
+          "p95": 3.7,
+          "p99": 5.3,
+          "max": 18.1
+        },
+        "ratePerSec": 4.7
+      }
+    },
+    "node-b/p7stack-85919.lab.test": {
+      "duringOutage": {
+        "requests": 2830,
+        "ok": 2830,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 2830
+        },
+        "latencyMs": {
+          "p50": 1.6,
+          "p95": 3.7,
+          "p99": 5.5,
+          "max": 8.9
+        },
+        "ratePerSec": 4.71
+      },
+      "overall": {
+        "requests": 4004,
+        "ok": 4004,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 4004
+        },
+        "latencyMs": {
+          "p50": 1.7,
+          "p95": 3.7,
+          "p99": 5.3,
+          "max": 11.0
+        },
+        "ratePerSec": 4.7
+      }
+    },
+    "node-b/shop.b.lab": {
+      "duringOutage": {
+        "requests": 2830,
+        "ok": 2830,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 2830
+        },
+        "latencyMs": {
+          "p50": 2.0,
+          "p95": 5.3,
+          "p99": 7.0,
+          "max": 38.2
+        },
+        "ratePerSec": 4.71
+      },
+      "overall": {
+        "requests": 4004,
+        "ok": 4004,
+        "availabilityPct": 100.0,
+        "statuses": {
+          "200": 4004
+        },
+        "latencyMs": {
+          "p50": 2.1,
+          "p95": 5.2,
+          "p99": 6.9,
+          "max": 38.2
+        },
+        "ratePerSec": 4.7
+      }
+    }
+  },
+  "lokiDiscardedDelta": {},
+  "centerLogBatchesAfterRestart": {
+    "statusCounts": {
+      "200": 245
+    },
+    "batchesPer10s": {
+      "0": 33,
+      "10": 10,
+      "20": 10,
+      "30": 10,
+      "40": 10,
+      "50": 10,
+      "60": 10,
+      "70": 10,
+      "80": 10,
+      "90": 10,
+      "100": 10,
+      "110": 10
+    }
+  },
+  "agentLogFailureLines": {
+    "node-a": "35",
+    "node-b": "39"
+  },
+  "centerAfter": {
+    "rssMb": 196.5,
+    "cpuPct": 0.5,
+    "cpuTime": "0:09.96"
+  },
+  "summary": {
+    "PASS": 12
+  }
+}

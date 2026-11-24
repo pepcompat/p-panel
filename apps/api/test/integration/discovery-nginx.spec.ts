@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DiscoveryService } from '../../src/discovery/discovery.service';
+import { SweeperService } from '../../src/jobs/sweeper.service';
 import { computePlanHash } from '../../src/nginx/nginx-plan';
 import {
   agentCall,
@@ -915,6 +916,88 @@ describe('P3.05 Nginx revisions (P3-T03/T04/T05 Center side)', () => {
     });
   });
 
+  it('F-6: concurrent approvals of the same plan → exactly one 200 + one 409 APPROVAL_ALREADY_EXISTS, one approval row; re-approving an unexpired approval → 409', async () => {
+    const prod = await enrollAgent(t, owner, { environment: 'production' });
+    const s = await scan(prod);
+    const ownerSu = await stepUpToken(t, owner);
+    const app = await appAt(s.id, SECURE_FILE, 'managed', '443 ssl http2', ownerSu);
+    const r = await createRevision(prod, app.id, [{ path: SECURE_FILE, content: 'b\n' }], {
+      [SECURE_FILE]: 'a\n',
+    });
+    const id = r.body.data.id;
+    expect((await validated(prod, id)).status).toBe('awaiting_approval');
+    const adminSu = await stepUpToken(t, admin);
+    const body = { planHash: r.body.data.planHash };
+    const res = await Promise.all(
+      Array.from({ length: 4 }, () => post(`/nginx-revisions/${id}/approve`, admin, adminSu, body)),
+    );
+    expect(res.map((x) => x.status).sort()).toEqual([200, 409, 409, 409]);
+    for (const x of res.filter((y) => y.status === 409))
+      expect(x.body.error.code).toBe('APPROVAL_ALREADY_EXISTS');
+    expect(await t.prisma.nginxRevisionApproval.count({ where: { revisionId: id } })).toBe(1);
+    const again = await post(`/nginx-revisions/${id}/approve`, admin, adminSu, body);
+    expect([again.status, again.body.error.code]).toEqual([409, 'APPROVAL_ALREADY_EXISTS']);
+    expect(
+      await t.prisma.auditEvent.count({
+        where: { action: 'nginx_revisions.approve', result: 'success', targetId: id },
+      }),
+    ).toBe(1);
+    // apply consumes the single approval
+    expect((await post(`/nginx-revisions/${id}/apply`, owner, ownerSu)).status).toBe(202);
+  });
+
+  it('P7-T02 A: apply job TTL-expired before any agent saw it → revision back to awaiting_approval (needs a fresh approval), not apply_failed', async () => {
+    const prod = await enrollAgent(t, owner, { environment: 'production' });
+    const s = await scan(prod);
+    const ownerSu = await stepUpToken(t, owner);
+    const app = await appAt(s.id, SECURE_FILE, 'managed', '443 ssl http2', ownerSu);
+    const r = await createRevision(prod, app.id, [{ path: SECURE_FILE, content: 'b\n' }], {
+      [SECURE_FILE]: 'a\n',
+    });
+    const id = r.body.data.id;
+    expect((await validated(prod, id)).status).toBe('awaiting_approval');
+    const adminSu = await stepUpToken(t, admin);
+    const body = { planHash: r.body.data.planHash };
+    expect((await post(`/nginx-revisions/${id}/approve`, admin, adminSu, body)).status).toBe(200);
+    const a = await post(`/nginx-revisions/${id}/apply`, owner, ownerSu);
+    expect(a.status).toBe(202);
+    await t.prisma.job.update({
+      where: { id: a.body.data.jobId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await t.app.get(SweeperService).tick();
+    expect(await rev(id)).toMatchObject({
+      status: 'awaiting_approval',
+      result: { errorCode: 'TTL_EXPIRED', operation: 'apply' },
+    });
+    // the consumed approval is not reusable: approve again, then apply works
+    expect((await post(`/nginx-revisions/${id}/apply`, owner, ownerSu)).body.error.code).toBe(
+      'APPROVAL_REQUIRED',
+    );
+    expect((await post(`/nginx-revisions/${id}/approve`, admin, adminSu, body)).status).toBe(200);
+    expect((await post(`/nginx-revisions/${id}/apply`, owner, ownerSu)).status).toBe(202);
+  });
+
+  it('P7-T02 A: non-approval revision whose apply never ran → valid again', async () => {
+    const s = await scan();
+    const app = await appAt(s.id, SECURE_FILE, 'managed', '443 ssl http2');
+    const r = await createRevision(agent, app.id, [{ path: SECURE_FILE, content: 'x\n' }], {
+      [SECURE_FILE]: 'server {\n  listen 443 ssl;\n  root /var/www/secure;\n}\n',
+    });
+    const id = r.body.data.id;
+    const v = await validated(agent, id);
+    expect(v.status).toBe('valid');
+    const a = await post(`/nginx-revisions/${id}/apply`);
+    expect(a.status, JSON.stringify(a.body)).toBe(202);
+    await t.prisma.job.update({
+      where: { id: a.body.data.jobId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    await t.app.get(SweeperService).tick();
+    expect(await rev(id)).toMatchObject({ status: 'valid', result: { errorCode: 'TTL_EXPIRED' } });
+    expect((await post(`/nginx-revisions/${id}/apply`)).status).toBe(202);
+  });
+
   it('agent DRIFT_DETECTED → drift_blocked + app flagged; 409 until acknowledge', async () => {
     const s = await scan();
     const app = await appAt(s.id, SECURE_FILE, 'managed', '443 ssl http2');
@@ -1209,5 +1292,75 @@ describe('P3.05 Nginx revisions (P3-T03/T04/T05 Center side)', () => {
         where: { action: 'nginx_revisions.status', targetId: id, result: 'failure' },
       }),
     ).toBe(1);
+  });
+
+  it('F-4: REVERT_FAILED_MANUAL_RECOVERY with details.restored → drift flag carries the verified restored checksums', async () => {
+    const s1 = await scan();
+    const app = await appAt(s1.id, SECURE_FILE, 'managed', '443 ssl http2');
+    const r = await createRevision(agent, app.id, [{ path: SECURE_FILE, content: 'b\n' }], {
+      [SECURE_FILE]: 'a\n',
+    });
+    const id = (await validated(agent, r.body.data.id)).id;
+    expect((await post(`/nginx-revisions/${id}/apply`)).status).toBe(202);
+    await serve(agent, () => ({
+      status: 'failed',
+      error: {
+        code: 'REVERT_FAILED_MANUAL_RECOVERY',
+        message: 'files restored and verified, reload failed',
+        details: {
+          restored: true,
+          restoredFiles: [{ path: SECURE_FILE, sha256: sha('a\n') }],
+          revertNginxTestOk: false,
+        },
+      },
+    }));
+    expect((await rev(id)).status).toBe('requires_manual_recovery');
+    const a = (await t.http.get(`/api/v1/applications/${app.id}`).set(bearer(owner))).body.data;
+    expect(a.flags.driftDetected).toBe(true);
+    expect(a.driftFiles).toMatchObject([{ path: SECURE_FILE, currentSha256: sha('a\n') }]);
+  });
+
+  it('AGENT_INTERRUPTED (agent crashed mid-job, rolled back from its journal on restart): apply → not applied (valid again), revert → still applied', async () => {
+    const s1 = await scan();
+    const app = await appAt(s1.id, SECURE_FILE, 'managed', '443 ssl http2');
+    const before = 'a\n';
+    const after = 'b\n';
+    const r = await createRevision(agent, app.id, [{ path: SECURE_FILE, content: after }], {
+      [SECURE_FILE]: before,
+    });
+    const id = (await validated(agent, r.body.data.id)).id;
+    expect((await post(`/nginx-revisions/${id}/apply`)).status).toBe(202);
+    await serve(agent, () => ({
+      status: 'failed',
+      error: { code: 'AGENT_INTERRUPTED', message: 'the agent stopped while this job was running' },
+    }));
+    expect(await rev(id)).toMatchObject({
+      status: 'valid',
+      result: { errorCode: 'AGENT_INTERRUPTED', operation: 'apply' },
+    });
+    // apply again → applied; revert interrupted → still applied (revert can be retried)
+    expect((await post(`/nginx-revisions/${id}/apply`)).status).toBe(202);
+    await serve(agent, () => ({
+      status: 'succeeded',
+      output: {
+        applied: true,
+        files: [{ path: SECURE_FILE, sha256Before: sha(before), sha256After: sha(after) }],
+        nginxTestOutput: 'ok',
+        reloadMethod: 'nginx -s reload',
+        postchecks: [],
+        backupId: id,
+      },
+    }));
+    expect((await rev(id)).status).toBe('applied');
+    expect((await post(`/nginx-revisions/${id}/revert`)).status).toBe(202);
+    await serve(agent, () => ({
+      status: 'failed',
+      error: { code: 'AGENT_INTERRUPTED', message: 'the agent stopped while this job was running' },
+    }));
+    expect(await rev(id)).toMatchObject({
+      status: 'applied',
+      result: { errorCode: 'AGENT_INTERRUPTED', operation: 'revert' },
+    });
+    expect((await rev(id)).allowedActions).toContain('revert');
   });
 });

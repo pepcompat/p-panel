@@ -1,0 +1,124 @@
+{
+  "scenario": "t04-nginx-failsafe",
+  "startedAt": "2026-11-24T02:41:04.552Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "baseline",
+      "result": "PASS",
+      "at": "2026-11-24T02:41:05.018Z",
+      "fileSha": "7c4a5e7e500ab173",
+      "tree": "ecb855f79c1addb3",
+      "masterPid": "7",
+      "sites": {
+        "static.example.lab": "200",
+        "api.example.lab": "200",
+        "php.example.lab": "200"
+      }
+    },
+    {
+      "step": "drift flag acknowledged (left by case 3 of an earlier run)",
+      "result": "INFO",
+      "at": "2026-11-24T02:41:07.063Z",
+      "flags": {
+        "unsupported": false,
+        "conflict": false,
+        "manualReview": false,
+        "driftDetected": true
+      }
+    },
+    {
+      "step": "cases 1-3 skipped in this run (see part1 evidence)",
+      "result": "INFO",
+      "at": "2026-11-24T02:41:07.063Z"
+    },
+    {
+      "step": "4 good revision applied (new location 200), then revert \u2192 byte-identical original",
+      "result": "PASS",
+      "at": "2026-11-24T02:41:38.880Z",
+      "applied": "applied",
+      "newLocation": "200",
+      "appliedSha": "9219f0c612cd4058",
+      "reverted": "reverted",
+      "state": {
+        "fileSha": "7c4a5e7e500ab173",
+        "tree": "ecb855f79c1addb3",
+        "masterPid": "7",
+        "sites": {
+          "static.example.lab": "200",
+          "api.example.lab": "200",
+          "php.example.lab": "200"
+        }
+      }
+    },
+    {
+      "step": "5 agent killed mid-apply: sites keep serving and Center state is consistent with the host",
+      "result": "FAIL",
+      "at": "2026-11-24T02:44:02.888Z",
+      "phase": "killed ~1 s after ack",
+      "atKill": {
+        "fileSha": "8e2e15c7bc06593a",
+        "tree": "de2a1fa4076cb0b2",
+        "masterPid": "7",
+        "sites": {
+          "static.example.lab": "200",
+          "api.example.lab": "200",
+          "php.example.lab": "200"
+        }
+      },
+      "candidateOnDiskAtKill": "1",
+      "jobStatus": "expired",
+      "jobError": "LEASE_EXPIRED",
+      "revisionStatus": "apply_failed",
+      "after": {
+        "fileSha": "8e2e15c7bc06593a",
+        "tree": "de2a1fa4076cb0b2",
+        "masterPid": "7",
+        "sites": {
+          "static.example.lab": "200",
+          "api.example.lab": "200",
+          "php.example.lab": "200"
+        }
+      },
+      "newLocationAfter": "200"
+    },
+    {
+      "step": "cleanup: lab file restored manually from pre-test copy (host was left with the candidate)",
+      "result": "INFO",
+      "at": "2026-11-24T02:44:03.122Z",
+      "state": {
+        "fileSha": "7c4a5e7e500ab173",
+        "tree": "ecb855f79c1addb3",
+        "masterPid": "7",
+        "sites": {
+          "static.example.lab": "200",
+          "api.example.lab": "200",
+          "php.example.lab": "200"
+        }
+      }
+    }
+  ],
+  "updatedAt": "2026-11-24T02:44:03.122Z",
+  "case5Revision": {
+    "id": "01a20b6e-2aae-74b9-9d0d-495b204892df",
+    "status": "apply_failed",
+    "result": {
+      "errorCode": "LEASE_EXPIRED",
+      "operation": "apply"
+    }
+  },
+  "summary": {
+    "PASS": 2,
+    "INFO": 3,
+    "FAIL": 1
+  }
+}

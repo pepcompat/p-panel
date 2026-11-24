@@ -1,0 +1,39 @@
+{
+  "scenario": "disaster-backup-repo-part2",
+  "startedAt": "2026-11-24T03:16:00.829Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "first run with repo DOWN (from part 1 run, measured from DB): failed REPO_UNREACHABLE only after restic's own retries",
+      "result": "INFO",
+      "at": "2026-11-24T03:16:42.250Z",
+      "runId": "01a20b7c-6408-79ee-95a8-15ad34b2107d",
+      "startedAt": "2026-11-24T02:57:11.178Z",
+      "finishedAt": "2026-11-24T03:11:18.082Z",
+      "failSec": 847,
+      "error": "REPO_UNREACHABLE (message includes restic retry log, credentials masked as ***)",
+      "incidentFiredAt": "2026-11-24T03:11:27.487Z"
+    },
+    {
+      "step": "repo back \u2192 next run uploaded; backup_failed incident resolved",
+      "result": "PASS",
+      "at": "2026-11-24T03:16:42.257Z",
+      "status": "uploaded",
+      "incidents": [["resolved", "2026-11-24T03:11:27.487Z", "2026-11-24T03:16:18.622Z"]]
+    }
+  ],
+  "updatedAt": "2026-11-24T03:16:42.290Z",
+  "summary": {
+    "INFO": 1,
+    "PASS": 1
+  }
+}

@@ -54,7 +54,16 @@ type Options struct {
 	ScratchReadyTimeout time.Duration
 	// ReadyInterval is the scratch readiness poll interval (default 2 s).
 	ReadyInterval time.Duration
+	// RepoCheckTimeout bounds the repository preflight (`restic cat config`)
+	// of backup.run (default DefaultRepoCheckTimeout; < 0 disables it).
+	RepoCheckTimeout time.Duration
 }
+
+// DefaultRepoCheckTimeout bounds the backup.run repository preflight. restic
+// retries backend errors with backoff for up to ~15 minutes before failing,
+// so an unreachable repository would otherwise hold the run (and the per-repo
+// lock) that long before REPO_UNREACHABLE.
+const DefaultRepoCheckTimeout = 60 * time.Second
 
 // Manager runs the P6 jobs. One mutating job per repository at a time, plus
 // the per-app mutex for volume/DB targets.
@@ -313,6 +322,37 @@ func (s *session) restic(args []string, maxOut int) (execx.Result, error) {
 	env := append(s.creds.Env(), "RESTIC_CACHE_DIR="+cache, "HOME="+m.o.WorkDir)
 	return m.o.Exec.RunCmd(s.ctx, execx.Cmd{Binary: m.o.ResticBin, Args: args, Env: env, Timeout: timeout,
 		MaxOut: maxOut, Long: true, Interrupt: true})
+}
+
+// checkRepo is the bounded repository preflight: `restic cat config` (no
+// lock) must answer within RepoCheckTimeout, else REPO_UNREACHABLE. Restic's
+// own backend retries are cut short by the deadline (SIGINT, then kill).
+func (s *session) checkRepo() error {
+	d := s.m.o.RepoCheckTimeout
+	if d == 0 {
+		d = DefaultRepoCheckTimeout
+	}
+	if d < 0 {
+		return nil
+	}
+	parent := s.ctx
+	ctx, cancel := context.WithTimeout(parent, d)
+	defer cancel()
+	s.ctx = ctx
+	res, err := s.restic([]string{"--no-lock", "-r", s.repo.ResticURL(), "cat", "config"}, 64<<10)
+	s.ctx = parent
+	switch {
+	case parent.Err() != nil:
+		return abortedErr(parent, "repository check")
+	case ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded):
+		return jerr(CodeRepoUnreachable, "repository did not answer within %s (restic cat config); not starting the backup", d)
+	case err != nil:
+		return jerr(CodeRepoUnreachable, "repository check: %v", err)
+	case res.ExitCode != 0:
+		text := failureText(res.Stdout, res.Stderr)
+		return jerr(ClassifyFailure(res.ExitCode, text, CodeRepoUnreachable), "repository check: restic exited %d: %s", res.ExitCode, text)
+	}
+	return nil
 }
 
 // prepareHelper pins the helper image (pull by digest) and the repo host

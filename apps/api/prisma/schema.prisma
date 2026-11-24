@@ -389,18 +389,19 @@ model Application {
   createdAt                DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  server             Server                @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  findings           DiscoveryFinding[]
-  reviews            AdoptionReview[]
-  revisions          NginxConfigRevision[]
-  container          ContainerApp?
-  secrets            Secret[]
-  deployments        Deployment[]
-  autoDeployPolicies AutoDeployPolicy[]
-  buildConfig        BuildConfig?
-  builds             Build[]
-  composeVersions    ComposeAppVersion[]
-  sourceInspections  SourceInspection[]
+  server               Server                @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  findings             DiscoveryFinding[]
+  reviews              AdoptionReview[]
+  revisions            NginxConfigRevision[]
+  container            ContainerApp?
+  secrets              Secret[]
+  deployments          Deployment[]
+  autoDeployPolicies   AutoDeployPolicy[]
+  pendingWebhookDeploy PendingWebhookDeploy?
+  buildConfig          BuildConfig?
+  builds               Build[]
+  composeVersions      ComposeAppVersion[]
+  sourceInspections    SourceInspection[]
 
   @@unique([serverId, sourceFindingFingerprint])
   @@unique([serverId, name])
@@ -672,13 +673,14 @@ model WebhookDelivery {
   ref           String?
   after         String?
   signatureOk   Boolean  @map("signature_ok")
-  result        String // deployed | awaiting_approval | ignored | failed
+  result        String // deployed | awaiting_approval | ignored | failed | building | queued | superseded
   reasons       String[] @default([])
   deploymentIds String[] @default([]) @map("deployment_ids")
   buildIds      String[] @default([]) @map("build_ids")
   receivedAt    DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
 
-  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  integration    Integration            @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  pendingDeploys PendingWebhookDeploy[]
 
   @@unique([integrationId, deliveryId])
   @@index([integrationId, receivedAt])
@@ -700,12 +702,33 @@ model AutoDeployPolicy {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  application    Application            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  integration    Integration            @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  pendingDeploys PendingWebhookDeploy[]
 
   @@unique([applicationId, integrationId, repo])
   @@index([integrationId, repo])
   @@map("auto_deploy_policies")
+}
+
+/// P7 (F-7): the latest webhook commit waiting for the app's running deployment to end ("latest wins":
+/// one row per app, replaced by newer pushes; started automatically when no deployment is active).
+model PendingWebhookDeploy {
+  applicationId String   @id @map("application_id") @db.Uuid
+  policyId      String   @map("policy_id") @db.Uuid
+  /// webhook_deliveries.id of the delivery that queued this commit
+  deliveryRowId String   @map("delivery_row_id") @db.Uuid
+  repo          String
+  branch        String
+  commitSha     String   @map("commit_sha")
+  queuedAt      DateTime @default(now()) @map("queued_at") @db.Timestamptz(3)
+
+  application Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  policy      AutoDeployPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  delivery    WebhookDelivery  @relation(fields: [deliveryRowId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryRowId])
+  @@map("pending_webhook_deploys")
 }
 
 /// P4b: per-application build source (container apps).

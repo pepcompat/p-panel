@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { staticSecurityHeaders } from './src/lib/security-headers';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -10,11 +11,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/:path*',
-        headers: [
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'same-origin' },
-          { key: 'X-Frame-Options', value: 'DENY' },
-        ],
+        headers: staticSecurityHeaders(process.env.NODE_ENV === 'production'),
       },
     ];
   },

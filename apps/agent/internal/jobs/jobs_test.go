@@ -66,10 +66,10 @@ func TestCacheReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := c.MarkStarted("a"); !ok {
+	if ok, _ := c.MarkStarted("a", "lease-a"); !ok {
 		t.Fatal("first MarkStarted must be fresh")
 	}
-	if ok, _ := c.MarkStarted("a"); ok {
+	if ok, _ := c.MarkStarted("a", "lease-a"); ok {
 		t.Fatal("second MarkStarted must not be fresh")
 	}
 	e, _ := c.Lookup("a")
@@ -80,5 +80,24 @@ func TestCacheReplay(t *testing.T) {
 	e, _ = c.Lookup("a")
 	if r := e.ReplayResult("a", "l3"); r.Status != "succeeded" || r.Error != nil {
 		t.Fatalf("%+v", r)
+	}
+}
+
+func TestCacheInterruptedKeepsLeaseUntilComplete(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.json")
+	c, _ := OpenCache(p, 0)
+	c.MarkStarted("a", "lease-a")
+	c.MarkStarted("b", "lease-b")
+	c.Complete(&Result{JobID: "a", Status: "succeeded"})
+	c2, err := OpenCache(p, 0) // restart
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := c2.Interrupted()
+	if len(in) != 1 || in[0].JobID != "b" || in[0].LeaseToken != "lease-b" {
+		t.Fatalf("%+v", in)
+	}
+	if e, _ := c2.Lookup("a"); e.LeaseToken != "" {
+		t.Fatal("lease token must be dropped on completion")
 	}
 }

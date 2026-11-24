@@ -75,3 +75,10 @@ docker compose -p ppanel-dev -f infra/compose/dev.yml down   # keeps the pgdata 
 - [ ] P6.06 Center DB + config + key recovery → `RECOVERY_RUNBOOK.md`.
 
 Until P8 passes on a fresh Ubuntu VM (P8-T01), **do not install pPanel on any production host.**
+
+## Behind a reverse proxy (production)
+
+- Set `TRUST_PROXY=1` on the Center API when it runs behind a reverse proxy or load balancer that sets `X-Forwarded-For`. Without it, every request appears to come from the proxy's IP, so the per-IP login limit (30/min, SEC-P7-07) would throttle **all** users at once, and audit rows would record the proxy instead of the client.
+- Only trust the proxy you control. Never set `TRUST_PROXY=1` when clients can reach the API directly, because they could then spoof `X-Forwarded-For`.
+- The rate limiter is in memory (one Center process). Running several API replicas needs a shared limiter (Redis), which is not implemented in v1.
+- Terminate TLS at the proxy for web/API (HSTS is sent in production). The **agent gateway (:4443) must be passed through as TCP (TLS passthrough)** and not terminated at the proxy, because it authenticates agents with mutual TLS.

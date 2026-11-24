@@ -73,6 +73,12 @@ type Cmd struct {
 	Interrupt bool
 }
 
+// MaxArgs / MaxArgBytes bound argv (giant arrays from params can never reach exec).
+const (
+	MaxArgs     = 512
+	MaxArgBytes = 8 << 10
+)
+
 // MaxLongTimeout bounds Cmd.Long invocations (24 h job limit + margin).
 const MaxLongTimeout = 25 * time.Hour
 
@@ -84,10 +90,49 @@ type CmdRunner interface {
 	RunCmd(ctx context.Context, c Cmd) (Result, error)
 }
 
-// ExtraEnvKeyRe limits the environment keys a Cmd may add: HOME, GIT_* (P4b
-// source fetch) and the restic credential/cache variables (P6; secrets are
-// passed to restic ONLY via env, never argv).
-var ExtraEnvKeyRe = regexp.MustCompile(`^(HOME|TMPDIR|GIT_[A-Z0-9_]{1,64}|RESTIC_(PASSWORD|REST_USERNAME|REST_PASSWORD|CACHE_DIR))$`)
+// ExtraEnvKeyRe limits the environment keys a Cmd may add: HOME, the exact
+// GIT_* variables the P4b source fetch uses and the restic credential/cache
+// variables (P6; secrets are passed to restic ONLY via env, never argv).
+// Command-executing git variables (GIT_SSH_COMMAND, GIT_EXEC_PATH,
+// GIT_PROXY_COMMAND, GIT_EXTERNAL_DIFF, GIT_CONFIG_PARAMETERS, ...) are not
+// accepted, and CheckEnv additionally pins the values of the dangerous ones.
+var ExtraEnvKeyRe = regexp.MustCompile(`^(HOME|TMPDIR|GIT_(TERMINAL_PROMPT|CONFIG_NOSYSTEM|CONFIG_GLOBAL|ALLOW_PROTOCOL|LFS_SKIP_SMUDGE|ASKPASS|CONFIG_COUNT|CONFIG_KEY_[0-9]{1,2}|CONFIG_VALUE_[0-9]{1,2})|RESTIC_(PASSWORD|REST_USERNAME|REST_PASSWORD|CACHE_DIR))$`)
+
+// gitConfigKeys are the only config keys that may be injected through
+// GIT_CONFIG_KEY_<n> (none of them can make git run a program).
+var gitConfigKeys = map[string]bool{
+	"core.hooksPath": true, "http.followRedirects": true, "submodule.recurse": true,
+	"fetch.recurseSubmodules": true, "core.symlinks": true, "http.extraHeader": true, "protocol.version": true,
+}
+
+// pinnedEnvValues are keys whose only acceptable value is fixed.
+var pinnedEnvValues = map[string]map[string]bool{
+	"GIT_ASKPASS":         {"/bin/false": true},
+	"GIT_CONFIG_GLOBAL":   {"/dev/null": true},
+	"GIT_TERMINAL_PROMPT": {"0": true},
+	"GIT_CONFIG_NOSYSTEM": {"1": true},
+	"GIT_LFS_SKIP_SMUDGE": {"1": true},
+	"GIT_ALLOW_PROTOCOL":  {"https": true, "git": true, "https:git": true},
+}
+
+// CheckEnv validates one extra environment entry (KEY=VALUE) against the
+// key allowlist and the per-key value rules.
+func CheckEnv(kv string) error {
+	k, v, ok := strings.Cut(kv, "=")
+	if !ok || !ExtraEnvKeyRe.MatchString(k) || strings.ContainsAny(kv, "\x00\n\r") {
+		return fmt.Errorf("execx: environment entry %q refused", k)
+	}
+	if allowed, pinned := pinnedEnvValues[k]; pinned && !allowed[v] {
+		return fmt.Errorf("execx: environment entry %q has a refused value", k)
+	}
+	if strings.HasPrefix(k, "GIT_CONFIG_KEY_") && !gitConfigKeys[v] {
+		return fmt.Errorf("execx: git config key %q refused", v)
+	}
+	if (k == "HOME" || k == "TMPDIR" || k == "RESTIC_CACHE_DIR") && (!filepath.IsAbs(v) || filepath.Clean(v) != v) {
+		return fmt.Errorf("execx: %s must be a clean absolute path", k)
+	}
+	return nil
+}
 
 // RunCmd executes c.Binary (absolute path) with c.Args.
 func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
@@ -95,17 +140,25 @@ func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
 	if !filepath.IsAbs(binary) || filepath.Clean(binary) != binary {
 		return Result{}, fmt.Errorf("execx: binary must be a clean absolute path: %q", binary)
 	}
+	if len(c.Args) > MaxArgs {
+		return Result{}, ErrUnsafeArg
+	}
 	for _, a := range c.Args {
-		if strings.ContainsAny(a, "\x00\n\r") {
+		if len(a) > MaxArgBytes || strings.ContainsAny(a, "\x00\n\r") {
 			return Result{}, ErrUnsafeArg
 		}
 	}
 	env := append([]string(nil), fixedEnv...)
+	seen := map[string]bool{}
 	for _, kv := range c.Env {
-		k, _, ok := strings.Cut(kv, "=")
-		if !ok || !ExtraEnvKeyRe.MatchString(k) || strings.ContainsAny(kv, "\x00\n\r") {
-			return Result{}, fmt.Errorf("execx: environment entry %q refused", k)
+		if err := CheckEnv(kv); err != nil {
+			return Result{}, err
 		}
+		k, _, _ := strings.Cut(kv, "=")
+		if seen[k] {
+			return Result{}, fmt.Errorf("execx: environment entry %q given twice", k)
+		}
+		seen[k] = true
 		env = append(env, kv)
 	}
 	dir := "/"
@@ -133,15 +186,23 @@ func (System) RunCmd(ctx context.Context, c Cmd) (Result, error) {
 	cmd.Dir = dir
 	cmd.Stdin = nil
 	cmd.WaitDelay = 2 * time.Second
+	// Own process group: a timeout/cancel signals the WHOLE group, so helpers
+	// a binary forks (git-remote-https, ssh, ...) never outlive the job.
+	setProcessGroup(cmd)
+	sig := os.Kill
 	if c.Interrupt {
-		cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+		sig = os.Interrupt
 		cmd.WaitDelay = InterruptGrace
 	}
+	cmd.Cancel = func() error { return signalGroup(cmd, sig) }
 	stdout := &capped{max: maxOut}
 	stderr := &capped{max: 64 << 10}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	start := time.Now()
 	err := cmd.Run()
+	// Reap anything left in the group (orphans that ignored the signal, or
+	// background children of a process that exited normally).
+	_ = signalGroup(cmd, os.Kill)
 	res := Result{Stdout: stdout.buf.Bytes(), Stderr: stderr.buf.Bytes(), Truncated: stdout.trunc || stderr.trunc, Duration: time.Since(start)}
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()

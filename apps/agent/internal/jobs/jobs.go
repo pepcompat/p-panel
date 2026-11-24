@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +27,9 @@ const (
 	HandlerFailed         = "HANDLER_FAILED"
 	HandlerTimeout        = "HANDLER_TIMEOUT"
 	AgentInterrupted      = "AGENT_INTERRUPTED"
+	// AgentStateWriteFailed: the agent acked the job but could not persist
+	// the job start to its state dir (e.g. disk full); the job was NOT run.
+	AgentStateWriteFailed = "AGENT_STATE_WRITE_FAILED"
 )
 
 // ClockSkew is the tolerance applied to expiresAt.
@@ -122,6 +127,9 @@ func (r *Registry) Validate(g *Grant, serverID string, now time.Time) (Handler, 
 	if g.JobID == "" || g.LeaseToken == "" || g.ExpiresAt.IsZero() {
 		return nil, nil, Errorf(RejectedInvalidGrant, "grant missing jobId/leaseToken/expiresAt")
 	}
+	if !jobIDRe.MatchString(g.JobID) || len(g.LeaseToken) > MaxLeaseTokenBytes || !printable(g.LeaseToken) || len(g.Type) > 64 {
+		return nil, nil, Errorf(RejectedInvalidGrant, "grant jobId/leaseToken/type malformed")
+	}
 	if g.ServerID != serverID {
 		return nil, nil, Errorf(RejectedWrongServer, "grant is for a different server")
 	}
@@ -136,6 +144,10 @@ func (r *Registry) Validate(g *Grant, serverID string, now time.Time) (Handler, 
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = json.RawMessage("{}")
 	}
+	shapeErr := CheckParamsShape(raw)
+	if shapeErr != nil && shapeErr != errNUL {
+		return nil, nil, Errorf(RejectedInvalidParams, "%v", shapeErr)
+	}
 	p, err := h.Decode(raw)
 	if err != nil {
 		var je *Error
@@ -143,6 +155,11 @@ func (r *Registry) Validate(g *Grant, serverID string, now time.Time) (Handler, 
 			return nil, nil, je
 		}
 		return nil, nil, Errorf(RejectedInvalidParams, "%v", err)
+	}
+	// typed decoders report NUL with their own code first; anything they let
+	// through is still refused here
+	if shapeErr != nil {
+		return nil, nil, Errorf(RejectedInvalidParams, "%v", shapeErr)
 	}
 	if pf, ok := h.(Preflighter); ok {
 		if err := pf.Preflight(p); err != nil {
@@ -154,6 +171,87 @@ func (r *Registry) Validate(g *Grant, serverID string, now time.Time) (Handler, 
 		}
 	}
 	return h, p, nil
+}
+
+// Grant-level bounds applied to EVERY job type before its typed decoder runs.
+const (
+	// MaxParamsBytes bounds the raw params JSON (nginx.apply's 20 x 256 KiB
+	// files with JSON escaping fit; the transport caps the whole response at 16 MiB).
+	MaxParamsBytes = 12 << 20
+	// MaxParamsDepth bounds JSON nesting (no job schema nests deeper than ~6).
+	MaxParamsDepth = 32
+	// MaxParamsNodes bounds the number of JSON values (giant arrays/objects).
+	MaxParamsNodes = 200000
+	// MaxLeaseTokenBytes bounds the lease token echoed back to the gateway.
+	MaxLeaseTokenBytes = 1024
+)
+
+var jobIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
+
+func printable(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x21 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+var errNUL = errors.New("params must not contain NUL characters")
+
+// CheckParamsShape enforces the type-independent params bounds: size, a JSON
+// object at the top, nesting depth, total value count, and no NUL character
+// in any string or key (no job field legitimately carries NUL; typed
+// decoders re-check their own fields).
+func CheckParamsShape(raw json.RawMessage) error {
+	if len(raw) > MaxParamsBytes {
+		return fmt.Errorf("params larger than %d bytes", MaxParamsBytes)
+	}
+	t := bytes.Trim(raw, " \t\r\n") // JSON whitespace only (not \v, \f, U+0085, ...)
+	if len(t) == 0 || t[0] != '{' || !json.Valid(t) {
+		return errors.New("params must be a JSON object")
+	}
+	dec := json.NewDecoder(bytes.NewReader(t))
+	dec.UseNumber()
+	depth, nodes := 0, 0
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			if depth != 0 || nodes == 0 {
+				return errors.New("params: unexpected end of JSON")
+			}
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("params: %v", err)
+		}
+		nodes++
+		if nodes > MaxParamsNodes {
+			return fmt.Errorf("params has more than %d values", MaxParamsNodes)
+		}
+		switch v := tok.(type) {
+		case json.Delim:
+			if v == '{' || v == '[' {
+				depth++
+				if depth > MaxParamsDepth {
+					return fmt.Errorf("params nested deeper than %d", MaxParamsDepth)
+				}
+			} else {
+				depth--
+			}
+		case string:
+			if strings.IndexByte(v, 0) >= 0 {
+				return errNUL
+			}
+		}
+		if depth == 0 {
+			if _, err := dec.Token(); err != io.EOF {
+				return errors.New("trailing data after params object")
+			}
+			break
+		}
+	}
+	return nil
 }
 
 // Preflighter is optionally implemented by handlers to reject a grant before

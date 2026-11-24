@@ -80,6 +80,18 @@ const NOTHING_CREATED = new Set([
   'REJECTED_WRONG_SERVER',
   'REJECTED_INVALID_PARAMS',
   'REJECTED_INVALID_GRANT',
+  'AGENT_STATE_WRITE_FAILED', // acked but not executed (agent could not persist "started")
+]);
+
+/** Codes after which the candidate may exist although the job did not succeed (F-8). */
+const UNKNOWN_OUTCOME = new Set(['LEASE_EXPIRED', 'AGENT_INTERRUPTED', 'FAILED', 'INTERNAL_ERROR']);
+/** Failures whose outcome is known and handled explicitly (no orphan cleanup). */
+const KNOWN_FAILURE = new Set([...NOTHING_CREATED, 'PORT_IN_USE', 'CONTAINER_EXISTS']);
+/** compose.apply failures with a known outcome (agent reported per-service results or did nothing). */
+const KNOWN_COMPOSE_FAILURE = new Set([
+  ...NOTHING_CREATED,
+  'COMPOSE_SERVICE_UNHEALTHY',
+  'PORT_IN_USE',
 ]);
 
 type DeploymentFull = DeploymentRow & { steps: StepRow[] };
@@ -176,6 +188,9 @@ export interface CreateDeploymentOptions {
  */
 @Injectable()
 export class DeploymentsService implements OnModuleInit {
+  /** F-7: called (post-commit) after a deployment of the app may have ended. Must not throw. */
+  private readonly settledListeners: Array<(applicationId: string) => Promise<void>> = [];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authz: AuthzService,
@@ -200,6 +215,21 @@ export class DeploymentsService implements OnModuleInit {
     ])
       this.hooks.register(type, (j) => this.onJobFinished(j));
     this.hooks.registerReconciler(() => this.reconcile());
+  }
+
+  /** Register a listener for "a deployment of this app may have just ended" (webhook queue). */
+  onDeploymentSettled(fn: (applicationId: string) => Promise<void>): void {
+    this.settledListeners.push(fn);
+  }
+
+  private async notifySettled(applicationId: string): Promise<void> {
+    for (const fn of this.settledListeners) {
+      try {
+        await fn(applicationId);
+      } catch (err) {
+        logger.emit('error', 'deployment settled listener failed', { applicationId, err });
+      }
+    }
   }
 
   // ---------------------------------------------------------------- views
@@ -1082,6 +1112,7 @@ export class DeploymentsService implements OnModuleInit {
         tx,
       );
     });
+    await this.notifySettled(d.applicationId);
     return this.get(user, id);
   }
 
@@ -1253,6 +1284,7 @@ export class DeploymentsService implements OnModuleInit {
       }
     });
     if (notify) this.jobs.notify(step.deployment.serverId);
+    await this.notifySettled(step.deployment.applicationId);
   }
 
   private async finishStep(
@@ -1363,8 +1395,44 @@ export class DeploymentsService implements OnModuleInit {
         },
       });
       await tx.deployment.update({ where: { id: d.id }, data: { containerRemovedAt: new Date() } });
+    } else if (UNKNOWN_OUTCOME.has(e.code) || !KNOWN_FAILURE.has(e.code)) {
+      // F-8: outcome unknown (lease lapsed while the Center was down, agent crash, unexpected
+      // error) — the agent may have created and started the candidate. Remove it by its
+      // deterministic name (stop → remove; CONTAINER_NOT_FOUND counts as gone) so it does not keep
+      // running as an orphan; the host port is released when the removal succeeds. The agent's
+      // per-app mutex orders this after a run_candidate that is still executing.
+      return this.cleanupOrphanCandidate(tx, d, job.actorId);
     }
     return false;
+  }
+
+  /** Stop + remove a failed deployment's candidate, never the container that currently serves. */
+  private async cleanupOrphanCandidate(
+    tx: Tx,
+    d: DeploymentRow,
+    actorId: string | null,
+  ): Promise<boolean> {
+    if (!d.containerName) return false;
+    const container = await tx.containerApp.findUnique({
+      where: { applicationId: d.applicationId },
+    });
+    const current = container?.currentDeploymentId
+      ? await tx.deployment.findUnique({
+          where: { id: container.currentDeploymentId },
+          select: { containerName: true },
+        })
+      : null;
+    if (current?.containerName === d.containerName) return false;
+    const busy = await tx.deploymentStep.count({
+      where: {
+        deploymentId: d.id,
+        status: 'running',
+        name: { in: ['cleanup_stop', 'cleanup_remove'] },
+      },
+    });
+    if (busy > 0) return false;
+    await this.startCleanup(tx, d, actorId, true);
+    return true;
   }
 
   /**
@@ -1497,6 +1565,24 @@ export class DeploymentsService implements OnModuleInit {
         true,
       );
       return true;
+    }
+    if (
+      !Array.isArray(det.services) &&
+      (UNKNOWN_OUTCOME.has(e.code) || !KNOWN_COMPOSE_FAILURE.has(e.code))
+    ) {
+      // F-8: outcome unknown (e.g. LEASE_EXPIRED while the Center was down): the route candidate
+      // (deployment-specific name) may be running on the allocated port → stop + remove it; the
+      // port is released when the removal succeeds. Non-route services are replaced in place by
+      // the agent and are left alone.
+      await tx.deployment.update({
+        where: { id: d.id },
+        data: { containerName: data.routeName, hostPort: data.hostPort },
+      });
+      return this.cleanupOrphanCandidate(
+        tx,
+        { ...d, containerName: data.routeName, hostPort: data.hostPort },
+        job.actorId,
+      );
     }
     await this.releasePort(tx, d.serverId, data.hostPort, data.routeName);
     return false;

@@ -237,7 +237,7 @@ def main():
     # --- P5-T01: agent loss -> alert -> signed webhook -> ack -> resolved
     _, rule = call("POST", "/alert-rules", admin, {"name": f"node-b offline {TAG}", "kind": "server_offline",
                                                    "scopeType": "server", "scopeId": sb, "severity": "critical",
-                                                   "forSec": 15, "channelIds": [wh["data"]["id"]]}, expect=201)
+                                                   "forSec": 90, "channelIds": [wh["data"]["id"]]}, expect=201)
     node("ppanel-lab-node-b", "pkill -f '[p]panel-agent-linux-arm64 run' || true")
     t0 = time.time()
 

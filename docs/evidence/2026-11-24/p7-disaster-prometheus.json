@@ -1,0 +1,66 @@
+{
+  "scenario": "disaster-prometheus",
+  "startedAt": "2026-11-24T02:57:02.388Z",
+  "meta": {
+    "center": {
+      "sourceCommit": "43feb79c38e36ee8ef66d0da5f2490af6ece001f",
+      "sourceDirty": true,
+      "distMtime": "2026-11-23T09:37:39.812Z",
+      "snapshotAt": "2026-11-24T02:05:19.840Z",
+      "sha256": "438a2631bfac294b44c172848e0bd813e24f21eefed168f2a43f0f1231b0ca8e"
+    },
+    "agentSha256": "b237b1f2bcf0ce0b5f8d3ebc530c8dc4ac772d94dba0af12c6f68b39c930a0c9"
+  },
+  "steps": [
+    {
+      "step": "Prometheus down: /metrics/series \u2192 503 METRICS_BACKEND_UNAVAILABLE (+Retry-After), no zeros",
+      "result": "PASS",
+      "at": "2026-11-24T02:57:02.589Z",
+      "before": 200,
+      "during": 503,
+      "code": "METRICS_BACKEND_UNAVAILABLE"
+    },
+    {
+      "step": "/metrics/fleet (DB-backed) still 200 with real sample",
+      "result": "PASS",
+      "at": "2026-11-24T02:57:02.590Z",
+      "sample": {
+        "cpuPct": 5.1,
+        "memPct": 33.1,
+        "diskPct": 70.8,
+        "load1": 1.78,
+        "sampledAt": "2026-11-24T02:56:51.360Z"
+      },
+      "stale": false
+    },
+    {
+      "step": "UI handles the 503 code (static check of apps/web)",
+      "result": "PASS",
+      "at": "2026-11-24T02:57:02.590Z",
+      "matches": [
+        "/Volumes/DevStorages/ppanel/scripts/chaos/../../apps/web/src/components/p5/monitoring-view.tsx:23:import { EmptyState, ErrorState, ForbiddenState, Notice } from '@/components/ui/states';",
+        "/Volumes/DevStorages/ppanel/scripts/chaos/../../apps/web/src/components/p5/monitoring-view.tsx:236:      <ErrorState error={apps.error} onRetry={() => void apps.refetch()} />",
+        "/Volumes/DevStorages/ppanel/scripts/chaos/../../apps/web/src/components/p5/monitoring-view.tsx:359:          {q.isError &&",
+        "/Volumes/DevStorages/ppanel/scripts/chaos/../../apps/web/src/components/p5/monitoring-view.tsx:363:              <ErrorState error={q.error} onRetry={() => void q.refetch()} />"
+      ],
+      "note": "not exercised in a browser in this run"
+    },
+    {
+      "step": "Prometheus back: series 200 again, missing interval reported as null points/gaps",
+      "result": "PASS",
+      "at": "2026-11-24T02:57:07.921Z",
+      "gaps": [
+        [1795485420, 1795485930],
+        [1795486215, 1795486815],
+        [1795487415, 1795487415],
+        [1795488135, 1795488135],
+        [1795488720, 1795488795]
+      ],
+      "nullPoints": 84
+    }
+  ],
+  "updatedAt": "2026-11-24T02:57:07.922Z",
+  "summary": {
+    "PASS": 4
+  }
+}

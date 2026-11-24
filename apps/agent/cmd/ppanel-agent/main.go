@@ -271,6 +271,20 @@ func cmdRun(args []string, stderr io.Writer) int {
 		log.Error("nginx operations config invalid", "error", err.Error())
 		return 1
 	}
+	// F-3: roll back an nginx job the previous agent process did not finish
+	// (journal left behind), before any job is accepted.
+	rctx, rcancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	if rec, err := ngx.RecoverInterrupted(rctx); err != nil {
+		log.Error("nginx interrupted-job recovery failed", "error", err.Error())
+	} else if rec != nil {
+		lvl := slog.LevelWarn
+		if rec.Outcome != nginxops.RecoveryRestored {
+			lvl = slog.LevelError
+		}
+		log.Log(rctx, lvl, "nginx job interrupted by an agent restart: recovery attempted", "outcome", rec.Outcome, "kind", rec.Kind,
+			"revisionId", rec.RevisionID, "jobId", rec.JobID, "backupId", rec.BackupID, "reason", rec.Reason, "problems", rec.Problems)
+	}
+	rcancel()
 	// container.* jobs: the ONLY user of the write-capable Engine client; the secrets
 	// channel is wired once the agent (mTLS gateway client) exists.
 	var a *agent.Agent

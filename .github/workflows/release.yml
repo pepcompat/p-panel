@@ -67,6 +67,8 @@ jobs:
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - id: build
         uses: docker/build-push-action@v6.18.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: 'false'
         with:
           context: .
           file: apps/${{ matrix.service }}/Dockerfile
@@ -130,8 +132,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      # download only what the release needs: docker/build-push-action also uploads *.dockerbuild
+      # build records, which download-artifact cannot extract when downloading everything
       - uses: actions/download-artifact@v4.3.0
         with:
+          name: release-files
+          path: dl/release-files
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: digest-*
           path: dl
       - name: Create GitHub release
         env:

@@ -15,7 +15,7 @@ test('J01 first boot: bootstrap owner, enrol TOTP, sign in with 2FA', async ({
   test.setTimeout(180_000);
   expect(SETUP_TOKEN, 'JOURNEYS_SETUP_TOKEN must be set by scripts/lab/journeys.sh').not.toBe('');
   const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('pageerror', (e) => errors.push(`${e.message} @ ${page.url()}`));
 
   const st = await call<{ bootstrapped: boolean }>(request, 'GET', '/setup/status');
   expect(st.body.data?.bootstrapped, 'journeys need a fresh, unseeded DB').toBe(false);

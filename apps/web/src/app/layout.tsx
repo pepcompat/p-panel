@@ -37,7 +37,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`${plexThai.variable} ${plexMono.variable}`}
     >
       <head>
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        {/* browsers hide `nonce` from the DOM after parsing, so its value never matches on hydration */}
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: themeInitScript }}
+        />
       </head>
       <body>
         <AppProviders>{children}</AppProviders>

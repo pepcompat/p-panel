@@ -11,7 +11,7 @@ test('J11 viewer is denied in UI and API; the denial is audited', async ({
 }, info) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('pageerror', (e) => errors.push(`${e.message} @ ${page.url()}`));
 
   // 1 — viewer signs in; read pages work, privileged pages show the forbidden state
   await signIn(page, 'user1@ppanel.local', SEED_PASSWORD, { next: '/servers' });

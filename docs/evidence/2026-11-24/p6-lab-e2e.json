@@ -28,10 +28,7 @@
     {
       "step": "P6-T03 production restore: approval required, creator & viewer refused, approver w/ step-up",
       "ok": true,
-      "executeBeforeApproval": [
-        409,
-        "APPROVAL_REQUIRED"
-      ],
+      "executeBeforeApproval": [409, "APPROVAL_REQUIRED"],
       "creatorApprove": 403,
       "viewerExecute": 403,
       "audit": [

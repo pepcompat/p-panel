@@ -4,12 +4,7 @@
     {
       "step": "node-b online with build capability, designated build node",
       "ok": true,
-      "caps": [
-        "backup",
-        "build",
-        "docker",
-        "nginx"
-      ]
+      "caps": ["backup", "build", "docker", "nginx"]
     },
     {
       "step": "managed routing enabled",
@@ -18,16 +13,11 @@
     {
       "step": "source inspect on build node detects framework from real repo",
       "ok": true,
-      "files": [
-        "Dockerfile"
-      ],
+      "files": ["Dockerfile"],
       "detection": {
         "framework": "dockerfile",
         "confidence": "high",
-        "evidence": [
-          "Dockerfile present",
-          "Dockerfile EXPOSE 8080"
-        ],
+        "evidence": ["Dockerfile present", "Dockerfile EXPOSE 8080"],
         "suggested": {
           "containerPort": 8080,
           "healthcheckPath": "/",
@@ -80,18 +70,9 @@
         "heartbeats": 11
       },
       "services": [
-        [
-          "db",
-          "created"
-        ],
-        [
-          "worker",
-          "created"
-        ],
-        [
-          "app",
-          "created"
-        ]
+        ["db", "created"],
+        ["worker", "created"],
+        ["app", "created"]
       ]
     },
     {

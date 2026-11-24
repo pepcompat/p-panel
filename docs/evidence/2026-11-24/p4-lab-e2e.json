@@ -5,19 +5,12 @@
       "step": "enroll node-b online with docker capability",
       "ok": true,
       "serverId": "01a20be0-c159-7f48-8c32-e18275a06489",
-      "caps": [
-        "backup",
-        "build",
-        "docker",
-        "nginx"
-      ]
+      "caps": ["backup", "build", "docker", "nginx"]
     },
     {
       "step": "P4-T07 preflight blocks: managed routing disabled",
       "ok": true,
-      "failing": [
-        "MANAGED_ROUTING_DISABLED"
-      ]
+      "failing": ["MANAGED_ROUTING_DISABLED"]
     },
     {
       "step": "P4-T07 domain conflict with legacy nginx server_name",
@@ -87,9 +80,7 @@
       "first": "deployed",
       "duplicate": true,
       "wrongBranch": "ignored",
-      "sameCommitAgain": [
-        "already_deployed"
-      ],
+      "sameCommitAgain": ["already_deployed"],
       "deployedImage": "127.0.0.1:55000/ppanel-test/web@sha256:e0fd25c5a53e0b5e27413d5fe23cc00e2a07d3ca292512ef7929fcff686c773c",
       "commit": "bcff95ccedfee3a0f286e1599e24e04366a328ad"
     },

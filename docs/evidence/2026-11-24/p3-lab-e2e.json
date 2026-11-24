@@ -44,10 +44,7 @@
       "step": "P3-T02 findings incl. duplicate conflict",
       "ok": true,
       "target": "example.lab",
-      "conflicts": [
-        "dup.example.lab",
-        "dup.example.lab"
-      ]
+      "conflicts": ["dup.example.lab", "dup.example.lab"]
     },
     {
       "step": "import Observe; managed via import refused; host unchanged",

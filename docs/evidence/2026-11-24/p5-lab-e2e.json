@@ -45,13 +45,7 @@
       "firedAfterSec": 175,
       "signatureValid": true,
       "viewerAck": 403,
-      "timeline": [
-        "fired",
-        "notified",
-        "acknowledged",
-        "resolved",
-        "notified"
-      ]
+      "timeline": ["fired", "notified", "acknowledged", "resolved", "notified"]
     },
     {
       "step": "P5-T04 Center down: site kept serving, agent buffered within cap, all lines delivered after reconnect",
